@@ -216,6 +216,41 @@ test('shared wallpaper handles images, video and Live Photo with persisted speed
   assert.match(material, /WallpaperPlaybackRateDefault = 0\.65/);
 });
 
+test('video wallpaper skips full-screen blur and pauses outside the active foreground', () => {
+  const blur = section(
+    navigation,
+    '- (void)customGlassApplySharedBackgroundBlurIntensity:',
+    '- (void)customGlassRefreshSharedBackground',
+  );
+  assert.match(blur, /if \(self\.customGlassUsingVideoWallpaper\)[\s\S]*?customGlassVideoWallpaperBlurView\.blurIntensity = 0\.0;[\s\S]*?customGlassVideoWallpaperBlurView\.hidden = YES;[\s\S]*?return;/);
+
+  const resume = section(
+    navigation,
+    '- (void)customGlassResumeVideoWallpaperPlayback',
+    '- (BOOL)customGlassIsUsingVideoWallpaper',
+  );
+  for (const guard of [
+    'customGlassWallpaperPlaybackRetired',
+    'customGlassWallpaperSuspended',
+    '!self.customGlassWallpaperViewVisible',
+    '!window || window.hidden',
+    'window.rootViewController != self',
+    'windowScene.activationState != UISceneActivationStateForegroundActive',
+    'UIApplication.sharedApplication.applicationState != UIApplicationStateActive',
+  ]) assert.ok(resume.includes(guard), guard);
+  assert.match(resume, /\[self\.customGlassWallpaperPlayer pause\]/);
+  assert.match(resume, /playImmediatelyAtRate:/);
+
+  const resign = section(
+    navigation,
+    '- (void)customGlassHandleApplicationWillResignActive:(NSNotification *)notification\n{',
+    '- (void)customGlassHandleApplicationDidBecomeActive:(NSNotification *)notification\n{',
+  );
+  assert.match(resign, /UISceneWillDeactivateNotification/);
+  assert.match(resign, /\[self\.customGlassWallpaperPlayer pause\]/);
+  assert.match(navigation, /- \(void\)viewWillDisappear:[\s\S]*?customGlassWallpaperViewVisible = NO;[\s\S]*?\[self\.customGlassWallpaperPlayer pause\]/);
+});
+
 test('video playback retires with its window and cannot resume during jailbreak', () => {
   assert.match(navigation, /customGlassWallpaperSuspended \|\|/);
   assert.match(navigation, /window\.rootViewController != self/);
