@@ -225,44 +225,12 @@ extern char **environ;
 
 - (BOOL)isSPTM
 {
-    if (@available(iOS 17.0, *)) {
-        io_registry_entry_t memory_map = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen/memory-map");
-        if (memory_map == IO_OBJECT_NULL)   return NO;
-
-        CFArrayRef keys = (CFArrayRef)IORegistryEntryCreateCFProperty(memory_map, CFSTR(kIORegistryEntryPropertyKeysKey), kCFAllocatorDefault, 0);
-        IOObjectRelease(memory_map);
-        if (!keys)  return NO;
-
-        CFRange range = CFRangeMake(0, CFArrayGetCount(keys));
-
-        bool isSPTM = CFArrayContainsValue(keys, range, CFSTR("SPTM")) && CFArrayContainsValue(keys, range, CFSTR("TXM"));
-        CFRelease(keys);
-
-        return isSPTM;
-    }
-    return false;
+    return NO;
 }
 
 - (NSString *)versionSupportString
 {
-    cpu_subtype_t cpuFamily = 0;
-    size_t cpuFamilySize = sizeof(cpuFamily);
-    sysctlbyname("hw.cpufamily", &cpuFamily, &cpuFamilySize, NULL, 0);
-    
-    if ([self isArm64e]) {
-        if (cpuFamily == CPUFAMILY_ARM_VORTEX_TEMPEST || cpuFamily == CPUFAMILY_ARM_LIGHTNING_THUNDER) {
-            return @"iOS 15.0 - 18.7.1, 26.0 - 26.0.1 (A12/A13, PPL)";
-        }
-        else if (![self isSPTM]) {
-            return @"iOS 15.0 - 17.3.1 (PPL)";
-        }
-        else {
-            return @"iOS 17.0 - 17.3.1 (SPTM)";
-        }
-    }
-    else {
-        return @"iOS 15.0 - 18.7.1 (arm64)";
-    }
+    return [self isArm64e] ? @"iOS 16 (arm64e, PPL)" : @"iOS 16 (arm64)";
 }
 
 - (BOOL)isInstalledThroughTrollStore
@@ -783,12 +751,7 @@ extern char **environ;
 
 - (BOOL)isPACBypassRequired
 {
-    if (![self isArm64e]) return NO;
-    
-    if (@available(iOS 15.2, *)) {
-        return NO;
-    }
-    return YES;
+    return NO;
 }
 
 - (BOOL)isPPLBypassRequired
@@ -798,10 +761,7 @@ extern char **environ;
 
 - (BOOL)isSupported
 {
-    //cpu_subtype_t cpuFamily = 0;
-    //size_t cpuFamilySize = sizeof(cpuFamily);
-    //sysctlbyname("hw.cpufamily", &cpuFamily, &cpuFamilySize, NULL, 0);
-    //if (cpuFamily == CPUFAMILY_ARM_TYPHOON) return false; // A8X is unsupported for now (due to 4k page size)
+    if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion != 16) return NO;
     
     DOExploitManager *exploitManager = [DOExploitManager sharedManager];
     if ([exploitManager availableExploitsForType:EXPLOIT_TYPE_KERNEL].count) {

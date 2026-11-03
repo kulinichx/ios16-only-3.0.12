@@ -259,9 +259,6 @@
             
             /**************************** roothide specfic *********************************/
             NSString* namedesc = DOLocalizedString(@"Enable dyld patch");
-            if(envManager.isArm64e && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion==15) {
-                namedesc = DOLocalizedString(@"Dyld Patch(Spinlock Fix)");
-            }
             PSSpecifier *dyldPatchSpecifier = [PSSpecifier preferenceSpecifierNamed:namedesc target:self set:@selector(setDyldPatchEnabled:specifier:) get:@selector(readDyldPatchEnabled:) detail:nil cell:PSSwitchCell edit:nil];
             [dyldPatchSpecifier setProperty:@YES forKey:@"enabled"];
             [dyldPatchSpecifier setProperty:@"dyldPatchEnabled" forKey:@"key"];
@@ -270,12 +267,6 @@
             /**************************** roothide specfic *********************************/
             
             
-            PSSpecifier *trollStoreLiteFix = [PSSpecifier preferenceSpecifierNamed:@"TrollStoreLite Fix" target:self set:@selector(setTrollStoreLiteFixEnabled:specifier:) get:@selector(readTrollStoreLiteFixEnabled:) detail:nil cell:PSSwitchCell edit:nil];
-            [trollStoreLiteFix setProperty:@YES forKey:@"enabled"];
-            [trollStoreLiteFix setProperty:@"trollStoreLiteFixEnabled" forKey:@"key"];
-            [trollStoreLiteFix setProperty:@YES forKey:@"default"];
-            [specifiers addObject:trollStoreLiteFix];
-
             PSSpecifier *jetsamSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Jetsam_Multiplier") target:self set:@selector(setJetsamMultiplier:specifier:) get:@selector(readJetsamMultiplier:) detail:nil cell:PSLinkListCell edit:nil];
             [jetsamSpecifier setProperty:@YES forKey:@"enabled"];
             [jetsamSpecifier setProperty:@"jetsamMultiplier" forKey:@"key"];
@@ -299,8 +290,7 @@
 
                 if (envManager.isJailbroken) {
                     for (NSDictionary *tool in @[
-                        @{@"title": @"Install Whitelist App", @"action": @"installWhitelistAppPressed"},
-                        @{@"title": @"Install Mount App", @"action": @"installMountAppPressed"}
+                        @{@"title": @"Install Whitelist App", @"action": @"installWhitelistAppPressed"}
                     ]) {
                         PSSpecifier *toolSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
                         [toolSpecifier setProperty:tool[@"title"] forKey:@"title"];
@@ -539,33 +529,6 @@
     }
 }
 
-// 已越狱时读取实际状态，旧环境不支持该键时使用本地默认值。
-- (id)readTrollStoreLiteFixEnabled:(PSSpecifier *)specifier
-{
-    if ([DOEnvironmentManager sharedManager].isJailbroken) {
-        xpc_object_t value = NULL;
-        if (jbclient_jbsettings_get("trollStoreLiteFixEnabled", &value) == 0
-            && value && xpc_get_type(value) == XPC_TYPE_BOOL) {
-            return @(xpc_bool_get_value(value));
-        }
-    }
-    return [self readPreferenceValue:specifier];
-}
-
-// 运行中先同步开关，成功后持久化；现有租约继续等待进程退出。
-- (void)setTrollStoreLiteFixEnabled:(id)value specifier:(PSSpecifier *)specifier
-{
-    if ([DOEnvironmentManager sharedManager].isJailbroken
-        && jbclient_platform_jbsettings_set_bool("trollStoreLiteFixEnabled", [value boolValue]) != 0) {
-        [self reloadSpecifiers];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Error") message:@"Could not apply this setting. Update the jailbreak environment and try again." preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"OK") style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:alert animated:YES completion:nil];
-        return;
-    }
-    [self setPreferenceValue:value specifier:specifier];
-}
-
 - (id)readJetsamMultiplier:(PSSpecifier *)specifier
 {
     DOEnvironmentManager *envManager = [DOEnvironmentManager sharedManager];
@@ -724,12 +687,6 @@
 - (void)installWhitelistAppPressed
 {
     [self openSileoPackage:@"cn.zqbb.inject.manager"];
-}
-
-// 跳转安装挂载管理器。
-- (void)installMountAppPressed
-{
-    [self openSileoPackage:@"cn.zqbb.hello.mnt"];
 }
 
 - (void)refreshJailbreakAppsPressed

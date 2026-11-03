@@ -597,6 +597,10 @@ void *boomerang_server(struct boomerang_info *info)
 
 - (void)runWithError:(NSError **)errOut didRemoveJailbreak:(BOOL*)didRemove showLogs:(BOOL *)showLogs
 {
+    if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion != 16) {
+        *errOut = [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey: @"This build supports iOS 16 only."}];
+        return;
+    }
 
 /****************** roothide specific ****************/
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -628,7 +632,6 @@ void *boomerang_server(struct boomerang_info *info)
     }
     
     gSystemInfo.jailbreakSettings.markAppsAsDebugged = appJITEnabled;
-    gSystemInfo.jailbreakSettings.trollStoreLiteFixDisabled = ![[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"trollStoreLiteFixEnabled" fallback:YES];
     gSystemInfo.jailbreakSettings.jetsamMultiplier = jetsamMultiplierOption ? (jetsamMultiplierOption.doubleValue / 2) : 0;
     
     
@@ -779,12 +782,6 @@ setenv("DYLD_INSERT_LIBRARIES", JBROOT_PATH("/basebin/systemhook.dylib"), 1);
         return;
     }
     
-    *errOut = [DORuntimeConfiguration restoreCustomMounts];
-    if (*errOut) {
-        [self cleanUpPostExploitation];
-        return;
-    }
-
     [[DOEnvironmentManager sharedManager] setIDownloadEnabled:idownloadEnabled needsUnsandbox:NO];
     
 /*

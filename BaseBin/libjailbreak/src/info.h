@@ -53,8 +53,6 @@ struct system_info {
 
 	struct {
 		bool markAppsAsDebugged;
-		// 使用原有对齐空隙；旧环境缺少此字段时为 false，修复默认开启。
-		bool trollStoreLiteFixDisabled;
 		double jetsamMultiplier;
 	} jailbreakSettings;
 
@@ -442,7 +440,6 @@ extern struct system_info gSystemInfo;
 
 #define JAILBREAK_SETTINGS_ITERATE(ctx, iterator) \
 	iterator(ctx, jailbreakSettings.markAppsAsDebugged); \
-	iterator(ctx, jailbreakSettings.trollStoreLiteFixDisabled); \
 	iterator(ctx, jailbreakSettings.jetsamMultiplier);
 
 #define KERNEL_SYMBOLS_ITERATE(ctx, iterator) \

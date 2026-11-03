@@ -1,4 +1,4 @@
-name: build_RootHide_baseline
+name: build_RootHide_iOS16
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
       - ios16-roothide-3.0.12
     paths:
       - .github/workflows/build.yml
+      - Application/**
+      - BaseBin/**
+      - tests/**
   workflow_dispatch:
 
 permissions:
@@ -21,11 +24,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  register-workflow:
+  source-checks:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Use workflow_dispatch to build the RootHide baseline."
+      - uses: actions/checkout@v4
+      - run: node --test tests/ios16-contracts.test.cjs
 
   build:
     if: github.event_name == 'workflow_dispatch'
@@ -40,6 +44,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Check iOS 16 source contracts
+        run: |
+          node --test tests/ios16-contracts.test.cjs
+          plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
+          plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
 
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
@@ -127,29 +137,43 @@ jobs:
       - name: Verify IPA
         run: |
           ipa="Application/roothide-Dopamine-${{ env.version }}.ipa"
+          tipa="Application/roothide-Dopamine-${{ env.version }}.tipa"
           unzip -tq "$ipa"
-          unzip -Z1 "$ipa" | grep -Fx 'Payload/Dopamine.app/Dopamine.roothide'
-          unzip -Z1 "$ipa" | grep -Fx 'Payload/Dopamine.app/libroothider.dylib'
+          unzip -Z1 "$ipa" > package-files.txt
+          grep -Fx 'Payload/Dopamine.app/Dopamine.roothide' package-files.txt
+          grep -Fx 'Payload/Dopamine.app/libroothider.dylib' package-files.txt
+          for required in bootstrap_1900.tar.zst basebin.tar sileo.deb roothideapp.deb roothideWhite.deb libroot.deb libkrw-dopamine.deb basebin-link.deb; do
+            grep -Fx "Payload/Dopamine.app/$required" package-files.txt
+          done
+          if grep -Ei 'zebra|bootstrap_1800|launchctl_.*\.deb|palera1n\.framework|badRecovery\.framework' package-files.txt; then
+            echo "::error::Excluded resources were found in the iOS 16 package."
+            exit 1
+          fi
           unzip -p "$ipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
-          shasum -a 256 "$ipa" >> build-provenance.txt
+          test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
+          cmp "$ipa" "$tipa"
+          unzip -lv "$ipa" > package-contents.txt
+          shasum -a 256 "$ipa" "$tipa" >> build-provenance.txt
+          wc -c "$ipa" >> build-provenance.txt
           cat build-provenance.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Artifact
         id: dopamine-latest-upload
         uses: actions/upload-artifact@v4
         with:
-          name: RootHide_baseline_IPA
+          name: RootHide_iOS16_IPA
           if-no-files-found: error
           path: |
             ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.ipa
             build-provenance.txt
+            package-contents.txt
 
       - name: Upload Artifact(TIPA)
         id: dopamine-latest-upload-tipa
         uses: actions/upload-artifact@v4
         with:
-          name: RootHide_baseline_TIPA
+          name: RootHide_iOS16_TIPA
           if-no-files-found: error
           path: |
             ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.tipa

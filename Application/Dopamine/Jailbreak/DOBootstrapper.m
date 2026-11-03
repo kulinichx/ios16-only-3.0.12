@@ -20,13 +20,11 @@
 #define LIBKRW_DOPAMINE_BUNDLED_VERSION @"2.0.3"
 #define LIBROOT_DOPAMINE_BUNDLED_VERSION @"1.0.1"
 #define BASEBIN_LINK_BUNDLED_VERSION @"1.0.0"
-#define LAUNCHCTL_BUNDLED_VERSION @"1:1.2.0"
 
 static NSDictionary *gBundledPackages = @{
     @"libkrw0-dopamine" : LIBKRW_DOPAMINE_BUNDLED_VERSION,
     @"libroot-dopamine" : LIBROOT_DOPAMINE_BUNDLED_VERSION,
     @"dopamine-basebin-link" : BASEBIN_LINK_BUNDLED_VERSION,
-    @"launchctl" : LAUNCHCTL_BUNDLED_VERSION,
 };
 
 struct hfs_mount_args {
@@ -553,19 +551,8 @@ NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
     BOOL shouldInstallLibroot = [self shouldInstallPackage:@"libroot-dopamine"];
     BOOL shouldInstallLibkrw = [self shouldInstallPackage:@"libkrw0-dopamine"];
     BOOL shouldInstallBasebinLink = [self shouldInstallPackage:@"dopamine-basebin-link"];
-    BOOL shouldInstallLaunchctl = NO;
-    if (__builtin_available(iOS 19.0, *)) {
-        shouldInstallLaunchctl = [self shouldInstallPackage:@"launchctl"];
-    }
-    
-    if (shouldInstallLibroot || shouldInstallLibkrw || shouldInstallBasebinLink || shouldInstallLaunchctl) {
+    if (shouldInstallLibroot || shouldInstallLibkrw || shouldInstallBasebinLink) {
         [[DOUIManager sharedInstance] sendLog:@"Updating Bundled Packages" debug:NO];
-
-        if (shouldInstallLaunchctl) {
-            NSString *launchctlPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"launchctl_1_1.2.0_iphoneos-arm64.deb"];
-            int r = [self installPackage:launchctlPath];
-            if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install launchctl: %d\n", r]}];
-        }
 
         if (shouldInstallLibroot) {
             NSString *librootPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"libroot.deb"];
@@ -1026,25 +1013,9 @@ Suites: ./\n\
 Components:\n\
 "
 
-#define ZEBRA_SOURCES "\
-# Zebra Sources List\n\
-deb https://getzbra.com/repo/ ./\n\
-deb https://repo.chariz.com/ ./\n\
-deb https://yourepo.com/ ./\n\
-deb https://havoc.app/ ./\n\
-deb https://roothide.github.io/ ./\n\
-deb https://roothide.github.io/procursus iphoneos-arm64e/%d main\n\
-deb https://github.com/roothide/roothide.github.io/releases/download/%d/ ./\n\
-\n\
-"
-
 int getCFMajorVersion(void)
 {
-    if(@available(iOS 16.0, *)) {
-        return 1900;
-    }
-    
-    return ((int)kCFCoreFoundationVersionNumber / 100) * 100;
+    return 1900;
 }
 /////////////////////////////////////////////////////////////////////
 
@@ -1060,17 +1031,7 @@ int getCFMajorVersion(void)
 
 -(int) buildPackageSources:(void (^)(NSError *))completion
 {
-    NSFileManager* fm = NSFileManager.defaultManager;
-    
     DOASSERT([[NSString stringWithFormat:@(DEFAULT_SOURCES), getCFMajorVersion(), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/etc/apt/sources.list.d/default.sources") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
-    
-    if(![fm fileExistsAtPath:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra")])
-    {
-        NSDictionary* attr = @{NSFilePosixPermissions:@(0755), NSFileOwnerAccountID:@(501), NSFileGroupOwnerAccountID:@(501)};
-        DOASSERT([fm createDirectoryAtPath:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra") withIntermediateDirectories:YES attributes:attr error:nil]);
-    }
-    
-    DOASSERT([[NSString stringWithFormat:@(ZEBRA_SOURCES), getCFMajorVersion(), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra/sources.list") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
     
     return 0;
 }
@@ -1417,7 +1378,6 @@ int getCFMajorVersion(void)
         }
 
         //Remove the shits triggered by uicache before first jailbreak is fully activated.
-        [NSFileManager.defaultManager removeItemAtPath:@"/var/mobile/Library/SplashBoard/Snapshots/xyz.willy.Zebra" error:nil];
         [NSFileManager.defaultManager removeItemAtPath:@"/var/mobile/Library/SplashBoard/Snapshots/com.roothide.manager" error:nil];
         [NSFileManager.defaultManager removeItemAtPath:@"/var/mobile/Library/SplashBoard/Snapshots/org.coolstar.SileoStore" error:nil];
     }
@@ -1442,20 +1402,9 @@ int getCFMajorVersion(void)
     
     BOOL shouldInstallLibkrw = [self shouldInstallPackage:@"libkrw0-dopamine"];
     BOOL shouldInstallBasebinLink = [self shouldInstallPackage:@"dopamine-basebin-link"];
-    BOOL shouldInstallLaunchctl = NO;
-    if (__builtin_available(iOS 19.0, *)) {
-        shouldInstallLaunchctl = [self shouldInstallPackage:@"launchctl"];
-    }
-    
-    if (shouldInstallLibkrw || shouldInstallBasebinLink || shouldInstallLaunchctl) {
+    if (shouldInstallLibkrw || shouldInstallBasebinLink) {
         [[DOUIManager sharedInstance] sendLog:@"Updating Bundled Packages" debug:NO];
 
-        if (shouldInstallLaunchctl) {
-            NSString *launchctlPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"launchctl_1_1.2.0_iphoneos-arm64e.deb"];
-            int r = [self installPackage:launchctlPath];
-            if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install launchctl: %d\n", r]}];
-        }
-        
         if (shouldInstallLibkrw) {
             NSString *libkrwPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"libkrw-dopamine.deb"];
             int r = [self installPackage:libkrwPath];
