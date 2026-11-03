@@ -113,6 +113,18 @@ jailbreak engine, signing, bootstrap or package data changes accompany this
 runner adjustment. A full Intel native build and device validation are
 still required before accepting the glass port.
 
+Run #16 (41683288432, source `fad56fe6`) acquired `macos-26-intel` in about
+11 seconds. X64/Xcode 26.6 verification, the source contracts and native
+plist/project checks passed. This verifies allocation for this attempt,
+not a guarantee that future jobs never queue.
+
+That build then exposed a separate native compiler error:
+`DOCustomGlassView.m` called `DOLocalizedString` without importing its
+declaration. Added the owning `DOUIManager.h` import and a regression check
+(32 source checks total). This is a first-port extraction error, not an
+Xcode-version or Intel compatibility error. A new full native build must
+verify the fix; run #16 did not produce an installable package.
+
 Retain source `1754adf69c60b88fb034928e1cf8949e3dd8391d` and its known-working
 31,125,127-byte TIPA as the rollback reference. Do not uninstall RC9's
 jailbreak or delete bootstrap roots/package databases for a UI test.

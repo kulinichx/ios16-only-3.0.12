@@ -49,6 +49,11 @@ test('glass presentation does not import licensing or the retired Metal overlay'
   assert.match(components, /CABackdropLayer/);
 });
 
+test('extracted glass components import their localization function declaration', () => {
+  assert.match(components, /^#import "DOUIManager\.h"$/m);
+  assert.match(read(ui + 'DOUIManager.h'), /NSString \*DOLocalizedString\(NSString \*string\);/);
+});
+
 test('material roles and the four RC9 appearance controls remain connected', () => {
   for (const key of ['BackgroundBlur', 'GlassBlurIntensity', 'GlassTransparency', 'GlassTintAlpha']) {
     assert.match(material, new RegExp(`DOCustomGlassTheme\\.${key}`));

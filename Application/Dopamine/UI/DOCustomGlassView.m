@@ -1,6 +1,7 @@
 #import "DOCustomGlassView.h"
 #import "DOCustomGlassMediaStore.h"
 #import "DOGlobalAppearance.h"
+#import "DOUIManager.h"
 #import <PhotosUI/PhotosUI.h>
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
