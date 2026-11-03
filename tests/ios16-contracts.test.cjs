@@ -21,6 +21,7 @@ const jailbreaker = read('Application/Dopamine/Jailbreak/DOJailbreaker.m');
 const runtime = read('Application/Dopamine/Jailbreak/DORuntimeConfiguration.m');
 const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
 const makefile = read('Application/Makefile');
+const idownloaddMakefile = read('BaseBin/idownloadd/Makefile');
 const titanIpc = read('Application/Dopamine/Exploits/Titan/exploit/ipc_port.c');
 const launchd = read('BaseBin/launchdhook/src/roothider.m');
 const jbsettings = read('BaseBin/launchdhook/src/jbserver/jbsettings.c');
@@ -67,6 +68,13 @@ test('build provenance records the selected machine and actual toolchain', () =>
   assert.ok(workflow.indexOf('- name: Checkout') < workflow.indexOf('- name: Verify runner and toolchain'));
   assert.ok(workflow.indexOf('- name: Verify runner and toolchain') < workflow.indexOf('- name: Install Procursus'));
   assert.match(workflow, /key: theos-roothide-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/);
+});
+
+test('idownloadd resolves Swift packages in a stable local cache before archiving', () => {
+  assert.match(idownloaddMakefile, /SWIFT_PACKAGE_DIR = \$\(CURDIR\)\/\.swiftpm/);
+  assert.match(idownloaddMakefile, /xcodebuild -resolvePackageDependencies .*SWIFT_PACKAGE_FLAGS/);
+  assert.match(idownloaddMakefile, /xcodebuild -disableAutomaticPackageResolution -clonedSourcePackagesDirPath "\$\(SWIFT_PACKAGE_DIR\)".* archive/);
+  assert.doesNotMatch(idownloaddMakefile, /xcodebuild .*archive.*-resolvePackageDependencies/);
 });
 
 test('Sileo is the only bundled package-manager choice', () => {
