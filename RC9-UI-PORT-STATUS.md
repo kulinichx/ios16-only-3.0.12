@@ -83,6 +83,36 @@ a particular compressed-package saving.
 6. Accept this UI batch before separately porting settings/about styling and
    reviewing authorization initialization and failure behavior.
 
+## Hosted-runner scheduling follow-up: 2026-11-04
+
+The first full glass build, run #14 (41679764405), never acquired a machine.
+The build job waited from 00:59:35 to 01:14:37 Asia/Shanghai, with no executed
+steps. GitHub reported: "The job was not acquired by Runner of type hosted
+even after multiple attempts", alongside the macOS ARM64 capacity notice.
+This was a runner-allocation failure, not a native compiler result.
+
+Run #12's successful logs identify `macos-26-arm64` and Xcode 26.6. The
+workflow used `macos-latest` and `latest-stable`, so this was the newest stable
+Xcode installed in that image, not necessarily Apple's latest release.
+
+To change one variable at a time, switch to the documented standard
+`macos-26-intel` runner and explicitly pin Xcode 26.6, which is listed in
+that image. This keeps the tested OS/Xcode generation while changing the
+host architecture. It does not revert to RC9's Xcode 16.4 or alter the iOS
+16.0 deployment target/Theos iOS 16.5 SDK.
+
+The workflow now verifies the actual X64 architecture and Xcode version
+before dependency installation. It records the image, architecture, actual
+Xcode build, developer directory and Xcode iPhoneOS SDK in build provenance.
+The Theos cache already includes architecture, so ARM cache contents are
+not reused for Intel. The first Intel build may need a fresh dependency
+cache. This change does not guarantee zero queue time or a shorter compile.
+
+Added two source-contract checks (31 total). No app/UI, authorization,
+jailbreak engine, signing, bootstrap or package data changes accompany this
+runner adjustment. A full Intel native build and device validation are
+still required before accepting the glass port.
+
 Retain source `1754adf69c60b88fb034928e1cf8949e3dd8391d` and its known-working
 31,125,127-byte TIPA as the rollback reference. Do not uninstall RC9's
 jailbreak or delete bootstrap roots/package databases for a UI test.

@@ -16,6 +16,26 @@ const makefile = read('Application/Makefile');
 const launchd = read('BaseBin/launchdhook/src/roothider.m');
 const jbsettings = read('BaseBin/launchdhook/src/jbserver/jbsettings.c');
 const info = read('BaseBin/libjailbreak/src/info.h');
+const workflow = read('.github/workflows/build.yml');
+
+test('native builds pin Intel macOS and the previously tested Xcode generation', () => {
+  assert.match(workflow, /runs-on: macos-26-intel/);
+  assert.doesNotMatch(workflow, /runs-on: macos-latest|xcode-version: latest-stable/);
+  assert.match(workflow, /XCODE_VERSION: '26\.6'/);
+  assert.match(workflow, /xcode-version: \$\{\{ env\.XCODE_VERSION \}\}/);
+  assert.match(workflow, /test "\$RUNNER_ARCH" = 'X64'/);
+  assert.match(workflow, /test "\$actual_xcode" = "\$XCODE_VERSION"/);
+});
+
+test('build provenance records the selected machine and actual toolchain', () => {
+  for (const key of [
+    'runner_arch', 'runner_image', 'runner_image_version',
+    'xcode_requested', 'xcode_selected', 'developer_dir', 'xcode_iphoneos_sdk',
+  ]) assert.match(workflow, new RegExp(`echo "${key}=`), key);
+  assert.ok(workflow.indexOf('- name: Checkout') < workflow.indexOf('- name: Verify runner and toolchain'));
+  assert.ok(workflow.indexOf('- name: Verify runner and toolchain') < workflow.indexOf('- name: Install Procursus'));
+  assert.match(workflow, /key: theos-roothide-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/);
+});
 
 test('Sileo is the only bundled package-manager choice', () => {
   const choices = read('Application/Dopamine/UI/PkgManagers/PkgManagers.plist');
