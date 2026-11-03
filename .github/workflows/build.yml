@@ -167,17 +167,15 @@ jobs:
           plutil -insert items.5 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>headerCellClass</key><string>DOCreditsCell</string><key>names</key><array><dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict></array></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
           VERSION="("$(cat ./BaseBin/_external/basebin/.version)-$(cat ./BaseBin/_external/basebin/.version-roothide)-$(git rev-parse --short HEAD)")"-$(TZ=UTC git show -s --date=format-local:'%Y.%m.%d-%Z-%H.%M.%S' --format='%cd' HEAD)
-          mv ./Application/Dopamine.ipa  "./Application/roothide-Dopamine-${VERSION}.ipa"
           mv ./Application/Dopamine.tipa "./Application/roothide-Dopamine-${VERSION}.tipa"
           echo "version=${VERSION}" >> $GITHUB_ENV
 
-      - name: Verify IPA
+      - name: Verify TIPA
         run: |
           set -euo pipefail
-          ipa="Application/roothide-Dopamine-${{ env.version }}.ipa"
           tipa="Application/roothide-Dopamine-${{ env.version }}.tipa"
-          unzip -tq "$ipa"
-          unzip -Z1 "$ipa" > package-files.txt
+          unzip -tq "$tipa"
+          unzip -Z1 "$tipa" > package-files.txt
           grep -Fx 'Payload/Dopamine.app/Dopamine.roothide' package-files.txt
           grep -Fx 'Payload/Dopamine.app/libroothider.dylib' package-files.txt
           for required in bootstrap_1900.tar.zst basebin.tar sileo.deb roothideapp.deb roothideWhite.deb libroot.deb libkrw-dopamine.deb basebin-link.deb; do
@@ -191,7 +189,7 @@ jobs:
           expected_frameworks="$(printf '%s\n' $expected_frameworks | sort -u | paste -sd ' ' -)"
           actual_frameworks="$(sed -nE 's@^Payload/Dopamine.app/Frameworks/([^/]+)\.framework/.*@\1@p' package-files.txt | sort -u | paste -sd ' ' -)"
           test "$actual_frameworks" = "$expected_frameworks"
-          unzip -p "$ipa" Payload/Dopamine.app/basebin.tar > "$RUNNER_TEMP/ios16-basebin.tar"
+          unzip -p "$tipa" Payload/Dopamine.app/basebin.tar > "$RUNNER_TEMP/ios16-basebin.tar"
           tar -tf "$RUNNER_TEMP/ios16-basebin.tar" > basebin-files.txt
           for architecture in arm64 arm64e; do
             grep -Fx "basebin/dyldhook_merge.$architecture.iOS16-17.dylib" basebin-files.txt
@@ -207,33 +205,23 @@ jobs:
             echo "::error::Non-iOS-16 XPF exports found in packaged libxpf."
             exit 1
           fi
-          unzip -p "$ipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
+          unzip -p "$tipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
           test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
-          cmp "$ipa" "$tipa"
-          unzip -lv "$ipa" > package-contents.txt
-          shasum -a 256 "$ipa" "$tipa" >> build-provenance.txt
-          wc -c "$ipa" >> build-provenance.txt
+          unzip -lv "$tipa" > package-contents.txt
+          shasum -a 256 "$tipa" >> build-provenance.txt
+          wc -c "$tipa" >> build-provenance.txt
           cat build-provenance.txt >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload Artifact
+      - name: Upload Artifact (TIPA)
         id: dopamine-latest-upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: RootHide_iOS16_IPA
-          if-no-files-found: error
-          path: |
-            ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.ipa
-            build-provenance.txt
-            package-contents.txt
-            basebin-files.txt
-            xpf-exports.txt
-
-      - name: Upload Artifact(TIPA)
-        id: dopamine-latest-upload-tipa
         uses: actions/upload-artifact@v4
         with:
           name: RootHide_iOS16_TIPA
           if-no-files-found: error
           path: |
             ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.tipa
+            build-provenance.txt
+            package-contents.txt
+            basebin-files.txt
+            xpf-exports.txt

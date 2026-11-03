@@ -35,6 +35,21 @@ test('native builds pin Intel macOS and the previously tested Xcode generation',
   assert.match(workflow, /test "\$actual_xcode" = "\$XCODE_VERSION"/);
 });
 
+test('iOS 16 build creates and publishes only a TIPA archive', () => {
+  assert.match(makefile, /^all:\s+Dopamine\.tipa$/m);
+  assert.match(makefile, /^Dopamine\.tipa:\s+build\/Build\/Products\/Debug-iphoneos\/Dopamine\.app$/m);
+  assert.match(makefile, /zip -Ar Dopamine\.tipa Payload/);
+  assert.doesNotMatch(makefile, /Dopamine\.ipa/);
+
+  const buildStep = workflow.slice(workflow.indexOf('      - name: Build\n'));
+  assert.match(buildStep, /mv \.\/Application\/Dopamine\.tipa/);
+  assert.match(buildStep, /- name: Verify TIPA/);
+  assert.match(buildStep, /unzip -tq "\$tipa"/);
+  assert.match(buildStep, /name: RootHide_iOS16_TIPA/);
+  assert.match(buildStep, /roothide-Dopamine-\$\{\{ env\.version \}\}\.tipa/);
+  assert.doesNotMatch(buildStep, /\.ipa|RootHide_iOS16_IPA/);
+});
+
 test('build provenance records the selected machine and actual toolchain', () => {
   for (const key of [
     'runner_arch', 'runner_image', 'runner_image_version',
@@ -246,7 +261,7 @@ test('only the two iOS 16 dyldhook variants can be built, selected and packaged'
   }
   assert.doesNotMatch(dyldMake + selector, /iOS15|iOS18|DIOS=(?:15|18)/);
   assert.doesNotMatch(baseMake, /cp dyldhook\/\*\.dylib/);
-  assert.match(workflow, /unzip -p "\$ipa" Payload\/Dopamine\.app\/basebin\.tar/);
+  assert.match(workflow, /unzip -p "\$tipa" Payload\/Dopamine\.app\/basebin\.tar/);
   assert.match(workflow, /expected_frameworks='ClearSword DarkSword Titan dmaFail kfd momentarius'/);
   assert.match(workflow, /expected_frameworks="\$\(printf '%s\\n' \$expected_frameworks \| sort -u \| paste -sd ' ' -\)"/);
   assert.match(workflow, /actual_frameworks="\$\(sed -nE .* \| sort -u \| paste -sd ' ' -\)"/);

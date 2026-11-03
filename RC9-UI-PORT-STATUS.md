@@ -291,3 +291,38 @@ See `HEALTH-AUDIT-2026-11-04.md` for six open P2 findings in the earlier UI
 port. They are recorded separately, not silently fixed in the About styling
 change. Do not treat green source checks as confirmation that those runtime
 or layout risks have been resolved.
+
+## About continuous glass surface (2026-11-04)
+
+The device screenshot showed the About page broken into separate glass
+surfaces with exposed wallpaper gaps. This came from creating a separate
+backdrop for each Preferences table section.
+
+- Replace per-section backdrops with one noninteractive glass surface behind
+  the full visible table viewport.
+- Keep the existing section headers, contributor collections, links,
+  source/Discord/License actions, scrolling and independent back navigation.
+- The single surface stays fixed while the table content scrolls and is
+  resized with the table frame; theme changes reload its material.
+
+All 68 local source-contract tests pass and `git diff --check` is clean.
+This host has no Xcode/UIKit renderer, so device appearance still needs a
+fresh build and screenshot review.
+
+## TIPA-only delivery follow-up (2026-11-04)
+
+The user confirmed that iOS 16 does not need a separate IPA artifact.
+
+- Make's default target now creates `Dopamine.tipa` directly from the built
+  app; it no longer creates an IPA and copies it to a second filename.
+- The Actions job validates the TIPA archive and its iOS 16 contents, then
+  uploads one `RootHide_iOS16_TIPA` artifact with build provenance and package
+  inspection files.
+- Remove the separate IPA rename, verification/comparison and upload steps.
+- Add source-contract coverage so a later workflow or Makefile edit cannot
+  silently restore IPA delivery.
+
+All source-contract tests and `git diff --check` pass locally. This Windows
+host cannot run the pinned macOS/Xcode native build. A fresh manual Actions
+build is still needed to validate the revised archive target and uploaded
+artifact.

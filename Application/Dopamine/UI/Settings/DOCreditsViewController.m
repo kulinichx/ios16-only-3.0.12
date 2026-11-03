@@ -15,7 +15,7 @@
 @interface DOCreditsViewController ()
 
 @property(nonatomic, strong) UIButton *backButton;
-@property(nonatomic, strong) NSMutableDictionary<NSNumber *, DOCustomLiquidGlassView *> *customGlassSectionBackdrops;
+@property(nonatomic, strong) DOCustomLiquidGlassView *customGlassPageBackdrop;
 
 @end
 
@@ -33,7 +33,14 @@
     _table.opaque = NO;
     _table.backgroundView = nil;
     _table.separatorStyle = UITableViewCellSeparatorStyleNone;
-    self.customGlassSectionBackdrops = [NSMutableDictionary dictionary];
+
+    DOCustomLiquidGlassView *pageBackdrop =
+        [[DOCustomLiquidGlassView alloc] initWithCornerRadius:24.0 baseTintAlpha:0.044];
+    pageBackdrop.materialScale = 0.94;
+    pageBackdrop.userInteractionEnabled = NO;
+    self.customGlassPageBackdrop = pageBackdrop;
+    [self.view insertSubview:pageBackdrop atIndex:0];
+    [pageBackdrop reloadMaterial];
 
     // The shared navigation bar is hidden, so Credits needs its own return
     // control outside the scrolling table, just like Settings.
@@ -153,53 +160,18 @@
     }
 }
 
-- (void)customGlassRefreshSectionBackdrops
+- (void)customGlassRefreshPageBackdrop
 {
-    if (!self.customGlassSectionBackdrops)
+    if (!self.customGlassPageBackdrop || CGRectIsEmpty(_table.frame))
         return;
 
-    NSMutableSet<NSNumber *> *activeSections = [NSMutableSet set];
-    for (NSInteger section = 0; section < _table.numberOfSections; section++) {
-        // Credits.plist puts contributor collections in group headers, including
-        // sections with no ordinary rows. They need a material surface too.
-        CGRect rect = CGRectNull;
-        CGRect headerRect = [_table rectForHeaderInSection:section];
-        if (!CGRectIsEmpty(headerRect))
-            rect = headerRect;
-        NSInteger rows = [_table numberOfRowsInSection:section];
-        if (rows > 0) {
-            CGRect firstRect = [_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:section]];
-            CGRect lastRect = [_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:rows - 1 inSection:section]];
-            rect = CGRectUnion(rect, CGRectUnion(firstRect, lastRect));
-        }
-        if (CGRectIsNull(rect) || CGRectIsEmpty(rect) || CGRectGetHeight(rect) < 2.0)
-            continue;
-
-        NSNumber *key = @(section);
-        [activeSections addObject:key];
-        DOCustomLiquidGlassView *glass = self.customGlassSectionBackdrops[key];
-        if (!glass) {
-            glass = [[DOCustomLiquidGlassView alloc] initWithCornerRadius:18.0 baseTintAlpha:0.038];
-            glass.materialScale = 0.88;
-            glass.userInteractionEnabled = NO;
-            self.customGlassSectionBackdrops[key] = glass;
-            [_table insertSubview:glass atIndex:0];
-            [glass reloadMaterial];
-        }
-        glass.frame = CGRectInset(rect, 1.0, 0.5);
-        [_table sendSubviewToBack:glass];
-    }
-    for (NSNumber *key in self.customGlassSectionBackdrops.allKeys) {
-        if (![activeSections containsObject:key]) {
-            [self.customGlassSectionBackdrops[key] removeFromSuperview];
-            [self.customGlassSectionBackdrops removeObjectForKey:key];
-        }
-    }
+    self.customGlassPageBackdrop.frame = _table.frame;
+    [self.view sendSubviewToBack:self.customGlassPageBackdrop];
 }
 
 - (void)customGlassRefreshPageAppearance
 {
-    [self customGlassRefreshSectionBackdrops];
+    [self customGlassRefreshPageBackdrop];
     for (UITableViewCell *cell in _table.visibleCells)
         [self customGlassStyleContent:cell];
     for (NSInteger section = 0; section < _table.numberOfSections; section++) {
@@ -217,8 +189,7 @@
         });
         return;
     }
-    for (DOCustomLiquidGlassView *glass in self.customGlassSectionBackdrops.allValues)
-        [glass reloadMaterial];
+    [self.customGlassPageBackdrop reloadMaterial];
     [self customGlassRefreshPageAppearance];
 }
 
@@ -239,14 +210,14 @@
         UITableViewCell *visibleCell = weakCell;
         if (visibleCell.window && [tableView indexPathForCell:visibleCell])
             [weakSelf customGlassStyleContent:visibleCell];
-        [weakSelf customGlassRefreshSectionBackdrops];
+        [weakSelf customGlassRefreshPageBackdrop];
     });
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section
 {
     [self customGlassStyleContent:view];
-    [self customGlassRefreshSectionBackdrops];
+    [self customGlassRefreshPageBackdrop];
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayFooterView:(UIView *)view forSection:(NSInteger)section

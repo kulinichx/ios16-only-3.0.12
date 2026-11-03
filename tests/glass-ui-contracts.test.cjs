@@ -464,26 +464,28 @@ test('credits uses shared glass without replacing its content or collection dele
   assert.match(credits, /self\.view\.layer\.masksToBounds = NO/);
   assert.match(credits, /_table\.opaque = NO/);
   assert.match(credits, /UITableViewCellSeparatorStyleNone/);
-  assert.match(credits, /initWithCornerRadius:18\.0 baseTintAlpha:0\.038/);
-  assert.match(credits, /glass\.materialScale = 0\.88/);
-  assert.match(credits, /glass\.userInteractionEnabled = NO/);
-  assert.match(credits, /\[_table sendSubviewToBack:glass\]/);
+  assert.match(credits, /initWithCornerRadius:24\.0 baseTintAlpha:0\.044/);
+  assert.match(credits, /pageBackdrop\.materialScale = 0\.94/);
+  assert.match(credits, /pageBackdrop\.userInteractionEnabled = NO/);
+  assert.match(credits, /\[self\.view insertSubview:pageBackdrop atIndex:0\]/);
+  assert.match(credits, /self\.customGlassPageBackdrop\.frame = _table\.frame/);
+  assert.match(credits, /\[self\.view sendSubviewToBack:self\.customGlassPageBackdrop\]/);
   assert.match(credits, /MIN\(620\.0, availableWidth - 24\.0\)/);
+  assert.doesNotMatch(credits, /customGlassSectionBackdrops|rectForHeaderInSection:|rectForRowAtIndexPath:/);
   assert.doesNotMatch(credits, /(?:_table|collectionView)\.(?:delegate|dataSource)\s*=/);
   assert.doesNotMatch(credits, /DORHSupporter|DOCustomGlassMediaStoreSave|setObject:.*forKey:/);
 });
 
-test('credits glass includes header-only contributor sections and cleans up obsolete surfaces', () => {
-  const backdrops = section(credits, '- (void)customGlassRefreshSectionBackdrops', '- (void)customGlassRefreshPageAppearance');
-  assert.match(backdrops, /rectForHeaderInSection:section/);
-  assert.match(backdrops, /if \(rows > 0\)/);
-  assert.match(backdrops, /CGRectUnion\(rect, CGRectUnion\(firstRect, lastRect\)\)/);
-  assert.doesNotMatch(backdrops, /if \(rows == 0\)/);
-  assert.match(backdrops, /CGRectIsNull\(rect\)/);
-  assert.match(backdrops, /removeObjectForKey:key/);
+test('credits presents all sections and blank spacing on one continuous glass surface', () => {
+  assert.match(credits, /customGlassPageBackdrop/);
+  assert.match(credits, /self\.customGlassPageBackdrop\.frame = _table\.frame/);
+  assert.doesNotMatch(credits, /NSMutableDictionary<NSNumber \*, DOCustomLiquidGlassView \*>|activeSections|activeKeys/);
   const content = read(ui + 'Settings/Credits.plist');
   assert.match(content, /<string>DOCreditsCell<\/string>/);
   assert.match(content, /<key>names<\/key>/);
+  assert.match(content, /<string>Developers<\/string>/);
+  assert.match(content, /<string>UI and Design<\/string>/);
+  assert.match(content, /<string>Credits<\/string>/);
 });
 
 test('credits refreshes reused content and theme changes with weak callbacks and observer cleanup', () => {
