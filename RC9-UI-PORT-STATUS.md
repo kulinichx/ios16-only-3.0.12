@@ -7,10 +7,12 @@ Reference, read only: `G:\RootHide\runtime-rc9-audit`
 Branch: `ios16-roothide-3.0.12`
 Remote: `ios16-target` (`kulinichx/ios16-only-3.0.12`)
 
-Current local follow-ups are documented at the end: settings glass/back
-navigation, reboot localization and the requested RC9 home-layout alignment.
-They have not yet been pushed or natively built. The first-batch sections
-below describe the historical scope, not the current working-tree layout.
+The pushed baseline is `851480cc`, including Settings glass/back navigation,
+RC9 home-layout alignment and About back navigation. Full build #22
+(`41697683880`) passed for that source. The user subsequently requested About
+glass too; this local follow-up is documented at the end and still needs its
+own native build and device validation. Earlier sections describe historical
+checkpoints, not the current working-tree layout.
 
 ## Implemented
 
@@ -261,3 +263,31 @@ verification of About and License navigation remain required.
 The preceding full build #20, run `41693553004`, completed successfully for
 `a6067091695d715757fd28409b6a150db271f682`. It does not include this About
 follow-up; a package built from the new commit is required.
+
+## User-requested About glass follow-up (2026-11-04)
+
+The user requested About glass during the health audit. This supersedes the
+earlier decision to keep About compact and native-styled.
+
+- Make only Settings and Credits full-screen glass pages; License and other
+  Preferences subpages retain their original framing and return controls.
+- Keep the fixed 44-point back button, reserved safe-area navigation row and
+  left-edge return gesture.
+- Make the page/table transparent over the existing shared wallpaper and add
+  noninteractive section surfaces using the existing RC9 material renderer.
+- Include native group-header rectangles even when a section has zero rows:
+  Credits stores its contributor collections in `headerCellClass` entries.
+- Preserve Credits.plist, original business methods, contributor collection
+  delegates, source/Discord links and the License route. Clear nested button
+  chrome without replacing their actions.
+- Refresh appearance during layout, content reuse, return navigation and theme
+  changes; remove obsolete section surfaces and unregister the theme observer.
+
+Verification: 48 local source-contract tests and `git diff --check` pass.
+These are structural checks, not proof of UIKit rendering or performance.
+Build #22 passed for the preceding `851480cc` source, not these new changes.
+
+See `HEALTH-AUDIT-2026-11-04.md` for six open P2 findings in the earlier UI
+port. They are recorded separately, not silently fixed in the About styling
+change. Do not treat green source checks as confirmation that those runtime
+or layout risks have been resolved.

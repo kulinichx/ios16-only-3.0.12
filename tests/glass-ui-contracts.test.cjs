@@ -187,7 +187,9 @@ test('username and motto editors use saved user input rather than treating place
   assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassMottoEditor\)/);
 });
 
-test('avatar focus reaches physical screen edges, fades information without moving panels and remains reversible', () => {
+test('avatar focus retains root-edge docking, alpha-based hiding and restoration hooks', () => {
+  // These source hooks do not establish frame invariance. The health audit
+  // identifies a separate profile-height dependency that requires a layout fix.
   const focus = section(main, '- (void)setCustomGlassProfileFocusEnabled:', '- (void)configureCustomGlassHeaderView:');
   assert.match(focus, /for \(UIView \*label in self\.customGlassHeaderSubtitleLabels\)[\s\S]*?label\.alpha = detailAlpha/);
   assert.match(focus, /self\.customGlassUsernameLabel\.alpha = detailAlpha/);
@@ -232,7 +234,7 @@ test('new theme persistence is isolated from RC9 and bootstraps before UIApplica
   assert.ok(startup.indexOf('DOCustomGlassThemeSyncBootstrap();') < startup.indexOf('return UIApplicationMain('));
 });
 
-test('media ownership and write-verify-commit-before-delete ordering are retained', () => {
+test('media validates app-container ownership and local-defaults-before-delete ordering', () => {
   assert.match(media, /NSBundle\.mainBundle\.bundleIdentifier/);
   assert.match(media, /DOCustomGlassMediaStoreLSContainerURL\(bundleIdentifier\)/);
   assert.match(media, /DOCustomGlassMediaStoreMCMContainerURL\(bundleIdentifier\)/);
@@ -360,11 +362,13 @@ test('settings has a fixed accessible 44-point back button and left-edge return'
     assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Button_Back"\s*=\s*"(?:Back|返回)";/);
 });
 
-test('only settings gains full-screen framing and reserves safe space above its list', () => {
+test('settings and credits gain full-screen framing without changing other Preferences pages', () => {
   const classification = section(navigation, '- (BOOL)isCustomGlassFullScreenViewController:', '- (void)viewDidLoad');
   assert.match(navigation, /^#import "DOSettingsController\.h"$/m);
   assert.match(classification, /isKindOfClass:DOSettingsController\.class/);
-  assert.doesNotMatch(classification, /DOPSListController\.class|DOCreditsViewController\.class/);
+  assert.match(navigation, /^#import "DOCreditsViewController\.h"$/m);
+  assert.match(classification, /isKindOfClass:DOCreditsViewController\.class/);
+  assert.doesNotMatch(classification, /DOPSListController\.class|DOLicenseViewController\.class/);
   assert.match(section(navigation, '-(CGRect)_frameForViewController:(id)viewController', '\n@end'), /isCustomGlassFullScreenViewController:viewController/);
   const layout = section(settings, '- (void)viewDidLayoutSubviews', '- (void)tableView:');
   assert.match(layout, /safeArea\.top \+ 56\.0/);
@@ -440,6 +444,47 @@ test('credits content and license-to-credits return remain intact', () => {
   assert.match(license, /makeHeader:DOLocalizedString\(@"Credits_Button_License"\) withTarget:self/);
   assert.match(license, /- \(void\)dismiss[\s\S]*?popViewControllerAnimated:YES/);
   assert.match(credits, /pushViewController:\[\[DOLicenseViewController alloc\] init\]/);
+});
+
+test('credits uses shared glass without replacing its content or collection delegates', () => {
+  assert.match(credits, /^#import "DOCustomGlassView\.h"$/m);
+  assert.match(credits, /self\.view\.backgroundColor = UIColor\.clearColor/);
+  assert.match(credits, /self\.view\.layer\.masksToBounds = NO/);
+  assert.match(credits, /_table\.opaque = NO/);
+  assert.match(credits, /UITableViewCellSeparatorStyleNone/);
+  assert.match(credits, /initWithCornerRadius:18\.0 baseTintAlpha:0\.038/);
+  assert.match(credits, /glass\.materialScale = 0\.88/);
+  assert.match(credits, /glass\.userInteractionEnabled = NO/);
+  assert.match(credits, /\[_table sendSubviewToBack:glass\]/);
+  assert.match(credits, /MIN\(620\.0, availableWidth - 24\.0\)/);
+  assert.doesNotMatch(credits, /(?:_table|collectionView)\.(?:delegate|dataSource)\s*=/);
+  assert.doesNotMatch(credits, /DORHSupporter|DOCustomGlassMediaStoreSave|setObject:.*forKey:/);
+});
+
+test('credits glass includes header-only contributor sections and cleans up obsolete surfaces', () => {
+  const backdrops = section(credits, '- (void)customGlassRefreshSectionBackdrops', '- (void)customGlassRefreshPageAppearance');
+  assert.match(backdrops, /rectForHeaderInSection:section/);
+  assert.match(backdrops, /if \(rows > 0\)/);
+  assert.match(backdrops, /CGRectUnion\(rect, CGRectUnion\(firstRect, lastRect\)\)/);
+  assert.doesNotMatch(backdrops, /if \(rows == 0\)/);
+  assert.match(backdrops, /CGRectIsNull\(rect\)/);
+  assert.match(backdrops, /removeObjectForKey:key/);
+  const content = read(ui + 'Settings/Credits.plist');
+  assert.match(content, /<string>DOCreditsCell<\/string>/);
+  assert.match(content, /<key>names<\/key>/);
+});
+
+test('credits refreshes reused content and theme changes with weak callbacks and observer cleanup', () => {
+  assert.match(credits, /willDisplayCell:/);
+  assert.match(credits, /willDisplayHeaderView:/);
+  assert.match(credits, /willDisplayFooterView:/);
+  assert.match(credits, /__weak typeof\(self\) weakSelf/);
+  assert.match(credits, /__weak UITableViewCell \*weakCell/);
+  assert.match(credits, /indexPathForCell:visibleCell/);
+  assert.match(credits, /if \(!NSThread\.isMainThread\)/);
+  assert.match(credits, /configuration\.baseForegroundColor = UIColor\.whiteColor/);
+  assert.match(section(credits, '- (void)dealloc', '- (id)specifiers'), /removeObserver:self/);
+  assert.match(section(credits, '- (void)dealloc', '- (id)specifiers'), /name:DOCustomGlassThemeDidChangeNotification/);
 });
 
 test('new source and required system frameworks are in the app build phases', () => {

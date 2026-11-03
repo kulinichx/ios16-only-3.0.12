@@ -9,11 +9,13 @@
 #import "DOLicenseViewController.h"
 #import "DOUIManager.h"
 #import "DOEnvironmentManager.h"
+#import "DOCustomGlassView.h"
 #import <Preferences/PSSpecifier.h>
 
 @interface DOCreditsViewController ()
 
 @property(nonatomic, strong) UIButton *backButton;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, DOCustomLiquidGlassView *> *customGlassSectionBackdrops;
 
 @end
 
@@ -22,6 +24,16 @@
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+
+    self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    self.view.backgroundColor = UIColor.clearColor;
+    self.view.layer.cornerRadius = 0.0;
+    self.view.layer.masksToBounds = NO;
+    _table.backgroundColor = UIColor.clearColor;
+    _table.opaque = NO;
+    _table.backgroundView = nil;
+    _table.separatorStyle = UITableViewCellSeparatorStyleNone;
+    self.customGlassSectionBackdrops = [NSMutableDictionary dictionary];
 
     // The shared navigation bar is hidden, so Credits needs its own return
     // control outside the scrolling table, just like Settings.
@@ -50,6 +62,11 @@
     edgeGesture.edges = UIRectEdgeLeft;
     [self.view addGestureRecognizer:edgeGesture];
     [_table.panGestureRecognizer requireGestureRecognizerToFail:edgeGesture];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(customGlassThemeDidChange:)
+                                                 name:DOCustomGlassThemeDidChangeNotification
+                                               object:nil];
 }
 
 - (void)backPressed
@@ -72,12 +89,176 @@
 {
     [super viewDidLayoutSubviews];
     UIEdgeInsets safeArea = self.view.safeAreaInsets;
+    CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
+    CGFloat width = MAX(0.0, MIN(620.0, availableWidth - 24.0));
     CGFloat top = safeArea.top + 56.0;
-    _table.frame = CGRectMake(safeArea.left + 12.0, top,
-                             MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right - 24.0),
+    _table.frame = CGRectMake(safeArea.left + (availableWidth - width) * 0.5, top, width,
                              MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom - 5.0));
+    [self customGlassRefreshPageAppearance];
     if (self.backButton)
         [self.view bringSubviewToFront:self.backButton];
+}
+
+- (void)customGlassStyleContent:(UIView *)view
+{
+    if (!view)
+        return;
+
+    if ([view isKindOfClass:UILabel.class]) {
+        UILabel *label = (UILabel *)view;
+        label.textColor = [UIColor.labelColor colorWithAlphaComponent:0.96];
+        label.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.14];
+        label.shadowOffset = CGSizeMake(0.0, 0.35);
+    }
+    else if ([view isKindOfClass:UIButton.class]) {
+        UIButton *button = (UIButton *)view;
+        button.backgroundColor = UIColor.clearColor;
+        button.layer.borderWidth = 0.0;
+        button.layer.shadowOpacity = 0.0;
+        button.tintColor = UIColor.whiteColor;
+        if (button.configuration) {
+            UIButtonConfiguration *configuration = [button.configuration copy];
+            configuration.baseForegroundColor = UIColor.whiteColor;
+            button.configuration = configuration;
+        }
+        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    }
+    else if ([view isKindOfClass:UIImageView.class]) {
+        UIImageView *imageView = (UIImageView *)view;
+        if (imageView.image.renderingMode == UIImageRenderingModeAlwaysTemplate)
+            imageView.tintColor = UIColor.whiteColor;
+    }
+    else if ([view isKindOfClass:UITableViewHeaderFooterView.class]) {
+        UITableViewHeaderFooterView *header = (UITableViewHeaderFooterView *)view;
+        header.backgroundView = nil;
+        header.contentView.backgroundColor = UIColor.clearColor;
+    }
+
+    if ([view isKindOfClass:UITableViewCell.class]) {
+        UITableViewCell *cell = (UITableViewCell *)view;
+        cell.backgroundColor = UIColor.clearColor;
+        cell.contentView.backgroundColor = UIColor.clearColor;
+        cell.backgroundView = nil;
+        cell.layer.borderWidth = 0.0;
+    }
+
+    for (UIView *subview in view.subviews) {
+        BOOL hairline = subview.class == UIView.class &&
+            CGRectGetHeight(subview.bounds) > 0.0 &&
+            CGRectGetHeight(subview.bounds) <= 2.0 &&
+            CGRectGetWidth(subview.bounds) >= 40.0;
+        if (hairline)
+            subview.hidden = YES;
+        [self customGlassStyleContent:subview];
+    }
+}
+
+- (void)customGlassRefreshSectionBackdrops
+{
+    if (!self.customGlassSectionBackdrops)
+        return;
+
+    NSMutableSet<NSNumber *> *activeSections = [NSMutableSet set];
+    for (NSInteger section = 0; section < _table.numberOfSections; section++) {
+        // Credits.plist puts contributor collections in group headers, including
+        // sections with no ordinary rows. They need a material surface too.
+        CGRect rect = CGRectNull;
+        CGRect headerRect = [_table rectForHeaderInSection:section];
+        if (!CGRectIsEmpty(headerRect))
+            rect = headerRect;
+        NSInteger rows = [_table numberOfRowsInSection:section];
+        if (rows > 0) {
+            CGRect firstRect = [_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:section]];
+            CGRect lastRect = [_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:rows - 1 inSection:section]];
+            rect = CGRectUnion(rect, CGRectUnion(firstRect, lastRect));
+        }
+        if (CGRectIsNull(rect) || CGRectIsEmpty(rect) || CGRectGetHeight(rect) < 2.0)
+            continue;
+
+        NSNumber *key = @(section);
+        [activeSections addObject:key];
+        DOCustomLiquidGlassView *glass = self.customGlassSectionBackdrops[key];
+        if (!glass) {
+            glass = [[DOCustomLiquidGlassView alloc] initWithCornerRadius:18.0 baseTintAlpha:0.038];
+            glass.materialScale = 0.88;
+            glass.userInteractionEnabled = NO;
+            self.customGlassSectionBackdrops[key] = glass;
+            [_table insertSubview:glass atIndex:0];
+            [glass reloadMaterial];
+        }
+        glass.frame = CGRectInset(rect, 1.0, 0.5);
+        [_table sendSubviewToBack:glass];
+    }
+    for (NSNumber *key in self.customGlassSectionBackdrops.allKeys) {
+        if (![activeSections containsObject:key]) {
+            [self.customGlassSectionBackdrops[key] removeFromSuperview];
+            [self.customGlassSectionBackdrops removeObjectForKey:key];
+        }
+    }
+}
+
+- (void)customGlassRefreshPageAppearance
+{
+    [self customGlassRefreshSectionBackdrops];
+    for (UITableViewCell *cell in _table.visibleCells)
+        [self customGlassStyleContent:cell];
+    for (NSInteger section = 0; section < _table.numberOfSections; section++) {
+        [self customGlassStyleContent:[_table headerViewForSection:section]];
+        [self customGlassStyleContent:[_table footerViewForSection:section]];
+    }
+}
+
+- (void)customGlassThemeDidChange:(NSNotification *)notification
+{
+    if (!NSThread.isMainThread) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf customGlassThemeDidChange:notification];
+        });
+        return;
+    }
+    for (DOCustomLiquidGlassView *glass in self.customGlassSectionBackdrops.allValues)
+        [glass reloadMaterial];
+    [self customGlassRefreshPageAppearance];
+}
+
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    [self.view setNeedsLayout];
+    [self customGlassThemeDidChange:nil];
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    [super tableView:tableView willDisplayCell:cell forRowAtIndexPath:indexPath];
+    [self customGlassStyleContent:cell];
+    __weak typeof(self) weakSelf = self;
+    __weak UITableViewCell *weakCell = cell;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UITableViewCell *visibleCell = weakCell;
+        if (visibleCell.window && [tableView indexPathForCell:visibleCell])
+            [weakSelf customGlassStyleContent:visibleCell];
+        [weakSelf customGlassRefreshSectionBackdrops];
+    });
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section
+{
+    [self customGlassStyleContent:view];
+    [self customGlassRefreshSectionBackdrops];
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayFooterView:(UIView *)view forSection:(NSInteger)section
+{
+    [self customGlassStyleContent:view];
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:DOCustomGlassThemeDidChangeNotification
+                                                  object:nil];
 }
 
 - (id)specifiers
