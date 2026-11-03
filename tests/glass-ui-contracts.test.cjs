@@ -10,6 +10,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const main = read(ui + 'DOMainViewController.m');
 const navigation = read(ui + 'DONavigationController.m');
 const settings = read(ui + 'Settings/DOSettingsController.m');
+const credits = read(ui + 'Settings/DOCreditsViewController.m');
 const header = read(ui + 'DOHeaderView.m');
 const components = read(ui + 'DOCustomGlassView.m');
 const material = read(ui + 'DOCustomGlassView.h');
@@ -408,6 +409,39 @@ test('settings refreshes reused cells, layout and theme changes without retainin
   assert.match(cleanup, /name:DOCustomGlassThemeDidChangeNotification/);
 });
 
+test('credits has an accessible fixed back button and an edge return independent of the hidden navigation bar', () => {
+  const load = section(credits, '- (void)viewDidLoad', '- (void)backPressed');
+  assert.match(load, /self\.backButton = backButton/);
+  assert.match(load, /backButton\.accessibilityLabel = DOLocalizedString\(@"Button_Back"\)/);
+  assert.match(load, /widthAnchor constraintEqualToConstant:44\.0/);
+  assert.match(load, /heightAnchor constraintEqualToConstant:44\.0/);
+  assert.match(load, /safeAreaLayoutGuide\.topAnchor constant:6\.0/);
+  assert.match(load, /\[self\.view addSubview:backButton\]/);
+  assert.match(load, /edgeGesture\.edges = UIRectEdgeLeft/);
+  assert.match(load, /requireGestureRecognizerToFail:edgeGesture/);
+  const back = section(credits, '- (void)backPressed', '- (void)viewDidLayoutSubviews');
+  assert.match(back, /topViewController == self/);
+  assert.match(back, /popViewControllerAnimated:YES/);
+  assert.match(back, /UIGestureRecognizerStateEnded/);
+  assert.doesNotMatch(back, /NSUserDefaults|DORHSupporter|reloadMaterial/);
+  const layout = section(credits, '- (void)viewDidLayoutSubviews', '- (id)specifiers');
+  assert.match(layout, /\[super viewDidLayoutSubviews\]/);
+  assert.match(layout, /safeArea\.top \+ 56\.0/);
+  assert.match(layout, /- top - safeArea\.bottom - 5\.0/);
+  assert.match(layout, /bringSubviewToFront:self\.backButton/);
+});
+
+test('credits content and license-to-credits return remain intact', () => {
+  assert.equal(
+    fingerprint(credits.slice(credits.indexOf('- (id)specifiers'))),
+    '98ca746c282da993c08bdaff16d45eca7affb0051f9457b8044f64f32930a781',
+  );
+  const license = read(ui + 'Settings/DOLicenseViewController.m');
+  assert.match(license, /makeHeader:DOLocalizedString\(@"Credits_Button_License"\) withTarget:self/);
+  assert.match(license, /- \(void\)dismiss[\s\S]*?popViewControllerAnimated:YES/);
+  assert.match(credits, /pushViewController:\[\[DOLicenseViewController alloc\] init\]/);
+});
+
 test('new source and required system frameworks are in the app build phases', () => {
   assert.match(project, /A91611040000000000000001 \/\* DOCustomGlassView\.m in Sources \*\/,/);
   for (const framework of ['AVFoundation', 'Photos', 'PhotosUI', 'CoreImage', 'QuartzCore']) {
@@ -424,7 +458,7 @@ test('ported Objective-C files have balanced delimiters and no duplicate method 
     'DOMainViewController.m', 'DONavigationController.m',
     'DOCustomGlassView.h', 'DOCustomGlassView.m',
     'DOCustomGlassMediaStore.h', 'DOCustomGlassThemeSync.h', 'DOHeaderView.m',
-    'Settings/DOSettingsController.m',
+    'Settings/DOSettingsController.m', 'Settings/DOCreditsViewController.m',
   ]) {
     const source = read(ui + file).replace(
       /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '',

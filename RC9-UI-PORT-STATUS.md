@@ -236,3 +236,28 @@ root-view docking, profile editing and the previous settings fixes. No
 Xcode/UIKit runtime is available on this Windows host, so this is not a
 pixel-match or device-rendering result. Native compilation and fresh
 device screenshots are still required, particularly on compact screens.
+
+## About navigation follow-up (2026-11-04)
+
+The user confirmed that Settings now has a return button, but About still
+does not. About uses `DOCreditsViewController`, which retained the native
+compact modal without its own navigation control while the shared system
+navigation bar is hidden.
+
+- Add a fixed, accessible 44-by-44-point back button outside the scrolling
+  Credits table. Reserve safe-area space above the list.
+- Add left-edge return with the same distance/direction threshold as
+  Settings. Both actions pop only the current controller.
+- Preserve About's compact native presentation and all original specifiers,
+  credits and actions. This is a navigation fix, not an About glass redesign.
+- Inspect the existing License header and its one-level return to Credits;
+  leave that working route unchanged.
+- Fingerprint the original Credits methods to detect unintended changes.
+
+Verification: all 45 local source-contract tests and `git diff --check`
+pass. Windows has no Xcode/UIKit runtime, so native compilation and device
+verification of About and License navigation remain required.
+
+The preceding full build #20, run `41693553004`, completed successfully for
+`a6067091695d715757fd28409b6a150db271f682`. It does not include this About
+follow-up; a package built from the new commit is required.
