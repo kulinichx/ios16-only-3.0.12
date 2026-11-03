@@ -326,3 +326,26 @@ All source-contract tests and `git diff --check` pass locally. This Windows
 host cannot run the pinned macOS/Xcode native build. A fresh manual Actions
 build is still needed to validate the revised archive target and uploaded
 artifact.
+
+## Titan iOS 16.6 failure follow-up (2026-11-04)
+
+Two device logs from `iPhone15,2`, iOS 16.6 (20G75), fail at the same
+`Bypassing PPL (Titan)` stage with `JBErrorDomain Code=-4`. Kernel exploit
+startup and the preceding kernel information output complete.
+
+Comparison against the pre-pruning source found an iOS 16 regression in
+Titan's `proc_find_by_name`: the iOS-only pruning had replaced the XNU
+generation check with a fixed `0x381` process-name offset. The original code
+uses `0x579` when the XNU major version is greater than 8792. The newer layout
+is still part of iOS 16, so deleting this branch was incorrect; with the
+wrong offset Titan cannot locate `backboardd` and its IOGPU user client.
+
+- Restore the XNU-version-dependent `0x579` / `0x381` selection using the
+  existing iOS 16 Titan version decoder.
+- Add a source-contract regression test for this selection.
+- Do not classify this as a wallpaper issue or ask the user to keep retrying
+  the unchanged build.
+
+All 70 source-contract tests and `git diff --check` pass. A fresh macOS/Xcode
+build and device validation are still required; these structural tests cannot
+execute Titan on the target hardware.

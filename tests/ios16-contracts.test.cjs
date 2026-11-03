@@ -21,6 +21,7 @@ const jailbreaker = read('Application/Dopamine/Jailbreak/DOJailbreaker.m');
 const runtime = read('Application/Dopamine/Jailbreak/DORuntimeConfiguration.m');
 const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
 const makefile = read('Application/Makefile');
+const titanIpc = read('Application/Dopamine/Exploits/Titan/exploit/ipc_port.c');
 const launchd = read('BaseBin/launchdhook/src/roothider.m');
 const jbsettings = read('BaseBin/launchdhook/src/jbserver/jbsettings.c');
 const info = read('BaseBin/libjailbreak/src/info.h');
@@ -33,6 +34,13 @@ test('native builds pin Intel macOS and the previously tested Xcode generation',
   assert.match(workflow, /xcode-version: \$\{\{ env\.XCODE_VERSION \}\}/);
   assert.match(workflow, /test "\$RUNNER_ARCH" = 'X64'/);
   assert.match(workflow, /test "\$actual_xcode" = "\$XCODE_VERSION"/);
+});
+
+test('Titan selects the iOS 16 proc-name offset matching the XNU generation', () => {
+  assert.match(
+    titanIpc,
+    /XNU_VERSION_GREATER_THAN\(8792,\s*0,\s*0,\s*0,\s*0\)\s*\?\s*0x579\s*:\s*0x381/,
+  );
 });
 
 test('iOS 16 build creates and publishes only a TIPA archive', () => {
