@@ -53,7 +53,8 @@ every iOS 16 release or device. The retained exploit restrictions still apply.
 - The kfd IOSurface R/W backend, its dispatch cases and its old offset fields.
 - The iOS 15 IOSurface allocation implementation and backboardd method.
 - `BaseBin/hookd`, its local providers/clients, and its memory-hook helpers.
-- Standalone TXM, stock_fixes, arm64 kcall and Fugu14 kcall implementations.
+- Standalone TXM, stock_fixes, arm64 kcall and Fugu14 kcall implementations,
+  including the Fugu14 assembly companion.
 - The active palera1n hook loader and `.installed_palera1n` marker updates.
 - Generated dyldhook iOS 15 / iOS 18 task sources, the spinlock fix,
   fake-library redirect and the disabled forkfix reimplementation.
@@ -156,12 +157,28 @@ not build inputs and have not been deleted as part of this operation.
   Metadata XML is also parsed locally. Record the
   actual final result in the handoff; do not infer a native build from it.
 
-Local result for this pass: all 66 Node source-contract tests pass, all six
+Local result for this pass: all 67 Node source-contract tests pass, all six
 exploit metadata files parse as XML, and both `git diff --check` commands pass.
 Recursive submodule commits remain at the original pins, with the intentional
 prepared XPF working-tree edits described above. No local actionlint executable
 or Apple native compiler was available, so neither an actionlint rerun nor a
 native compilation is claimed for this pass.
+
+## First native-build failure and correction
+
+Native run `41711594213` for source `7d6a3874` failed while linking
+`libjailbreak.dylib`: `_gUserReturnDidHappen` was referenced by `_pac_loop`
+in `kcall_Fugu14-arm64.o`. The Fugu14 C implementation had been removed,
+but its assembly companion `src/kcall_Fugu14.S` was inadvertently retained
+and matched the Makefile's `src/*.S` wildcard. This was a pruning omission,
+not a runner or Xcode selection failure.
+
+The assembly companion is now removed instead of restoring the obsolete
+implementation or adding a dummy symbol. A regression check explicitly
+covers the libjailbreak C, Objective-C and assembly wildcard inputs while
+preserving the required `inline_svc.S`. The earlier static suite did not
+cover this assembly dependency; passing source checks did not establish
+link correctness. The corrected candidate still needs a new native build.
 
 ## Remaining acceptance work
 

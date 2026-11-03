@@ -171,6 +171,7 @@ const retiredPaths = [
   'BaseBin/roothidehooks/src/palera1n.x', 'BaseBin/forkfix/src/reimpl.c.disabled',
   ...['stock_fixes', 'txm', 'hookd', 'kcall_arm64', 'kcall_Fugu14'].flatMap(name =>
     ['c', 'h'].map(ext => `BaseBin/libjailbreak/src/${name}.${ext}`)),
+  'BaseBin/libjailbreak/src/kcall_Fugu14.S',
   'BaseBin/libjailbreak/src/memory_hooks.h',
   ...['c', 'h'].map(ext => `BaseBin/launchdhook/src/hookd_provider.${ext}`),
   ...['c', 'h'].map(ext => `BaseBin/systemhook/src/common/hookd_external.${ext}`),
@@ -186,6 +187,17 @@ test('obsolete modules are physically removed, not merely deleted after building
   const allowed = makefile.match(/^IOS16_EXPLOITS = (.+)$/m)[1].split(/\s+/).sort();
   assert.deepEqual(allowed, retainedExploits);
   assert.doesNotMatch(read('BaseBin/Makefile'), /^hookd:|make\) -C hookd|launchdhook hookd/m);
+});
+
+test('libjailbreak wildcard inputs include required assembly but no retired kcall implementation', () => {
+  const directory = 'BaseBin/libjailbreak/src';
+  assert.match(read('BaseBin/libjailbreak/Makefile'), /\$\(wildcard src\/\*\.c src\/\*\.m src\/\*\.S /);
+  const inputs = fs.readdirSync(path.join(root, directory)).filter(file => /\.(?:c|m|S)$/.test(file));
+  assert.ok(inputs.includes('inline_svc.S'), 'Keep the required syscall assembly');
+  for (const file of inputs) {
+    assert.doesNotMatch(file, /^(?:kcall_Fugu14|kcall_arm64|hookd|stock_fixes|txm)\./, file);
+    assert.doesNotMatch(mask(read(`${directory}/${file}`)), /\b_?(?:gUserReturnDidHappen|pac_loop)\b/, file);
+  }
 });
 
 test('Xcode project has no dangling object references and only the intended native targets', () => {
