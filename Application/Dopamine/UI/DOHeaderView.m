@@ -14,7 +14,8 @@
 @property (nonatomic) UIStackView *subtitleStack;
 @property (nonatomic) UILabel *informationTitleLabel;
 @property (nonatomic) NSLayoutConstraint *logoHeightConstraint;
-@property (nonatomic) UIView *glassLogoContainer;
+@property (nonatomic) NSMutableArray<NSLayoutConstraint *> *subtitleWidthConstraints;
+@property (nonatomic) UIStackView *glassSubtitleStack;
 
 @end
 
@@ -23,6 +24,7 @@
 // 创建标志与统一对齐的紧凑信息列。
 -(id)initWithImage:(UIImage *)image subtitles:(NSArray<NSAttributedString *> *)subtitles {
     if (self = [super init]) {
+        self.subtitleWidthConstraints = [NSMutableArray array];
         UIStackView *stackView = [[UIStackView alloc] init];
         stackView.axis = UILayoutConstraintAxisVertical;
         stackView.spacing = 2;
@@ -80,7 +82,9 @@
     label.textAlignment = NSTextAlignmentLeft;
     label.translatesAutoresizingMaskIntoConstraints = NO;
     [self.subtitleStack addArrangedSubview:label];
-    [label.widthAnchor constraintEqualToAnchor:self.subtitleStack.widthAnchor].active = YES;
+    NSLayoutConstraint *width = [label.widthAnchor constraintEqualToAnchor:self.subtitleStack.widthAnchor];
+    width.active = YES;
+    [self.subtitleWidthConstraints addObject:width];
     return label;
 }
 
@@ -115,23 +119,46 @@
 
 - (void)applyGlassLayoutWithLogoHeight:(CGFloat)height subtitleScale:(CGFloat)scale
 {
-    // Value rows retain their fonts because they are refreshed independently.
-    (void)scale;
     self.logoHeightConstraint.constant = height;
-    if (self.glassLogoContainer) return;
-    [self.subtitleStack removeArrangedSubview:self.logoView];
-    [self.logoView removeFromSuperview];
-    UIView *container = [[UIView alloc] init];
-    container.translatesAutoresizingMaskIntoConstraints = NO;
-    [container addSubview:self.logoView];
-    [self.subtitleStack insertArrangedSubview:container atIndex:0];
-    [NSLayoutConstraint activateConstraints:@[
-        [container.widthAnchor constraintEqualToAnchor:self.subtitleStack.widthAnchor],
-        [container.heightAnchor constraintEqualToAnchor:self.logoView.heightAnchor],
-        [self.logoView.centerXAnchor constraintEqualToAnchor:container.centerXAnchor],
-        [self.logoView.topAnchor constraintEqualToAnchor:container.topAnchor]
-    ]];
-    self.glassLogoContainer = container;
+    if (self.glassSubtitleStack) return;
+
+    // RC9 centers the logo and a compact, left-aligned three-line information
+    // block separately. Natural label widths keep the block centered as uptime
+    // grows, while the maximum width permits wrapping on a narrow screen.
+    [NSLayoutConstraint deactivateConstraints:self.subtitleWidthConstraints];
+    [self.subtitleWidthConstraints removeAllObjects];
+    self.subtitleStack.alignment = UIStackViewAlignmentCenter;
+    self.subtitleStack.spacing = 2.0;
+
+    UIStackView *information = [[UIStackView alloc] init];
+    information.axis = UILayoutConstraintAxisVertical;
+    information.alignment = UIStackViewAlignmentFill;
+    information.spacing = 2.0;
+    information.translatesAutoresizingMaskIntoConstraints = NO;
+    NSUInteger index = 0;
+    for (UIView *view in self.subtitleStack.arrangedSubviews.copy) {
+        if (![view isKindOfClass:UILabel.class])
+            continue;
+        UILabel *label = (UILabel *)view;
+        UIFont *originalFont = label.attributedText.length ?
+            [label.attributedText attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL] : label.font;
+        UIFont *font = [(originalFont ?: [UIFont systemFontOfSize:14.0])
+            fontWithSize:(originalFont ? originalFont.pointSize : 14.0) * scale];
+        UIColor *color = [UIColor colorWithWhite:1.0 alpha:(index == 0 ? 1.0 : 0.8)];
+        NSString *text = label.text ?: @"";
+        label.attributedText = nil;
+        label.font = font;
+        label.textColor = color;
+        label.text = text;
+        label.textAlignment = NSTextAlignmentLeft;
+        [self.subtitleStack removeArrangedSubview:label];
+        [label removeFromSuperview];
+        [information addArrangedSubview:label];
+        index++;
+    }
+    [self.subtitleStack addArrangedSubview:information];
+    [information.widthAnchor constraintLessThanOrEqualToAnchor:self.subtitleStack.widthAnchor].active = YES;
+    self.glassSubtitleStack = information;
 }
 
 @end

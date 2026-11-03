@@ -9,6 +9,8 @@ const ui = 'Application/Dopamine/UI/';
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const main = read(ui + 'DOMainViewController.m');
 const navigation = read(ui + 'DONavigationController.m');
+const settings = read(ui + 'Settings/DOSettingsController.m');
+const header = read(ui + 'DOHeaderView.m');
 const components = read(ui + 'DOCustomGlassView.m');
 const material = read(ui + 'DOCustomGlassView.h');
 const media = read(ui + 'DOCustomGlassMediaStore.h');
@@ -40,7 +42,7 @@ test('jailbreak execution remains identical to the tested 1754adf6 baseline', ()
 });
 
 test('glass presentation does not import licensing or the retired Metal overlay', () => {
-  for (const source of [main, navigation, components, material, media, sync, project]) {
+  for (const source of [main, navigation, settings, components, material, media, sync, project]) {
     assert.doesNotMatch(source, /DORHSupporter|DOSupporterLicense|DOCustomGlassRefractionView/);
   }
   assert.match(main, /\[self setupCustomGlassHome\];/);
@@ -66,7 +68,7 @@ test('material roles and the four RC9 appearance controls remain connected', () 
 });
 
 test('uptime uses continuous time and localized full day-hour-minute units', () => {
-  const duration = section(main, '- (NSString *)systemUptimeDescription', '- (NSString *)appBuildTimeDescription');
+  const duration = section(main, '- (NSString *)systemUptimeDescription', '- (void)refreshSystemUptime');
   assert.match(duration, /mach_continuous_time\(\)/);
   assert.match(duration, /NSCalendarUnitDay \| NSCalendarUnitHour \| NSCalendarUnitMinute/);
   assert.match(duration, /NSDateComponentsFormatterUnitsStyleFull/);
@@ -91,13 +93,56 @@ test('the minute timer preserves weak ownership, lifecycle stops and aligned fir
   assert.match(timer, /\[_uptimeTimer invalidate\]/);
 });
 
-test('glass keeps system, injection and build information rows and the bounded header', () => {
-  for (const property of ['systemVersionLabel', 'appBuildInfoLabel', 'appBuildTimeLabel', 'systemUptimeLabel']) {
-    assert.match(main, new RegExp(`self\\.${property} = \\[self addInformationRowToHeader:`));
-  }
-  assert.match(main, /environment\.injectionModeDescription/);
-  assert.match(read(ui + 'DOHeaderView.m'), /applyGlassLayoutWithLogoHeight/);
-  assert.match(read(ui + 'DOHeaderView.m'), /container\.widthAnchor constraintEqualToAnchor:self\.subtitleStack\.widthAnchor/);
+test('home header has only version, credits and localized uptime', () => {
+  const setup = section(main, 'DOHeaderView *headerView =', 'NSMutableArray<UIView *> *headerSubtitleLabels');
+  assert.equal((setup.match(/\[DOGlobalAppearance (?:main|secondary)SubtitleString:/g) || []).length, 3);
+  assert.match(setup, /versionSupportString/);
+  assert.match(setup, /DOLocalizedString\(@"Credits_Made_By"\)/);
+  assert.match(setup, /self\.systemUptimeLabel = \[headerView addSubtitle:/);
+  assert.match(setup, /DOLocalizedString\(@"Home_Uptime_Format"\)/);
+  assert.doesNotMatch(main, /appBuildInfoLabel|appBuildTimeLabel|systemVersionLabel|addInformationRowToHeader|DOBuildTimestamp/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN'])
+    assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Home_Uptime_Format"\s*=\s*"[^"]*%@";/);
+});
+
+test('RC9 header centers the logo and a compact left-aligned information block without freezing its width', () => {
+  const layout = section(header, '- (void)applyGlassLayoutWithLogoHeight:', '\n@end');
+  assert.match(layout, /self\.logoHeightConstraint\.constant = height/);
+  assert.match(layout, /deactivateConstraints:self\.subtitleWidthConstraints/);
+  assert.match(layout, /self\.subtitleStack\.alignment = UIStackViewAlignmentCenter/);
+  assert.match(layout, /information\.alignment = UIStackViewAlignmentFill/);
+  assert.match(layout, /label\.textAlignment = NSTextAlignmentLeft/);
+  assert.match(layout, /originalFont\.pointSize : 14\.0\) \* scale/);
+  assert.match(layout, /information\.widthAnchor constraintLessThanOrEqualToAnchor:self\.subtitleStack\.widthAnchor/);
+  assert.doesNotMatch(layout, /constraintEqualToConstant:subtitleWidth|glassLogoContainer|removeArrangedSubview:self\.logoView/);
+  assert.match(main, /self\.systemUptimeLabel\.text =/);
+});
+
+test('home uses the RC9 safe-area layout instead of stretching or scaling a whole-page wrapper', () => {
+  const setup = section(main, '- (void)setupCustomGlassHome', '- (NSString *)jailbreakButtonTitle');
+  assert.match(setup, /CGFloat topInset = isPad \? 24\.0 : \(compactLayout \? 6\.0 : 10\.0\)/);
+  assert.match(setup, /CGFloat horizontalInset = compactLayout \? 20\.0 : 25\.0/);
+  assert.match(setup, /mainStack\.topAnchor constraintGreaterThanOrEqualToAnchor:safeArea\.topAnchor constant:topInset/);
+  assert.match(setup, /mainStack\.bottomAnchor constraintLessThanOrEqualToAnchor:safeArea\.bottomAnchor constant:-8\.0/);
+  assert.match(setup, /mainStack\.centerYAnchor constraintEqualToAnchor:safeArea\.centerYAnchor/);
+  assert.match(setup, /mainStack\.centerYAnchor constraintEqualToAnchor:safeArea\.centerYAnchor constant:-10\.0/);
+  assert.match(setup, /mainStack\.widthAnchor constraintEqualToAnchor:self\.view\.widthAnchor multiplier:0\.8/);
+  assert.match(setup, /mainStack\.widthAnchor constraintLessThanOrEqualToConstant:UI_IPAD_MAX_WIDTH/);
+  assert.doesNotMatch(main, /self\.contentView|MAX\(size\.height, availableHeight\)|systemLayoutSizeFittingSize:/);
+});
+
+test('RC9 action-panel dimensions and jailbreak-bar offsets are retained', () => {
+  for (const declaration of [
+    'CGFloat mainSpacing = compactLayout ? 8.0 : 12.0;',
+    'CGFloat headerToProfileSpacing = isPad ? 29.0 : (compactLayout ? 14.0 : 18.0);',
+    'CGFloat avatarSize = isPad ? 104.0 : (compactLayout ? 72.0 : 84.0);',
+    'CGFloat gridHeight = isPad ? 300.0 : (compactLayout ? 214.0 : 250.0);',
+    'CGFloat themeCardHeight = isPad ? 60.0 : (compactLayout ? 48.0 : 52.0);',
+    'CGFloat leftColumnWidthMultiplier = isPad ? 0.34 : 0.35;',
+    'CGFloat jailbreakVerticalOffset = isPad ? -12.0 : (compactLayout ? -24.0 : -30.0);',
+    'CGFloat updateReserveHeight = ([DOGlobalAppearance isHomeButtonDevice] ? 42.0 : 52.0) - gridDrop;',
+  ]) assert.ok(main.includes(declaration), declaration);
+  assert.match(main, /self\.jailbreakBtn\.centerYAnchor constraintEqualToAnchor:buttonPlaceHolder\.centerYAnchor constant:jailbreakVerticalOffset/);
 });
 
 test('jailbreak entry preserves other-jailbreak guard and root-coordinate expansion', () => {
@@ -126,6 +171,33 @@ test('profile editing and focus mode are retained', () => {
   ]) assert.ok(main.includes(selector), selector);
   assert.match(main, /DOCustomGlassMediaStoreSaveAvatar/);
   assert.match(material, /DOCustomGlassTheme\.ProfileFocusEnabled/);
+});
+
+test('username and motto editors use saved user input rather than treating placeholders as entered data', () => {
+  const username = section(main, '- (void)presentCustomGlassUsernameEditor', '- (void)customGlassUsernameTextChanged:');
+  assert.match(username, /currentUsername = \[NSUserDefaults\.standardUserDefaults stringForKey:DOCustomGlassUsernameKey\] \?: @""/);
+  assert.match(username, /textField\.text = currentUsername/);
+  assert.match(username, /setObject:username forKey:DOCustomGlassUsernameKey/);
+  const motto = section(main, '- (void)presentCustomGlassMottoEditor', '- (void)customGlassMottoTextChanged:');
+  assert.match(motto, /currentMotto = \[NSUserDefaults\.standardUserDefaults stringForKey:DOCustomGlassMottoKey\] \?: @""/);
+  assert.match(motto, /textField\.text = currentMotto/);
+  assert.match(motto, /setObject:motto forKey:DOCustomGlassMottoKey/);
+  assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassUsernameEditor\)/);
+  assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassMottoEditor\)/);
+});
+
+test('avatar focus reaches physical screen edges, fades information without moving panels and remains reversible', () => {
+  const focus = section(main, '- (void)setCustomGlassProfileFocusEnabled:', '- (void)configureCustomGlassHeaderView:');
+  assert.match(focus, /for \(UIView \*label in self\.customGlassHeaderSubtitleLabels\)[\s\S]*?label\.alpha = detailAlpha/);
+  assert.match(focus, /self\.customGlassUsernameLabel\.alpha = detailAlpha/);
+  assert.match(focus, /self\.customGlassMottoLabel\.alpha = detailAlpha/);
+  assert.match(focus, /CGRect screenFrame = self\.view\.bounds/);
+  assert.match(focus, /translationInView:self\.view/);
+  assert.match(focus, /fabs\(translation\.x\) >= 28\.0/);
+  assert.match(focus, /if \(self\.customGlassProfileFocusEnabled\)/);
+  assert.match(main, /avatarGlass\.centerXAnchor constraintEqualToAnchor:self\.view\.leadingAnchor/);
+  assert.match(main, /avatarGlass\.centerXAnchor constraintEqualToAnchor:self\.view\.trailingAnchor/);
+  assert.doesNotMatch(focus, /mainStack|setCustomSpacing|\.hidden\s*=/);
 });
 
 test('shared wallpaper handles images, video and Live Photo with persisted speed', () => {
@@ -249,6 +321,93 @@ test('stale theme selection falls back safely and the old settings picker is gon
   assert.match(read(ui + 'Themes/DOTheme.m'), /generateBootLogo/);
 });
 
+test('settings presentation leaves all existing specifiers, actions and preferences unchanged', () => {
+  assert.equal(
+    fingerprint(settings.slice(settings.indexOf('- (NSArray *)availableKernelExploitIdentifiers'))),
+    'c6f43eee7638c83d4ecc9c91a3d2af8477d5ccea2b0ea4c2ff2b39bc95680c32',
+  );
+});
+
+test('the reboot card and its confirmation have localized copy instead of raw keys', () => {
+  assert.match(main, /customGlassRestartButtonWithTitle:DOLocalizedString\(@"Menu_Reboot_Device_Title"\)/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
+    const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
+    for (const key of ['Menu_Reboot_Device_Title', 'Alert_Reboot_Device_Body', 'Button_Reboot']) {
+      const values = [...strings.matchAll(new RegExp(`^"${key}"\\s*=\\s*"((?:\\\\.|[^"\\\\])*)";`, 'gm'))];
+      assert.equal(values.length, 1, `${locale}: ${key} must appear exactly once`);
+      assert.ok(values[0][1].length > 0, `${locale}: ${key} is empty`);
+      assert.notEqual(values[0][1], key, `${locale}: ${key} is untranslated`);
+    }
+  }
+});
+
+test('settings has a fixed accessible 44-point back button and left-edge return', () => {
+  const load = section(settings, '- (void)viewDidLoad', '- (void)customGlassBackPressed');
+  assert.match(load, /customGlassBackButton = backButton/);
+  assert.match(load, /backButton\.accessibilityLabel = DOLocalizedString\(@"Button_Back"\)/);
+  assert.match(load, /widthAnchor constraintEqualToConstant:44\.0/);
+  assert.match(load, /heightAnchor constraintEqualToConstant:44\.0/);
+  assert.match(load, /safeAreaLayoutGuide\.topAnchor constant:6\.0/);
+  assert.match(load, /edgeGesture\.edges = UIRectEdgeLeft/);
+  assert.match(load, /requireGestureRecognizerToFail:edgeGesture/);
+  const back = section(settings, '- (void)customGlassBackPressed', '- (void)customGlassStyleContent:');
+  assert.match(back, /topViewController == self/);
+  assert.match(back, /popViewControllerAnimated:YES/);
+  assert.match(back, /UIGestureRecognizerStateEnded/);
+  assert.doesNotMatch(back, /NSUserDefaults|DORHSupporter|reloadMaterial/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN'])
+    assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Button_Back"\s*=\s*"(?:Back|返回)";/);
+});
+
+test('only settings gains full-screen framing and reserves safe space above its list', () => {
+  const classification = section(navigation, '- (BOOL)isCustomGlassFullScreenViewController:', '- (void)viewDidLoad');
+  assert.match(navigation, /^#import "DOSettingsController\.h"$/m);
+  assert.match(classification, /isKindOfClass:DOSettingsController\.class/);
+  assert.doesNotMatch(classification, /DOPSListController\.class|DOCreditsViewController\.class/);
+  assert.match(section(navigation, '-(CGRect)_frameForViewController:(id)viewController', '\n@end'), /isCustomGlassFullScreenViewController:viewController/);
+  const layout = section(settings, '- (void)viewDidLayoutSubviews', '- (void)tableView:');
+  assert.match(layout, /safeArea\.top \+ 56\.0/);
+  assert.match(layout, /MIN\(620\.0, availableWidth - 24\.0\)/);
+  assert.match(layout, /- top - safeArea\.bottom/);
+  // Existing Preferences selection pages retain their own return path.
+  const items = read(ui + 'Settings/PSLists/DOPSListItemsController.m');
+  assert.match(items, /addTarget:target action:@selector\(dismiss\)/);
+  assert.match(items, /\[self\.navigationController popViewControllerAnimated:YES\]/);
+});
+
+test('settings uses one RC9 glass surface per section without replacing controls or data sources', () => {
+  assert.match(settings, /^#import "DOCustomGlassView\.h"$/m);
+  assert.match(settings, /self\.view\.backgroundColor = UIColor\.clearColor/);
+  assert.match(settings, /self\.view\.layer\.masksToBounds = NO/);
+  assert.match(settings, /_table\.opaque = NO/);
+  assert.match(settings, /_table\.backgroundView = nil/);
+  assert.match(settings, /UITableViewCellSeparatorStyleNone/);
+  assert.match(settings, /self\.customGlassSectionBackdrops\[key\]/);
+  assert.match(settings, /CGRectUnion\(firstRect, lastRect\)/);
+  assert.match(settings, /initWithCornerRadius:18\.0 baseTintAlpha:0\.038/);
+  assert.match(settings, /glass\.materialScale = 0\.88/);
+  assert.match(settings, /glass\.userInteractionEnabled = NO/);
+  assert.match(settings, /\[_table sendSubviewToBack:glass\]/);
+  assert.match(settings, /removeObjectForKey:key/);
+  assert.match(settings, /isKindOfClass:UISwitch\.class/);
+  assert.match(settings, /isKindOfClass:UISlider\.class/);
+  assert.doesNotMatch(settings, /_table\.(?:delegate|dataSource)\s*=/);
+});
+
+test('settings refreshes reused cells, layout and theme changes without retaining its controller', () => {
+  assert.match(settings, /name:DOCustomGlassThemeDidChangeNotification/);
+  assert.match(settings, /if \(!NSThread\.isMainThread\)/);
+  assert.match(settings, /__weak typeof\(self\) weakSelf/);
+  assert.match(settings, /__weak UITableViewCell \*weakCell/);
+  assert.match(settings, /indexPathForCell:visibleCell/);
+  assert.match(settings, /willDisplayHeaderView:/);
+  assert.match(settings, /willDisplayFooterView:/);
+  assert.match(settings, /bringSubviewToFront:self\.customGlassBackButton/);
+  const cleanup = section(settings, '- (void)dealloc', '- (NSArray *)availableKernelExploitIdentifiers');
+  assert.match(cleanup, /removeObserver:self/);
+  assert.match(cleanup, /name:DOCustomGlassThemeDidChangeNotification/);
+});
+
 test('new source and required system frameworks are in the app build phases', () => {
   assert.match(project, /A91611040000000000000001 \/\* DOCustomGlassView\.m in Sources \*\/,/);
   for (const framework of ['AVFoundation', 'Photos', 'PhotosUI', 'CoreImage', 'QuartzCore']) {
@@ -265,6 +424,7 @@ test('ported Objective-C files have balanced delimiters and no duplicate method 
     'DOMainViewController.m', 'DONavigationController.m',
     'DOCustomGlassView.h', 'DOCustomGlassView.m',
     'DOCustomGlassMediaStore.h', 'DOCustomGlassThemeSync.h', 'DOHeaderView.m',
+    'Settings/DOSettingsController.m',
   ]) {
     const source = read(ui + file).replace(
       /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '',

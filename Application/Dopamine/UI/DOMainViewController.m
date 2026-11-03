@@ -27,10 +27,6 @@
 
 @property DOJailbreakButton *jailbreakBtn;
 @property UIStackView *mainStack;
-@property UIView *contentView;
-@property UILabel *appBuildInfoLabel;
-@property UILabel *appBuildTimeLabel;
-@property UILabel *systemVersionLabel;
 @property UILabel *systemUptimeLabel;
 @property NSTimer *uptimeTimer;
 @property(nonatomic) BOOL informationVisible;
@@ -165,7 +161,7 @@
 
 - (void)presentCustomGlassUsernameEditor
 {
-    NSString *currentUsername = self.customGlassUsernameLabel.text ?: @"";
+    NSString *currentUsername = [NSUserDefaults.standardUserDefaults stringForKey:DOCustomGlassUsernameKey] ?: @"";
 
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"用户名"
@@ -220,7 +216,7 @@
 
 - (void)presentCustomGlassMottoEditor
 {
-    NSString *currentMotto = self.customGlassMottoLabel.text ?: @"";
+    NSString *currentMotto = [NSUserDefaults.standardUserDefaults stringForKey:DOCustomGlassMottoKey] ?: @"";
 
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"个性签名"
@@ -464,7 +460,7 @@
         [defaults setBool:dockRight forKey:DOCustomGlassProfileFocusDockRightKey];
     }
 
-    [self.contentView layoutIfNeeded];
+    [self.view layoutIfNeeded];
 
     if (enabled) {
         self.customGlassAvatarCenterXConstraint.active = NO;
@@ -520,7 +516,7 @@
         for (UIView *label in self.customGlassHeaderSubtitleLabels)
             label.alpha = detailAlpha;
 
-        [self.contentView layoutIfNeeded];
+        [self.view layoutIfNeeded];
     };
 
     if (animated) {
@@ -559,14 +555,14 @@
     if (!avatarView)
         return;
 
-    CGPoint translation = [gesture translationInView:self.contentView];
-    CGPoint velocity = [gesture velocityInView:self.contentView];
+    CGPoint translation = [gesture translationInView:self.view];
+    CGPoint velocity = [gesture velocityInView:self.view];
 
     // Docking is deliberately edge-gated: the avatar follows the finger all the
     // way to a real screen edge, and only becomes Focus when it actually reaches
     // the magnetic edge zone. A quick short flick near the center never docks.
-    CGRect screenFrame = self.contentView.bounds;
-    CGPoint avatarCenter = [avatarView.superview convertPoint:avatarView.center toView:self.contentView];
+    CGRect screenFrame = self.view.bounds;
+    CGPoint avatarCenter = [avatarView.superview convertPoint:avatarView.center toView:self.view];
     // Dock by the avatar's *center* against the physical view edge. Roughly 30%
     // of the compact Focus avatar is allowed to sit outside the screen so it reads
     // as an edge tab instead of a floating badge with an inset margin.
@@ -647,15 +643,14 @@
     // Shared wallpaper/blur lives below the navigation transition container.
     // Home only owns foreground content and Glass surfaces.
 
-    self.contentView = [[UIView alloc] initWithFrame:self.view.bounds];
-    [self.view addSubview:self.contentView];
     BOOL isPad = [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad;
-    CGFloat availableHeight = CGRectGetHeight(self.contentView.bounds);
+    CGFloat availableHeight = CGRectGetHeight(self.view.bounds);
     BOOL compactLayout = !isPad && availableHeight < 720.0;
 
     // Keep one visual structure on every device. Only dimensions change so the
     // reference layout remains intact on compact iPhones, regular iPhones and iPad.
     CGFloat mainSpacing = compactLayout ? 8.0 : 12.0;
+    CGFloat topInset = isPad ? 24.0 : (compactLayout ? 6.0 : 10.0);
     CGFloat horizontalInset = compactLayout ? 20.0 : 25.0;
     CGFloat headerToProfileSpacing = isPad ? 29.0 : (compactLayout ? 14.0 : 18.0);
     CGFloat logoHeight = isPad ? 55.0 : (compactLayout ? 39.0 : 40.0);
@@ -679,7 +674,7 @@
     CGFloat systemToMottoSpacing = isPad ? 12.0 : (compactLayout ? 9.0 : 10.0);
     CGFloat leftColumnWidthMultiplier = isPad ? 0.34 : 0.35;
     CGFloat jailbreakButtonHeight = isPad ? 60.0 : (compactLayout ? 44.0 : 48.0);
-    CGFloat jailbreakVerticalOffset = 0.0;
+    CGFloat jailbreakVerticalOffset = isPad ? -12.0 : (compactLayout ? -24.0 : -30.0);
     CGFloat jailbreakHorizontalInset = isPad ? 0.0 : 4.0;
 
     UIStackView *mainStack = [[UIStackView alloc] init];
@@ -688,15 +683,36 @@
     mainStack.distribution = UIStackViewDistributionFill;
     mainStack.spacing = mainSpacing;
     mainStack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:mainStack];
+    [self.view addSubview:mainStack];
 
     self.mainStack = mainStack;
-    [NSLayoutConstraint activateConstraints:@[
-        [mainStack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
-        [mainStack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
-        [mainStack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
-        [mainStack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor]
-    ]];
+    UILayoutGuide *safeArea = self.view.safeAreaLayoutGuide;
+    if (isPad) {
+        NSLayoutConstraint *relativeWidthConstraint = [mainStack.widthAnchor constraintEqualToAnchor:self.view.widthAnchor multiplier:0.8];
+        relativeWidthConstraint.priority = UILayoutPriorityDefaultHigh;
+        NSLayoutConstraint *maxWidthConstraint = [mainStack.widthAnchor constraintLessThanOrEqualToConstant:UI_IPAD_MAX_WIDTH];
+        NSLayoutConstraint *verticalPositionConstraint = [mainStack.centerYAnchor constraintEqualToAnchor:safeArea.centerYAnchor constant:-10.0];
+        verticalPositionConstraint.priority = UILayoutPriorityDefaultHigh;
+        [NSLayoutConstraint activateConstraints:@[
+            [mainStack.topAnchor constraintGreaterThanOrEqualToAnchor:safeArea.topAnchor constant:topInset],
+            [mainStack.bottomAnchor constraintLessThanOrEqualToAnchor:safeArea.bottomAnchor constant:-12.0],
+            [mainStack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            verticalPositionConstraint,
+            relativeWidthConstraint,
+            maxWidthConstraint
+        ]];
+    }
+    else {
+        NSLayoutConstraint *verticalPositionConstraint = [mainStack.centerYAnchor constraintEqualToAnchor:safeArea.centerYAnchor];
+        verticalPositionConstraint.priority = UILayoutPriorityDefaultHigh;
+        [NSLayoutConstraint activateConstraints:@[
+            [mainStack.topAnchor constraintGreaterThanOrEqualToAnchor:safeArea.topAnchor constant:topInset],
+            [mainStack.bottomAnchor constraintLessThanOrEqualToAnchor:safeArea.bottomAnchor constant:-8.0],
+            [mainStack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:horizontalInset],
+            [mainStack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-horizontalInset],
+            verticalPositionConstraint
+        ]];
+    }
 
     // Keep the original DOHeaderView so version/author/uptime retain Dopamine's
     // existing internal spacing and behavior. Custom Home only centers that stack
@@ -705,11 +721,9 @@
         [DOGlobalAppearance mainSubtitleString:[[DOEnvironmentManager sharedManager] versionSupportString]],
         [DOGlobalAppearance secondarySubtitleString:DOLocalizedString(@"Credits_Made_By")]
     ]];
-    self.systemVersionLabel = [self addInformationRowToHeader:headerView titleKey:@"System version: %@"];
-    self.appBuildInfoLabel = [self addInformationRowToHeader:headerView titleKey:@"Build version: %@"];
-    self.appBuildTimeLabel = [self addInformationRowToHeader:headerView titleKey:@"Build time: %@"];
-    self.systemUptimeLabel = [self addInformationRowToHeader:headerView titleKey:@"System boot time: %@"];
-    [self refreshSystemInformation];
+    self.systemUptimeLabel = [headerView addSubtitle:
+        [DOGlobalAppearance secondarySubtitleString:
+            [NSString stringWithFormat:DOLocalizedString(@"Home_Uptime_Format"), [self systemUptimeDescription]]]];
     [self configureCustomGlassHeaderView:headerView logoHeight:logoHeight subtitleScale:headerSubtitleScale];
 
     NSMutableArray<UIView *> *headerSubtitleLabels = [NSMutableArray array];
@@ -744,7 +758,7 @@
     // A subview outside profileView's bounds cannot reliably receive hit-testing;
     // placing it here lets the pan gesture reach and remain interactive at the
     // physical left/right screen edges while its Y position still follows profileView.
-    [self.contentView addSubview:avatarGlass];
+    [self.view addSubview:avatarGlass];
     self.customGlassAvatarContainerView = avatarGlass;
     self.customGlassAvatarNormalSize = avatarSize;
     self.customGlassAvatarFocusSize = isPad ? 58.0 : (compactLayout ? 46.0 : 50.0);
@@ -757,9 +771,9 @@
     // quieter over video/Live Photo and removes the previous floating inset.
     CGFloat focusPeekCenter = MAX(8.0, self.customGlassAvatarFocusSize * 0.20);
     self.customGlassAvatarLeadingDockConstraint =
-        [avatarGlass.centerXAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:focusPeekCenter];
+        [avatarGlass.centerXAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:focusPeekCenter];
     self.customGlassAvatarTrailingDockConstraint =
-        [avatarGlass.centerXAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-focusPeekCenter];
+        [avatarGlass.centerXAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-focusPeekCenter];
 
     [NSLayoutConstraint activateConstraints:@[
         self.customGlassAvatarWidthConstraint,
@@ -1013,7 +1027,7 @@
     UIView *updateReserve = [[UIView alloc] init];
     updateReserve.translatesAutoresizingMaskIntoConstraints = NO;
     [mainStack addArrangedSubview:updateReserve];
-    CGFloat updateReserveHeight = [DOGlobalAppearance isHomeButtonDevice] ? 42.0 : 52.0;
+    CGFloat updateReserveHeight = ([DOGlobalAppearance isHomeButtonDevice] ? 42.0 : 52.0) - gridDrop;
     [updateReserve.heightAnchor constraintEqualToConstant:updateReserveHeight].active = YES;
 
     UIView *buttonPlaceHolder = [[UIView alloc] init];
@@ -1101,7 +1115,7 @@
         [jailbreakMaterialGlass.bottomAnchor constraintEqualToAnchor:self.jailbreakBtn.bottomAnchor]
     ]];
 
-    [self.contentView addSubview:self.jailbreakBtn];
+    [self.view addSubview:self.jailbreakBtn];
 
     self.customGlassJailbreakCenterYConstraint =
         [self.jailbreakBtn.centerYAnchor constraintEqualToAnchor:buttonPlaceHolder.centerYAnchor constant:jailbreakVerticalOffset];
@@ -1140,24 +1154,6 @@
 }
 
 
-// 按安全区与内容自然尺寸计算统一比例，同步缩放文字、图标、按钮和间距。
-- (void)viewDidLayoutSubviews
-{
-    [super viewDidLayoutSubviews];
-    if (self.jailbreakBtn.didExpand) return;
-    CGRect safeFrame = self.view.safeAreaLayoutGuide.layoutFrame;
-    BOOL isPad = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
-    CGFloat width = isPad ? MIN(safeFrame.size.width * 0.8, UI_IPAD_MAX_WIDTH) : MAX(375, safeFrame.size.width) - UI_PADDING * 2;
-    CGFloat availableHeight = safeFrame.size.height - 24;
-    if (width <= 0 || availableHeight <= 0) return;
-    CGSize size = [self.mainStack systemLayoutSizeFittingSize:CGSizeMake(width, 0) withHorizontalFittingPriority:UILayoutPriorityRequired verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
-    CGFloat height = MAX(size.height, availableHeight);
-    CGFloat scale = MIN(1, MIN((safeFrame.size.width - UI_PADDING * 2) / width, availableHeight / height));
-    self.contentView.bounds = CGRectMake(0, 0, width, height);
-    self.contentView.center = CGPointMake(CGRectGetMidX(safeFrame), CGRectGetMidY(safeFrame));
-    self.contentView.transform = CGAffineTransformMakeScale(scale, scale);
-}
-
 - (NSString *)jailbreakButtonTitle
 {
     BOOL isJailbroken = [[DOEnvironmentManager sharedManager] isJailbroken];
@@ -1192,47 +1188,18 @@
     return [formatter stringFromTimeInterval:seconds] ?: DOLocalizedString(@"Unknown");
 }
 
-// 将包内记录的实际构建时间转换为设备当前时区。
-- (NSString *)appBuildTimeDescription
-{
-    NSTimeInterval timestamp = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"DOBuildTimestamp"] doubleValue];
-    if (timestamp <= 0) return DOLocalizedString(@"Unknown");
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
-    formatter.timeZone = [NSTimeZone localTimeZone];
-    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
-    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:timestamp]];
-}
-
-// 从本地化格式生成独立标题，动态内容由返回的标签负责显示。
-- (UILabel *)addInformationRowToHeader:(DOHeaderView *)header titleKey:(NSString *)key
-{
-    NSString *title = [[NSString stringWithFormat:DOLocalizedString(key), @""] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    return [header addInformationRowWithTitle:[DOGlobalAppearance secondarySubtitleString:title]];
-}
-
-// 返回主页或切回应用时刷新系统版本、注入模式与应用构建信息。
-- (void)refreshSystemInformation
-{
-    DOEnvironmentManager *environment = [DOEnvironmentManager sharedManager];
-    NSString *versionAndMode = [NSString stringWithFormat:@"%@ (%@)", environment.systemVersion ?: UIDevice.currentDevice.systemVersion, environment.injectionModeDescription];
-    self.systemVersionLabel.attributedText = [DOGlobalAppearance secondarySubtitleString:versionAndMode];
-    self.appBuildInfoLabel.attributedText = [DOGlobalAppearance secondarySubtitleString:environment.appVersion ?: DOLocalizedString(@"Unknown")];
-    self.appBuildTimeLabel.attributedText = [DOGlobalAppearance secondarySubtitleString:[self appBuildTimeDescription]];
-    [self refreshSystemUptime];
-}
-
 // 每次直接读取系统时钟刷新时长，避免逐秒累加造成误差。
 - (void)refreshSystemUptime
 {
-    self.systemUptimeLabel.attributedText = [DOGlobalAppearance secondarySubtitleString:[self systemUptimeDescription]];
+    self.systemUptimeLabel.text =
+        [NSString stringWithFormat:DOLocalizedString(@"Home_Uptime_Format"), [self systemUptimeDescription]];
 }
 
 // 仅在主页可见且应用活跃时刷新，分钟显示无需逐秒重绘。
 - (void)resumeSystemInformationUpdates
 {
     if (!self.informationVisible) return;
-    [self refreshSystemInformation];
+    [self refreshSystemUptime];
     if (self.uptimeTimer || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
     __weak typeof(self) weakSelf = self;
     self.uptimeTimer = [NSTimer timerWithTimeInterval:60 repeats:YES block:^(NSTimer *timer) {
@@ -1384,13 +1351,13 @@
     }] chevron:NO];
 
     self.updateButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:self.updateButton];
+    [self.view addSubview:self.updateButton];
 
     // 为更新入口预留间距，随内容一起参与小屏布局。
     // The glass home already reserves space above the jailbreak button.
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.updateButton.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+        [self.updateButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [self.updateButton.heightAnchor constraintEqualToConstant:30],
         [self.updateButton.bottomAnchor constraintEqualToAnchor:self.jailbreakBtn.topAnchor constant:-12]
     ]];

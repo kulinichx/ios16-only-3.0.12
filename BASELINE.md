@@ -177,10 +177,14 @@ Theme preferences use an independent `DopamineRH-iOS16` snapshot directory.
 RC9's existing media/preferences are not imported or overwritten; select the
 wallpaper and avatar again in this app.
 
-Local validation: 29 Node source-contract tests, icon file/hash/dimension
-checks, XML parsing, actionlint and `git diff --check`. Windows cannot compile
-or render this UIKit application. Full native build, actual package-size
-comparison and device regression remain required; see the port status file.
+Initial local validation used 29 Node source-contract tests, icon
+file/hash/dimension checks, XML parsing, actionlint and `git diff --check`.
+After two runner checks and one localization-import regression were added,
+all 32 tests and full Intel native build #18 passed for source `a8e736ef`.
+Its scripted package verification and IPA/TIPA uploads also succeeded.
+Actual package-size comparison and device regression remain required;
+see `RC9-UI-PORT-STATUS.md`. The earlier slim build remains the user-tested
+device reference; native compilation alone does not validate the glass UI.
 
 ## Compatibility and remaining work
 

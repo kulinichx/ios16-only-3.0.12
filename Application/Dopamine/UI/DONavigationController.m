@@ -11,6 +11,7 @@
 #import "DOGlobalAppearance.h"
 #import "DOThemeManager.h"
 #import "DOCustomGlassMediaStore.h"
+#import "DOSettingsController.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #import <AVFoundation/AVFoundation.h>
@@ -329,7 +330,8 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 
 - (BOOL)isCustomGlassFullScreenViewController:(UIViewController *)viewController
 {
-    return [NSStringFromClass(viewController.class) hasPrefix:@"DOCustomGlass"];
+    return [viewController isKindOfClass:DOSettingsController.class] ||
+        [NSStringFromClass(viewController.class) hasPrefix:@"DOCustomGlass"];
 }
 
 - (void)viewDidLoad

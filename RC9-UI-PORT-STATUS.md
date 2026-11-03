@@ -7,6 +7,11 @@ Reference, read only: `G:\RootHide\runtime-rc9-audit`
 Branch: `ios16-roothide-3.0.12`
 Remote: `ios16-target` (`kulinichx/ios16-only-3.0.12`)
 
+Current local follow-ups are documented at the end: settings glass/back
+navigation, reboot localization and the requested RC9 home-layout alignment.
+They have not yet been pushed or natively built. The first-batch sections
+below describe the historical scope, not the current working-tree layout.
+
 ## Implemented
 
 - Extracted RC9's active Liquid Glass material and appearance editor into
@@ -54,7 +59,7 @@ This is the first UI batch, not a claim that every RC9 feature was migrated.
 ## Verification performed
 
 - `node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs`:
-  29 source-contract tests pass.
+  32 source-contract tests pass after the runner and localization follow-ups.
 - RC9 primary-icon SHA-256 equality, PNG headers and catalog pixel sizes pass.
 - Themes/package-manager XML parses and actionlint 1.7.12 passes.
 - `git diff --check` passes.
@@ -63,16 +68,17 @@ This is the first UI batch, not a claim that every RC9 feature was migrated.
 - Jailbreak execution and button-title method fingerprints match the tested
   `1754adf69c60b88fb034928e1cf8949e3dd8391d` baseline.
 
-These are Windows/source checks, not an Objective-C native build or UIKit
-rendering test. Full native compilation, packaged-resource inspection and
-actual compressed TIPA size for this batch are not yet verified. The icon
-artwork increases source bytes; deleting old theme assets does not establish
-a particular compressed-package saving.
+Source checks alone are not a UIKit rendering test. The subsequent Intel
+native build and scripted package checks passed, as recorded below. The
+actual compressed TIPA size has not been measured locally for this batch.
+The icon artwork increases source bytes; deleting old theme assets does not
+establish a particular compressed-package saving. Device/UI validation is
+still required.
 
 ## Next validation
 
-1. Manually run `build_RootHide_iOS16` on `ios16-roothide-3.0.12` in GitHub
-   Actions. A push runs source checks only, not the full macOS build.
+1. Use the artifact from successful full build #18, source `a8e736ef`, for
+   device validation. A push runs source checks only, not the full macOS build.
 2. Inspect the resulting package's icon/resources and compare its actual size.
 3. Device-test cold launch, the RC9 home-screen icon, all entry cards,
    compact-screen layout, update-button spacing and jailbreak log expansion.
@@ -110,8 +116,8 @@ cache. This change does not guarantee zero queue time or a shorter compile.
 
 Added two source-contract checks (31 total). No app/UI, authorization,
 jailbreak engine, signing, bootstrap or package data changes accompany this
-runner adjustment. A full Intel native build and device validation are
-still required before accepting the glass port.
+runner adjustment. At this checkpoint, a full Intel native build and device
+validation were still required.
 
 Run #16 (41683288432, source `fad56fe6`) acquired `macos-26-intel` in about
 11 seconds. X64/Xcode 26.6 verification, the source contracts and native
@@ -122,9 +128,111 @@ That build then exposed a separate native compiler error:
 `DOCustomGlassView.m` called `DOLocalizedString` without importing its
 declaration. Added the owning `DOUIManager.h` import and a regression check
 (32 source checks total). This is a first-port extraction error, not an
-Xcode-version or Intel compatibility error. A new full native build must
-verify the fix; run #16 did not produce an installable package.
+Xcode-version or Intel compatibility error. Run #16 did not produce an
+installable package; the corrected source was verified in run #18 below.
+
+## Verified full glass build
+
+- Run #18: `41687922330`.
+- Source: `a8e736ef812a6900dda2088456afbf5c36ede7b4`.
+- Workflow: `build_RootHide_iOS16`, branch `ios16-roothide-3.0.12`.
+- Result: success; the build job took 9 minutes 15 seconds.
+- `macos-26-intel`, actual X64 architecture and Xcode 26.6 checks passed.
+- All 32 source-contract tests and native plist/project checks passed.
+- Full native build, scripted IPA verification, IPA/TIPA artifact uploads
+  and dependency-cache post steps all succeeded.
+- Scripted package verification covers ZIP integrity, RootHide identity,
+  minimum iOS 16.0, required payloads, excluded Zebra/non-16 packages and
+  byte equality of the IPA and TIPA.
+- Artifacts remain on GitHub Actions. No local package was downloaded or
+  substituted during this verification.
+
+This closes the observed runner-allocation failure and native compilation
+gate for this source. It does not guarantee that Intel jobs never queue,
+that future builds finish in three minutes, or that the glass layout/media
+lifecycle works correctly on the device. Device testing and the deferred
+settings/about styling and authorization work remain separate.
 
 Retain source `1754adf69c60b88fb034928e1cf8949e3dd8391d` and its known-working
 31,125,127-byte TIPA as the rollback reference. Do not uninstall RC9's
 jailbreak or delete bootstrap roots/package databases for a UI test.
+
+## Device feedback follow-up: settings and missing reboot copy
+
+The user reported that Settings had no glass material or visible return
+button. This was an incomplete first-batch port: Settings retained its
+opaque compact modal while the app's navigation bar remained hidden.
+
+Local follow-up changes:
+
+- Treat only `DOSettingsController` as a full-screen glass page; other native
+  modal controllers and selection-page return headers retain their behavior.
+- Add an always-available 44-by-44-point accessible back button and left-edge
+  return gesture. Reserve space below the safe area so list content cannot
+  cover the button.
+- Reuse the extracted RC9 material for one noninteractive glass backdrop per
+  settings section. Keep cells transparent, preserve native controls, refresh
+  reused cells and remove stale section backdrops after specifier changes.
+- Refresh glass on appearance/theme changes and remove the theme observer
+  during deallocation.
+- Restore the missing `Menu_Reboot_Device_Title` and
+  `Alert_Reboot_Device_Body` strings from RC9 in English and both Simplified
+  Chinese localization directories.
+- Fingerprint all original settings methods from exploit enumeration through
+  the final action against the pre-edit source; they remain unchanged.
+
+The user's RC9/new-build screenshots also show a denser diagnostic header,
+different header alignment and a lower jailbreak bar in the new build.
+The new build retains ZQBB system/injection/build information and uses its
+bounded content layout plus an update reserve; these are not a pixel-identical
+RC9 home layout. No home-layout changes, personal-data imports, supporter
+badge or authorization changes are included in this follow-up.
+
+Local source checks: 38 tests pass, including settings-navigation, section
+material, original-method fingerprints and reboot-localization checks.
+`git diff --check` passes. This follow-up is not yet committed, pushed,
+natively compiled or device-validated; run #18 predates these fixes.
+
+## User-requested RC9 home-layout alignment
+
+The user requested the original RC9 title/panel positioning and only version,
+author and uptime beneath the logo. The username and motto are user-editable
+profile data, not values to import or hardcode from the reference screenshot.
+
+Local changes:
+
+- Remove the extra system/injection/build-version/build-time rows from Home.
+  Keep the existing truthful `versionSupportString`; do not invent a wider
+  device support range or change compatibility checks.
+- Display the three-line version/author/uptime block compactly and centered
+  beneath the centered Dopamine logo. The lines share a left edge; their
+  natural width is capped to the available header width instead of being
+  frozen to one measured uptime string.
+- Restore RC9's safe-area centering, phone side insets, iPad width bounds,
+  panel dimensions, reserve-minus-grid-drop spacing and negative jailbreak-bar
+  offsets. Remove the whole-page wrapper that stretched to the available
+  screen height and altered the reference positions.
+- Keep avatar docking and gesture coordinates tied to the physical root
+  view edges. Focus mode fades the header information and profile text without
+  collapsing their layout space. The logo and action panels remain in place;
+  tapping the docked avatar or dragging inward restores the text.
+- Retain username/motto tap editors, limits and persistence. Seed editors
+  from the actual saved input rather than the displayed fallback placeholders.
+  Do not overwrite saved personal data or import RC9 media automatically.
+- Keep the continuous-time uptime calculation, minute-aligned weak timer and
+  page/application lifecycle cleanup. Refresh the plain label text without
+  resetting RC9's subtitle font scaling.
+- Preserve the other-jailbreak guard, root-coordinate button expansion and
+  existing jailbreak execution/button-title method fingerprints.
+
+Design suggestions only, not added in this follow-up: light feedback on
+edge docking, a larger invisible return hit area, reduced-motion handling
+and an optional non-gesture focus toggle. Do not hide all action panels or
+introduce a new layout while matching RC9.
+
+Verification: 43 local source-contract tests pass; `git diff --check` passes.
+The tests cover the requested three-line header, RC9 layout constants,
+root-view docking, profile editing and the previous settings fixes. No
+Xcode/UIKit runtime is available on this Windows host, so this is not a
+pixel-match or device-rendering result. Native compilation and fresh
+device screenshots are still required, particularly on compact screens.

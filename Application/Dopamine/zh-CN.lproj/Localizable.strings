@@ -1,4 +1,4 @@
-"Credits_Made_By" = "项目作者：opa334, évelyne (ElleKit)";
+"Credits_Made_By" = "作者：opa334, évelyne (ElleKit)";
 
 // Log
 "Status_Title_Jailbreaking" = "正在越狱";
@@ -10,9 +10,13 @@
 "Unsupported" = "不支持";
 
 // Action Menu
+"Home_Uptime_Format" = "已运行 %@";
+"Button_Back" = "返回";
 "Menu_Settings_Title" = "设置";
 "Menu_Restart_SpringBoard_Title" = "重启 SpringBoard";
 "Menu_Reboot_Userspace_Title" = "重启用户空间";
+"Menu_Reboot_Device_Title" = "重启设备";
+"Alert_Reboot_Device_Body" = "设备将重新启动，越狱会暂时失效，需再次执行越狱才能恢复。是否继续？";
 "Menu_Credits_Title" = "关于";
 
 // Updating
