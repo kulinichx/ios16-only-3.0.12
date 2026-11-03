@@ -13,6 +13,8 @@
 @property (nonatomic) UIImageView *logoView;
 @property (nonatomic) UIStackView *subtitleStack;
 @property (nonatomic) UILabel *informationTitleLabel;
+@property (nonatomic) NSLayoutConstraint *logoHeightConstraint;
+@property (nonatomic) UIView *glassLogoContainer;
 
 @end
 
@@ -43,8 +45,9 @@
         self.logoView.image = [image imageWithAlignmentRectInsets:UIEdgeInsetsMake(7, 0, -7, 0)];
         [stackView addArrangedSubview:self.logoView];
 
+        self.logoHeightConstraint = [self.logoView.heightAnchor constraintEqualToConstant:40];
         [NSLayoutConstraint activateConstraints:@[
-            [self.logoView.heightAnchor constraintEqualToConstant:40],
+            self.logoHeightConstraint,
             [self.logoView.widthAnchor constraintEqualToAnchor:self.logoView.heightAnchor multiplier:image.size.width / image.size.height],
         ]];
 
@@ -108,6 +111,27 @@
         self.informationTitleLabel = titleLabel;
     }
     return valueLabel;
+}
+
+- (void)applyGlassLayoutWithLogoHeight:(CGFloat)height subtitleScale:(CGFloat)scale
+{
+    // Value rows retain their fonts because they are refreshed independently.
+    (void)scale;
+    self.logoHeightConstraint.constant = height;
+    if (self.glassLogoContainer) return;
+    [self.subtitleStack removeArrangedSubview:self.logoView];
+    [self.logoView removeFromSuperview];
+    UIView *container = [[UIView alloc] init];
+    container.translatesAutoresizingMaskIntoConstraints = NO;
+    [container addSubview:self.logoView];
+    [self.subtitleStack insertArrangedSubview:container atIndex:0];
+    [NSLayoutConstraint activateConstraints:@[
+        [container.widthAnchor constraintEqualToAnchor:self.subtitleStack.widthAnchor],
+        [container.heightAnchor constraintEqualToAnchor:self.logoView.heightAnchor],
+        [self.logoView.centerXAnchor constraintEqualToAnchor:container.centerXAnchor],
+        [self.logoView.topAnchor constraintEqualToAnchor:container.topAnchor]
+    ]];
+    self.glassLogoContainer = container;
 }
 
 @end

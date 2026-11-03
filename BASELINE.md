@@ -1,6 +1,6 @@
 # ZQBB RootHide baseline
 
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 
 ## Source identity
 
@@ -55,8 +55,9 @@ All tracked submodules, including nested dependencies, are initialized:
 The original baseline preparation changed CI and documentation only.
 The initial baseline at commit `1caaf2f7` was subsequently built successfully
 on GitHub Actions. The iOS 16 slimming pass below changes runtime and package
-resources on top of that baseline; that pass still needs a new native build
-and device validation.
+resources on top of that baseline. Its full native build at `1754adf6`
+succeeded, and the user reported initial device success; see the validation
+snapshot below for the scope and remaining checks.
 
 The workflow at `.github/workflows/build.yml`:
 
@@ -127,9 +128,59 @@ parse, actionlint 1.7.12, and `git diff --check` passed. The tests check source
 connections and resources, not actual iOS process behavior.
 
 Size reference: the baseline TIPA measured 34.74 MiB locally. Its compressed
-Zebra payload alone was 4.88 MiB. A result near 30 MiB is an estimate until a
-new IPA/TIPA is built. Removing the iOS 15 bootstrap from the source tree does
-not save a further 18.50 MiB in the IPA, because it was already not packaged.
+Zebra payload alone was 4.88 MiB. The slim TIPA at `1754adf6` measures
+31,125,127 bytes (29.68 MiB), approximately 5.06 MiB smaller. Removing the
+iOS 15 bootstrap from the source tree does not save a further 18.50 MiB in
+the IPA, because it was already not packaged.
+
+## Validated snapshot: 2026-11-04
+
+- Full manual build: `1754adf69c60b88fb034928e1cf8949e3dd8391d`.
+- Successful GitHub Actions run:
+  `https://github.com/kulinichx/ios16-only-3.0.12/actions/runs/41671702364`.
+  It ran from 2026-11-04 00:11:59 to 00:25:32, Asia/Shanghai.
+- Locally inspected package:
+  `G:\RootHide\ZQBB IOS16\TIPA\roothide-Dopamine-(3.0.12-29-1754adf)-.tipa`.
+  Its filename identifies this commit; artifact identity was not independently
+  verified by a provenance hash in this check.
+- The package contains Sileo, the RootHide manager and whitelist manager
+  debs. Its entry names contain no Zebra, bootstrap1800, palera1n,
+  badRecovery or extra launchctl deb payloads.
+- User-reported initial device result: the new package is installed,
+  previously installed tweaks remain present, and those tweaks take effect.
+  This is user feedback, not an independently observed device test.
+- Still unverified: device/iOS build details, repeat full-reboot jailbreak
+  cycles, settings persistence, long-running stability, measured Jetsam
+  behavior, and comprehensive RC9 migration/rollback behavior.
+
+Keep this source commit and package as the initial known-working reference.
+Port the glass UI separately from authorization so each change can be
+tested against this reference.
+
+The initial RC9 UI source comparison is recorded in
+`RC9-UI-PORT-AUDIT.md`. It identifies the active glass material, uptime
+presentation, single-theme resources, authorization coupling and the
+cross-app theme/media persistence boundary. This is an audit, not a completed
+runtime UI port. The subsequent first-batch implementation and its separate
+validation status are recorded in `RC9-UI-PORT-STATUS.md`. Do not treat the
+glass build as device-validated merely because the earlier slim build was.
+
+## RC9 UI first batch: 2026-11-04
+
+The first batch ports the RC9 glass homepage, appearance editor, profile,
+static/video/Live Photo wallpaper, localized uptime and primary app icon.
+Only the purple fallback theme remains. App identity stays `cn.zqbb.dopaRH`;
+authorization, exploit execution, bootstrap, signing and Jetsam are unchanged.
+Settings/about retain the target's native content and modal styling.
+
+Theme preferences use an independent `DopamineRH-iOS16` snapshot directory.
+RC9's existing media/preferences are not imported or overwritten; select the
+wallpaper and avatar again in this app.
+
+Local validation: 29 Node source-contract tests, icon file/hash/dimension
+checks, XML parsing, actionlint and `git diff --check`. Windows cannot compile
+or render this UIKit application. Full native build, actual package-size
+comparison and device regression remain required; see the port status file.
 
 ## Compatibility and remaining work
 
@@ -143,8 +194,9 @@ RC9 source is preserved at `G:\RootHide\runtime-rc9-audit`. Its
 `DOPAMINE_INSTALL_VERSION` is 2; this baseline uses 3. The new source can
 discover and rerandomize an existing RootHide installation and replace
 basebin. The two apps are not proven to have isolated bootstrap state.
-Source review must establish migration behavior before using this baseline
-to jailbreak over the user's existing RC9 environment.
+The user now reports that existing tweaks remain and work with this build.
+That is initial compatibility evidence for this device, not a comprehensive
+migration/rollback audit or a guarantee for other configurations.
 
 Do not bypass duplicate-app checks or manually delete Sileo, preboot roots,
 or `.jbroot-*` directories. If removing the unintended rootless test
@@ -153,16 +205,18 @@ Remove Jailbreak operation; preserve the RC9 installation.
 
 Next work:
 
-1. Audit RC9-to-baseline root discovery, rerandomization, installed-version
-   handling and basebin replacement.
-2. Build and inspect the slim IPA/TIPA, then review remaining low-level
-   non-16 paths, exploit targets, signed-installation fallback flows and
-   optional theme assets without changing the required iOS 16 components.
-3. Compare the existing MB-additive Jetsam implementation with RC9. This
-   upstream branch already offers MB settings; do not blindly port a second
-   implementation.
-4. Port RC9 glass UI and authorization features after core behavior is
-   verified.
+1. Complete a short device regression: full reboot and re-jailbreak, Sileo
+   and tweak availability, settings persistence and ordinary use. Do not
+   remove the current jailbreak environment as a regression step.
+2. Finish the RC9 migration/rollback review and compare the existing
+   MB-additive Jetsam implementation with RC9. Keep the current algorithm
+   unchanged unless the review establishes a concrete defect.
+3. Port RC9 glass UI without changing bootstrap, package data, signing,
+   exploit behavior or authorization in the same change.
+4. Integrate authorization separately after the glass build is verified.
+   Audit initialization order and failure behavior before enforcing it.
+5. Review remaining non-16 paths and optional assets only where dependency
+   analysis shows they are unused; retain required iOS 16 components.
 
 At the user's request, the old rootless branch `ios16-only-3.0.12` was deleted
 from the target GitHub repository and the old local checkout. The old

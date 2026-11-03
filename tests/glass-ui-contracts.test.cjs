@@ -1,0 +1,283 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const test = require('node:test');
+
+const root = path.resolve(__dirname, '..');
+const ui = 'Application/Dopamine/UI/';
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const main = read(ui + 'DOMainViewController.m');
+const navigation = read(ui + 'DONavigationController.m');
+const components = read(ui + 'DOCustomGlassView.m');
+const material = read(ui + 'DOCustomGlassView.h');
+const media = read(ui + 'DOCustomGlassMediaStore.h');
+const sync = read(ui + 'DOCustomGlassThemeSync.h');
+const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
+const startup = read('Application/Dopamine/main.m');
+
+function section(source, start, end) {
+  const a = source.indexOf(start);
+  const b = source.indexOf(end, a + start.length);
+  assert.ok(a >= 0 && b > a, `Missing section: ${start}`);
+  return source.slice(a, b);
+}
+
+function fingerprint(source) {
+  const normalized = source.split('\n').map(line => line.trimEnd()).join('\n').trim();
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+}
+
+test('jailbreak execution remains identical to the tested 1754adf6 baseline', () => {
+  assert.equal(
+    fingerprint(section(main, '- (void)startJailbreak', '-(void)setupUpdateAvailable:')),
+    'a7372380df80f365d42d094ab0aea92ed7758b5adacd7d31c94890c1b0a521bb',
+  );
+  assert.equal(
+    fingerprint(section(main, '- (NSString *)jailbreakButtonTitle', '// 读取含休眠时间')),
+    '7a31c112fb7259e68c18924acb3834ed220ffe23ba2be8993f6ba4fc92d1ba88',
+  );
+});
+
+test('glass presentation does not import licensing or the retired Metal overlay', () => {
+  for (const source of [main, navigation, components, material, media, sync, project]) {
+    assert.doesNotMatch(source, /DORHSupporter|DOSupporterLicense|DOCustomGlassRefractionView/);
+  }
+  assert.match(main, /\[self setupCustomGlassHome\];/);
+  assert.match(components, /@implementation DOCustomLiquidGlassView/);
+  assert.match(components, /UIVisualEffectView/);
+  assert.match(components, /CABackdropLayer/);
+});
+
+test('material roles and the four RC9 appearance controls remain connected', () => {
+  for (const key of ['BackgroundBlur', 'GlassBlurIntensity', 'GlassTransparency', 'GlassTintAlpha']) {
+    assert.match(material, new RegExp(`DOCustomGlassTheme\\.${key}`));
+  }
+  assert.match(components, /Light Glass/);
+  assert.match(components, /Dark Glass/);
+  assert.match(components, /restoreRecommendedAppearanceValues/);
+  assert.match(components, /DOCustomGlassApplyMainMaterialProfile\(self\.previewGlassView\)/);
+  assert.match(main, /innerGlass\.suppressBackdrop = YES/);
+});
+
+test('uptime uses continuous time and localized full day-hour-minute units', () => {
+  const duration = section(main, '- (NSString *)systemUptimeDescription', '- (NSString *)appBuildTimeDescription');
+  assert.match(duration, /mach_continuous_time\(\)/);
+  assert.match(duration, /NSCalendarUnitDay \| NSCalendarUnitHour \| NSCalendarUnitMinute/);
+  assert.match(duration, /NSDateComponentsFormatterUnitsStyleFull/);
+  assert.match(duration, /NSDateComponentsFormatterZeroFormattingBehaviorDropAll/);
+  assert.match(duration, /Uptime_Less_Than_Minute/);
+  assert.doesNotMatch(duration, /CLOCK_MONOTONIC_RAW|Uptime_Format|NSCalendarUnitSecond/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
+    assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Uptime_Less_Than_Minute"\s*=/);
+  }
+});
+
+test('the minute timer preserves weak ownership, lifecycle stops and aligned first fire', () => {
+  const timer = section(main, '- (void)resumeSystemInformationUpdates', '- (void)startJailbreak');
+  assert.match(timer, /if \(!self\.informationVisible\) return/);
+  assert.match(timer, /UIApplicationStateActive/);
+  assert.match(timer, /__weak typeof\(self\) weakSelf/);
+  assert.match(timer, /timerWithTimeInterval:60/);
+  assert.match(timer, /60 - \(seconds % 60\)/);
+  assert.match(timer, /NSRunLoopCommonModes/);
+  assert.match(timer, /viewWillDisappear:[\s\S]*\[self stopUptimeTimer\]/);
+  assert.match(main, /UIApplicationWillResignActiveNotification/);
+  assert.match(timer, /\[_uptimeTimer invalidate\]/);
+});
+
+test('glass keeps system, injection and build information rows and the bounded header', () => {
+  for (const property of ['systemVersionLabel', 'appBuildInfoLabel', 'appBuildTimeLabel', 'systemUptimeLabel']) {
+    assert.match(main, new RegExp(`self\\.${property} = \\[self addInformationRowToHeader:`));
+  }
+  assert.match(main, /environment\.injectionModeDescription/);
+  assert.match(read(ui + 'DOHeaderView.m'), /applyGlassLayoutWithLogoHeight/);
+  assert.match(read(ui + 'DOHeaderView.m'), /container\.widthAnchor constraintEqualToAnchor:self\.subtitleStack\.widthAnchor/);
+});
+
+test('jailbreak entry preserves other-jailbreak guard and root-coordinate expansion', () => {
+  const click = section(main, 'self.jailbreakBtn = [[DOJailbreakButton alloc]', 'self.jailbreakBtn.enabled =');
+  const positions = [
+    'otherJailbreakActived(false)', 'customGlassPauseForJailbreak',
+    'convertRect:self.jailbreakBtn.bounds toView:self.view',
+    '[NSLayoutConstraint deactivateConstraints:self.jailbreakButtonConstraints]',
+    '[self.view addSubview:self.jailbreakBtn]',
+    '[self.jailbreakBtn expandButton:self.jailbreakButtonConstraints]',
+    '[self startJailbreak]',
+  ].map(token => {
+    const index = click.indexOf(token);
+    assert.ok(index >= 0, token);
+    return index;
+  });
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  assert.match(main, /updateButton\.bottomAnchor constraintEqualToAnchor:self\.jailbreakBtn\.topAnchor constant:-12/);
+});
+
+test('profile editing and focus mode are retained', () => {
+  for (const selector of [
+    'presentCustomGlassAvatarPicker', 'presentCustomGlassUsernameEditor',
+    'presentCustomGlassMottoEditor', 'customGlassAvatarPanned',
+    'setCustomGlassProfileFocusEnabled',
+  ]) assert.ok(main.includes(selector), selector);
+  assert.match(main, /DOCustomGlassMediaStoreSaveAvatar/);
+  assert.match(material, /DOCustomGlassTheme\.ProfileFocusEnabled/);
+});
+
+test('shared wallpaper handles images, video and Live Photo with persisted speed', () => {
+  assert.match(components, /PHPickerFilter livePhotosFilter/);
+  assert.match(components, /DOCustomGlassExportLivePhoto/);
+  assert.match(components, /DOCustomGlassMediaStoreSaveWallpaperVideo/);
+  assert.match(navigation, /AVPlayerLooper/);
+  assert.match(navigation, /player\.muted = YES/);
+  assert.match(navigation, /preventsDisplaySleepDuringVideoPlayback = NO/);
+  assert.match(navigation, /playImmediatelyAtRate:/);
+  assert.match(material, /WallpaperPlaybackRateDefault = 0\.65/);
+});
+
+test('video playback retires with its window and cannot resume during jailbreak', () => {
+  assert.match(navigation, /customGlassWallpaperSuspended \|\|/);
+  assert.match(navigation, /window\.rootViewController != self/);
+  assert.match(navigation, /UISceneActivationStateForegroundActive/);
+  assert.match(navigation, /UIApplicationWillResignActiveNotification/);
+  assert.match(navigation, /customGlassPauseForJailbreak[\s\S]*customGlassWallpaperSuspended = YES/);
+  const scene = read('Application/Dopamine/App Delegates/DOSceneDelegate.m');
+  assert.equal((scene.match(/customGlassPrepareForWindowReplacement/g) || []).length, 2);
+  assert.match(scene, /oldWindow\.rootViewController = nil/);
+});
+
+test('new theme persistence is isolated from RC9 and bootstraps before UIApplicationMain', () => {
+  assert.match(sync, /Application Support\/DopamineRH-iOS16/);
+  assert.doesNotMatch(sync, /@"\/var\/mobile\/Library\/Application Support\/DopamineRH"/);
+  assert.match(sync, /hasPrefix:DOCustomGlassThemeSyncPrefix/);
+  assert.match(sync, /external\[DOCustomGlassThemeSyncVersionKey\] != nil/);
+  assert.match(sync, /if \(!merged\[key\]\)/);
+  assert.ok(startup.indexOf('DOCustomGlassThemeSyncBootstrap();') < startup.indexOf('return UIApplicationMain('));
+});
+
+test('media ownership and write-verify-commit-before-delete ordering are retained', () => {
+  assert.match(media, /NSBundle\.mainBundle\.bundleIdentifier/);
+  assert.match(media, /DOCustomGlassMediaStoreLSContainerURL\(bundleIdentifier\)/);
+  assert.match(media, /DOCustomGlassMediaStoreMCMContainerURL\(bundleIdentifier\)/);
+  assert.match(media, /filename\.lastPathComponent/);
+  const image = section(media, 'static inline BOOL DOCustomGlassMediaStoreSaveImage', 'static inline UIImage *DOCustomGlassMediaStoreLoadAvatar');
+  const operations = ['writeToURL:newURL', 'dataWithContentsOfURL:newURL',
+    'if (!decodedImage)', '[defaults setObject:newFilename forKey:defaultsKey]',
+    'if (![committedFilename isEqualToString:newFilename])', 'removeItemAtURL:oldURL'];
+  const positions = operations.map(token => {
+    const index = image.indexOf(token);
+    assert.ok(index >= 0, token);
+    return index;
+  });
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+});
+
+test('only the purple fallback theme and primary icon remain', () => {
+  const themes = read(ui + 'Themes/Themes.plist');
+  assert.equal((themes.match(/<dict>/g) || []).length, 1);
+  assert.match(themes, /<string>purple<\/string>/);
+  assert.match(themes, /Background_Purple\.jpg/);
+  const assets = 'Application/Dopamine/Assets.xcassets/';
+  for (const set of [
+    'Background/Background_Green.imageset', 'Background/Background_ElleKit.imageset',
+    'Background/Background_Blue.imageset', 'Background/Background_Red.imageset',
+    'AppIcon_Blue.appiconset', 'AppIcon_ElleKit.appiconset',
+    'AppIcon_Red.appiconset', 'AppIcon_Purple.appiconset',
+  ]) assert.equal(fs.existsSync(path.join(root, assets, set)), false, set);
+  for (const set of ['AppIcon.appiconset', 'Background/Background_Purple.imageset']) {
+    const contents = path.join(root, assets, set, 'Contents.json');
+    const catalog = JSON.parse(fs.readFileSync(contents, 'utf8'));
+    for (const image of catalog.images.filter(item => item.filename)) {
+      assert.ok(fs.existsSync(path.join(path.dirname(contents), image.filename)), image.filename);
+    }
+  }
+  assert.doesNotMatch(project, /ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES/);
+});
+
+test('primary app icon files match the RC9 source snapshot', () => {
+  const directory = path.join(root, 'Application/Dopamine/Assets.xcassets/AppIcon.appiconset');
+  const expected = {
+    'Contents.json': '43b8c2a5712feba25572215c427ebcb7fb1e4c19da45e874ecb56a469754e0d7',
+    'Icon-38@2x.png': '1b1617c558f824d103390ee3648797724d750d29190b06cee4fa10f9583a99bc',
+    'Icon-38@3x.png': 'a3d85243f152056ad95b0f98fd479b4ab2c01467793ef3419504f5dbc1564279',
+    'Icon-60@3x.png': '37683d6e2f5b5a6481c7944811470e6dae6e4686b6b68457427b53e0e875b490',
+    'Icon-64@2x.png': '546c55df209f98ee6a96c6389f0a55590cd0ea827b030f292f075d61884cb429',
+    'Icon-64@3x.png': 'f15f69564c1fbca6405866e8de3dd105bfd7f30a7b57dd751383200bad9eeaf6',
+    'Icon-68@2x.png': 'f8c470445a5111a8ef29df324f7c937ec53bf19618064413fdfbd6ac32268718',
+    'Icon-76@2x.png': '5209ec0cc8c9163a5f9cf25e52c2bc4b69b9facc61b3f7380af01bbcf8371f75',
+    'Icon-83.5@2x.png': '2821e251aa3cdeac1c16830edefefc97ee1c50aa377b39bd39528b195beef89d',
+    'Icon-Notification@2x.png': '64b263a0fe612b3434cad1bcca8a79ebc8250fab4470d1216bc7f308f48bbd42',
+    'Icon-Notification@3x.png': '4a870f53c9a8a0352c8f710ce36089d7660f8e4ebd847756e33c0ffa89f1c099',
+    'Icon-Small-40@2x.png': 'b3a9d186840518e78503aec89e534dbd952561dd2c7931574d7a502c2f27df1d',
+    'Icon-Small-40@3x 1.png': '149adccff014812250a50def780f6d133734af7ce3788eeff799ebc34d45c51e',
+    'Icon-Small-40@3x.png': '149adccff014812250a50def780f6d133734af7ce3788eeff799ebc34d45c51e',
+    'Icon-Small@2x.png': '7c0a68d7ca50c3ea971dc4fa7a755f457b7cd39882e3375342fbe3e5c26c5943',
+    'Icon-Small@3x.png': '6f355906b1234847599033561123dfc2c3766c403d59fa1b048bc543f28d6568',
+  };
+  assert.deepEqual(fs.readdirSync(directory).sort(), Object.keys(expected).sort());
+  for (const [file, hash] of Object.entries(expected)) {
+    const bytes = fs.readFileSync(path.join(directory, file));
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), hash, file);
+  }
+  const catalog = JSON.parse(fs.readFileSync(path.join(directory, 'Contents.json'), 'utf8'));
+  for (const image of catalog.images.filter(item => item.filename)) {
+    const bytes = fs.readFileSync(path.join(directory, image.filename));
+    assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', image.filename);
+    const [width, height] = image.size.split('x').map(Number);
+    const scale = Number.parseFloat(image.scale);
+    assert.equal(bytes.readUInt32BE(16), width * scale, `${image.filename}: width`);
+    assert.equal(bytes.readUInt32BE(20), height * scale, `${image.filename}: height`);
+  }
+  assert.equal((project.match(/ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;/g) || []).length, 2);
+});
+
+test('glass slider notifications do not reload wallpaper files in navigation', () => {
+  assert.doesNotMatch(navigation, /customGlassThemeDidChange:|DOCustomGlassThemeDidChangeNotification/);
+  assert.match(components, /\[self\.navigationController customGlassApplySharedBackgroundBlurIntensity:backgroundBlur\]/);
+  assert.match(components, /\[weakSelf\.navigationController customGlassRefreshSharedBackground\]/);
+});
+
+test('stale theme selection falls back safely and the old settings picker is gone', () => {
+  assert.match(read(ui + 'Themes/DOThemeManager.m'), /isKindOfClass:NSString\.class/);
+  assert.match(read(ui + 'Themes/DOThemeManager.m'), /setPreferenceValue:theme\.key forKey:@"theme"/);
+  assert.doesNotMatch(read(ui + 'Settings/DOSettingsController.m'), /themeSpecifier|setAlternateIconName|_lastKnownTheme/);
+  assert.match(main, /setAlternateIconName:nil/);
+  assert.match(read(ui + 'Themes/DOTheme.m'), /generateBootLogo/);
+});
+
+test('new source and required system frameworks are in the app build phases', () => {
+  assert.match(project, /A91611040000000000000001 \/\* DOCustomGlassView\.m in Sources \*\/,/);
+  for (const framework of ['AVFoundation', 'Photos', 'PhotosUI', 'CoreImage', 'QuartzCore']) {
+    assert.ok(project.includes(`${framework}.framework in Frameworks */ ,`) ||
+      project.includes(`${framework}.framework in Frameworks */,`), framework);
+    assert.ok(project.includes(`System/Library/Frameworks/${framework}.framework`), framework);
+  }
+  const definitions = [...project.matchAll(/^\s*([A-F0-9]{24}) \/\* [^\n]+ \*\/ = \{/gm)].map(match => match[1]);
+  assert.equal(new Set(definitions).size, definitions.length, 'Duplicate Xcode object definitions');
+});
+
+test('ported Objective-C files have balanced delimiters and no duplicate method definitions per class', () => {
+  for (const file of [
+    'DOMainViewController.m', 'DONavigationController.m',
+    'DOCustomGlassView.h', 'DOCustomGlassView.m',
+    'DOCustomGlassMediaStore.h', 'DOCustomGlassThemeSync.h', 'DOHeaderView.m',
+  ]) {
+    const source = read(ui + file).replace(
+      /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '',
+    );
+    const stack = [];
+    for (const char of source) {
+      if ('({['.includes(char)) stack.push(char);
+      if (')}]'.includes(char)) {
+        assert.equal(stack.pop(), { ')': '(', '}': '{', ']': '[' }[char], `${file}: unmatched ${char}`);
+      }
+    }
+    assert.equal(stack.length, 0, `${file}: unclosed delimiters`);
+    for (const implementation of source.matchAll(/@implementation ([^\n]+)([\s\S]*?)@end/g)) {
+      const selectors = [...implementation[2].matchAll(/^[-+]\s*\([^)]+\)\s*([^{;]+)\{/gm)].map(match => {
+        const args = [...match[1].matchAll(/(\w+)\s*:/g)].map(arg => arg[1] + ':');
+        return args.length ? args.join('') : match[1].trim();
+      });
+      assert.equal(new Set(selectors).size, selectors.length, `${file}: duplicate selector in ${implementation[1]}`);
+    }
+  }
+});

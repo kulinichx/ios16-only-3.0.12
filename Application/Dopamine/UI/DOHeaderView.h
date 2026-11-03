@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 -(id)initWithImage:(UIImage *)image subtitles:(NSArray<NSAttributedString *> *)subtitles;
 - (UILabel *)addSubtitle:(NSAttributedString *)subtitle;
 - (UILabel *)addInformationRowWithTitle:(NSAttributedString *)title;
+- (void)applyGlassLayoutWithLogoHeight:(CGFloat)height subtitleScale:(CGFloat)scale;
 
 @end
 

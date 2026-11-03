@@ -152,5 +152,6 @@
 "Unknown" = "Unknown";
 
 "Uptime_Format" = "%llu d %02llu:%02llu:%02llu";
+"Uptime_Less_Than_Minute" = "less than 1 minute";
 "Build version: %@" = "Build version: %@";
 "Build time: %@" = "Build time: %@";

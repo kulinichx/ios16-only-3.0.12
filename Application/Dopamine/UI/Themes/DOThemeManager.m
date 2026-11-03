@@ -69,9 +69,13 @@
 - (DOTheme*)enabledTheme
 {
     id value = [[DOPreferenceManager sharedManager] preferenceValueForKey:@"theme"];
-    if (!value)
-        return self.themes.firstObject;
-    return [self getThemeForKey:value] ?: self.themes.firstObject;
+    DOTheme *theme = [value isKindOfClass:NSString.class] ? [self getThemeForKey:value] : nil;
+    if (theme) return theme;
+    theme = self.themes.firstObject;
+    if (theme.key) {
+        [[DOPreferenceManager sharedManager] setPreferenceValue:theme.key forKey:@"theme"];
+    }
+    return theme;
 }
 
 

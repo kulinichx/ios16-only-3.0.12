@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node --test tests/ios16-contracts.test.cjs
+      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs
 
   build:
     if: github.event_name == 'workflow_dispatch'
@@ -47,9 +47,13 @@ jobs:
 
       - name: Check iOS 16 source contracts
         run: |
-          node --test tests/ios16-contracts.test.cjs
+          node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
           plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
+          plutil -lint Application/Dopamine/UI/Themes/Themes.plist
+          plutil -lint Application/Dopamine/en.lproj/Localizable.strings
+          plutil -lint Application/Dopamine/zh-Hans.lproj/Localizable.strings
+          plutil -lint Application/Dopamine/zh-CN.lproj/Localizable.strings
 
       - name: Install Procursus
         uses: dhinakg/procursus-action@main

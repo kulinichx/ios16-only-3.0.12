@@ -146,5 +146,6 @@
 "Unknown" = "未知";
 
 "Uptime_Format" = "%llu天 %02llu:%02llu:%02llu";
+"Uptime_Less_Than_Minute" = "不到 1 分钟";
 "Build version: %@" = "编译版本：%@";
 "Build time: %@" = "编译时间：%@";
