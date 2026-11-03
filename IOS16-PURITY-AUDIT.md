@@ -157,7 +157,7 @@ not build inputs and have not been deleted as part of this operation.
   Metadata XML is also parsed locally. Record the
   actual final result in the handoff; do not infer a native build from it.
 
-Local result for this pass: all 67 Node source-contract tests pass, all six
+Local result for this pass: all 68 Node source-contract tests pass, all six
 exploit metadata files parse as XML, and both `git diff --check` commands pass.
 Recursive submodule commits remain at the original pins, with the intentional
 prepared XPF working-tree edits described above. No local actionlint executable
@@ -179,6 +179,13 @@ covers the libjailbreak C, Objective-C and assembly wildcard inputs while
 preserving the required `inline_svc.S`. The earlier static suite did not
 cover this assembly dependency; passing source checks did not establish
 link correctness. The corrected candidate still needs a new native build.
+
+The follow-up native run reached the application build and then failed
+because `DOJailbreaker.m` used `pthread_create` and `pthread_detach` without
+including `<pthread.h>`; the old build had obtained that declaration
+indirectly. The explicit import is now restored and covered by a source
+contract. The `install_name_tool` messages earlier in that run were
+non-fatal commands already guarded by `|| true`.
 
 ## Remaining acceptance work
 

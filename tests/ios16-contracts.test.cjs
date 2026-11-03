@@ -310,6 +310,13 @@ test('IOSurface allocation and hardware selection retain only iOS 16 paths', () 
   assert.doesNotMatch(read('BaseBin/libroothider/src/xpc_hook.m'), /"\$\(PRODUCT_BUNDLE_IDENTIFIER\)"/);
 });
 
+test('DOJailbreaker declares the pthread API it uses', () => {
+  const source = read('Application/Dopamine/Jailbreak/DOJailbreaker.m');
+  assert.match(source, /#import <pthread\.h>/);
+  assert.match(source, /pthread_create\(/);
+  assert.match(source, /pthread_detach\(/);
+});
+
 test('remaining kernel field macros refer to the surviving serialized schema', () => {
   const fields = new Set([...info.matchAll(/iterator\(ctx,\s*([\w.]+)\)/g)].map(match => match[1]));
   assert.ok(fields.size > 150);
