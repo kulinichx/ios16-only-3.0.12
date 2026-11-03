@@ -69,9 +69,9 @@ The workflow at `.github/workflows/build.yml`:
 - Uploads separate IPA/TIPA artifacts, with source/tool/dependency provenance
   and the IPA SHA256 included in the IPA artifact.
 
-Use the existing Actions workflow at path `build.yml` and explicitly select
-branch `ios16-roothide-3.0.12`. The default branch still contains the old
-rootless workflow. The branch can also be selected explicitly with:
+The default branch is `ios16-roothide-3.0.12`. Use Actions workflow
+`build_RootHide_baseline` at path `build.yml`. The branch can also be selected
+explicitly with:
 
 ```sh
 gh workflow run build.yml --repo kulinichx/ios16-only-3.0.12 --ref ios16-roothide-3.0.12
@@ -116,6 +116,9 @@ Next work:
 4. Port RC9 glass UI and authorization features after core behavior is
    verified.
 
-The old directory `G:\RootHide\ZQBB IOS16\Dopamine-3.0.12-full` and branch
-`ios16-only-3.0.12` remain as historical rootless work. Their runtime changes
-have not been copied into this baseline.
+At the user's request, the old rootless branch `ios16-only-3.0.12` was deleted
+from the target GitHub repository and the old local checkout. The old
+directory `G:\RootHide\ZQBB IOS16\Dopamine-3.0.12-full` remains as historical
+source in detached HEAD state. Its runtime changes have not been copied into
+this baseline. Deleting Git branches does not remove an on-device jailbreak
+environment.
