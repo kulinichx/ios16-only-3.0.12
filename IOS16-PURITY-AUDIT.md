@@ -187,6 +187,15 @@ indirectly. The explicit import is now restored and covered by a source
 contract. The `install_name_tool` messages earlier in that run were
 non-fatal commands already guarded by `|| true`.
 
+The next run (`41718579585`, source `74549b2d`) completed the native build
+successfully, then failed at the IPA framework allowlist comparison. The
+actual list was sorted, while the expected list was not; the two equivalent
+six-framework sets therefore compared unequal. The workflow now sorts both
+sets identically, and the source contract guards that normalization. This
+was a packaging-verification script failure, not a compiler or IPA-content
+failure; the IPA content checks before this comparison had passed. A rerun
+is still required to complete the remaining inner-archive checks and upload.
+
 ## Remaining acceptance work
 
 1. Native Intel macOS/Xcode build of this exact source revision. Windows

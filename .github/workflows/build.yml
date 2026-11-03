@@ -188,6 +188,7 @@ jobs:
             exit 1
           fi
           expected_frameworks='ClearSword DarkSword Titan dmaFail kfd momentarius'
+          expected_frameworks="$(printf '%s\n' $expected_frameworks | sort -u | paste -sd ' ' -)"
           actual_frameworks="$(sed -nE 's@^Payload/Dopamine.app/Frameworks/([^/]+)\.framework/.*@\1@p' package-files.txt | sort -u | paste -sd ' ' -)"
           test "$actual_frameworks" = "$expected_frameworks"
           unzip -p "$ipa" Payload/Dopamine.app/basebin.tar > "$RUNNER_TEMP/ios16-basebin.tar"

@@ -248,6 +248,8 @@ test('only the two iOS 16 dyldhook variants can be built, selected and packaged'
   assert.doesNotMatch(baseMake, /cp dyldhook\/\*\.dylib/);
   assert.match(workflow, /unzip -p "\$ipa" Payload\/Dopamine\.app\/basebin\.tar/);
   assert.match(workflow, /expected_frameworks='ClearSword DarkSword Titan dmaFail kfd momentarius'/);
+  assert.match(workflow, /expected_frameworks="\$\(printf '%s\\n' \$expected_frameworks \| sort -u \| paste -sd ' ' -\)"/);
+  assert.match(workflow, /actual_frameworks="\$\(sed -nE .* \| sort -u \| paste -sd ' ' -\)"/);
   assert.match(workflow, /grep -Ec '\^basebin\/dyldhook/);
 });
 
