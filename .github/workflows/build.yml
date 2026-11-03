@@ -1,0 +1,155 @@
+name: build_RootHide_baseline
+
+on:
+  push:
+    branches:
+      - ios16-roothide-3.0.12
+    paths:
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+  THEOS_SDK_VERSION: '16.5'
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  register-workflow:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Use workflow_dispatch to build the RootHide baseline."
+
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Xcode Setup
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Procursus
+        uses: dhinakg/procursus-action@main
+        with:
+          packages: ldid findutils sed coreutils make xz-utils
+
+      - name: Install better GNU Make
+        run: |
+          brew install make
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Restore RootHide Theos and SDK
+        id: theos-cache
+        uses: actions/cache@v4
+        with:
+          path: theos
+          key: theos-roothide-${{ runner.os }}-${{ runner.arch }}-sdk${{ env.THEOS_SDK_VERSION }}-v1
+
+      - name: Install THEOS
+        if: steps.theos-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --recursive --depth 1 --shallow-submodules https://github.com/roothide/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          sdk_archive="$RUNNER_TEMP/iPhoneOS${THEOS_SDK_VERSION}.sdk.tar.xz"
+          curl -fL --retry 3 "https://github.com/theos/sdks/releases/latest/download/iPhoneOS${THEOS_SDK_VERSION}.sdk.tar.xz" --output "$sdk_archive"
+          tar -xJf "$sdk_archive" -C "$THEOS/sdks"
+
+      - name: Verify source and tools
+        run: |
+          test -f "$THEOS/makefiles/common.mk"
+          test -d "$THEOS/sdks/iPhoneOS${THEOS_SDK_VERSION}.sdk"
+          grep -Fq '@implementation DOBootstrapper(roothide)' Application/Dopamine/Jailbreak/DOBootstrapper.m
+          grep -Fq '@implementation DOEnvironmentManager(roothide)' Application/Dopamine/Jailbreak/DOBootstrapper.m
+          grep -Fq 'cn.zqbb.dopaRH' Application/Dopamine.xcodeproj/project.pbxproj
+          git submodule status --recursive
+          test -z "$(git submodule status --recursive | grep -E '^[+-U]' || true)"
+          {
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "ref=$GITHUB_REF"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "version=$(cat BaseBin/_external/basebin/.version)"
+            echo "roothide_version=$(cat BaseBin/_external/basebin/.version-roothide)"
+            echo "theos_commit=$(git -C "$THEOS" rev-parse HEAD)"
+            echo "sdk=$THEOS_SDK_VERSION"
+            git submodule status --recursive
+          } > build-provenance.txt
+
+      - name: Build and Install trustcache
+        run: |
+          set -x
+          brew list --versions openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          git clone https://github.com/CRKatri/trustcache
+          cd trustcache
+          export CFLAGS="${CFLAGS:-} -I$(brew --prefix openssl@3)/include -arch $(uname -m)"
+          export LDFLAGS="${LDFLAGS:-} -L$(brew --prefix openssl@3)/lib -arch $(uname -m)"
+          gmake -j$(sysctl -n hw.logicalcpu) OPENSSL=1
+          sudo install -m 755 trustcache /opt/procursus/bin/trustcache
+
+      - name: Set Environment Variables
+        run: |
+          set -x
+          T2=$(TZ=Asia/Shanghai date +'%Y%m%d_%H%M%S')
+          TS=$(date +%s)
+          SHASH=$(git rev-parse --short HEAD)
+          echo "ctime=${T2}" >> $GITHUB_ENV
+          echo "ctimestamp=${TS}" >> $GITHUB_ENV
+          echo "shorthash=${SHASH}" >> $GITHUB_ENV
+          echo "BUILD_TIMESTAMP=${TS}" >> "$GITHUB_ENV"
+
+      - name: Install libarchive
+        run: |
+          brew install libarchive
+
+      - name: Build
+        run: |
+          set -x
+          plutil -insert items.4 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>BUILDER</string></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
+          plutil -insert items.5 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>headerCellClass</key><string>DOCreditsCell</string><key>names</key><array><dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict></array></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
+          gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
+          VERSION="("$(cat ./BaseBin/_external/basebin/.version)-$(cat ./BaseBin/_external/basebin/.version-roothide)-$(git rev-parse --short HEAD)")"-$(TZ=UTC git show -s --date=format-local:'%Y.%m.%d-%Z-%H.%M.%S' --format='%cd' HEAD)
+          mv ./Application/Dopamine.ipa  "./Application/roothide-Dopamine-${VERSION}.ipa"
+          mv ./Application/Dopamine.tipa "./Application/roothide-Dopamine-${VERSION}.tipa"
+          echo "version=${VERSION}" >> $GITHUB_ENV
+
+      - name: Verify IPA
+        run: |
+          ipa="Application/roothide-Dopamine-${{ env.version }}.ipa"
+          unzip -tq "$ipa"
+          unzip -Z1 "$ipa" | grep -Fx 'Payload/Dopamine.app/Dopamine.roothide'
+          unzip -Z1 "$ipa" | grep -Fx 'Payload/Dopamine.app/libroothider.dylib'
+          unzip -p "$ipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
+          shasum -a 256 "$ipa" >> build-provenance.txt
+          cat build-provenance.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Artifact
+        id: dopamine-latest-upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootHide_baseline_IPA
+          if-no-files-found: error
+          path: |
+            ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.ipa
+            build-provenance.txt
+
+      - name: Upload Artifact(TIPA)
+        id: dopamine-latest-upload-tipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootHide_baseline_TIPA
+          if-no-files-found: error
+          path: |
+            ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.tipa
