@@ -94,11 +94,6 @@ bool is_safe_bundle_identifier(const char* identifier)
         return false;
     }
 
-    /* ios15 /System/Library/LaunchDaemons/com.apple.tvremoted.plist */
-    if(strcmp(identifier, "$(PRODUCT_BUNDLE_IDENTIFIER)")==0) {
-        return true;
-    }
-
     if(string_has_prefix(identifier, "lockdown.") && strstr(identifier, ".com.apple.")) {
         return true;
     }

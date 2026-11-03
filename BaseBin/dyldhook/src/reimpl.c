@@ -66,8 +66,6 @@ int64_t sandbox_extension_consume(const char *extension_token)
 	}
 }
 
-#if IOS >= 16
-
 // iOS 16+ dyld's do no longer have mach_msg, reimplement it
 // We also need to reimplement mach_msg2, since task.c needs it
 
@@ -182,39 +180,3 @@ kern_return_t mach_msg(mach_msg_header_t *msg, mach_msg_option_t option, mach_ms
 {
 	return mach_msg_overwrite(msg, option, send_size, rcv_size, rcv_name, timeout, notify, NULL, 0);
 }
-
-#endif
-
-#if IOS >= 18
-
-kern_return_t _kernelrpc_mach_ports_lookup3(task_t target_task, mach_port_t *port1, mach_port_t *port2, mach_port_t *port3);
-
-kern_return_t
-mach_ports_lookup(
-	task_t                  target_task,
-	mach_port_array_t      *init_port_set,
-	mach_msg_type_number_t *init_port_setCnt)
-{
-	vm_size_t size = TASK_PORT_REGISTER_MAX * sizeof(mach_port_t);
-	mach_port_array_t array;
-	vm_address_t addr = 0;
-	kern_return_t kr;
-
-	kr = vm_allocate(mach_task_self(), &addr, size, VM_FLAGS_ANYWHERE);
-	array = (mach_port_array_t)addr;
-	if (kr != KERN_SUCCESS) {
-		return kr;
-	}
-
-	kr = _kernelrpc_mach_ports_lookup3(target_task, &array[0], &array[1], &array[2]);
-	if (kr != KERN_SUCCESS) {
-		vm_deallocate(mach_task_self(), addr, size);
-		return kr;
-	}
-
-	*init_port_set = array;
-	*init_port_setCnt = TASK_PORT_REGISTER_MAX;
-	return KERN_SUCCESS;
-}
-
-#endif

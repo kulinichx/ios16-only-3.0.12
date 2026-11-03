@@ -1256,13 +1256,7 @@
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         if ([jailbreaker contiguousMappingWorkaroundNeeded]) {
 
-            cpu_subtype_t cpuFamily = 0;
-            size_t cpuFamilySize = sizeof(cpuFamily);
-            sysctlbyname("hw.cpufamily", &cpuFamily, &cpuFamilySize, NULL, 0);
             NSString *workaroundMessage = DOLocalizedString(@"Respring_Required_Message");
-            if (cpuFamily == CPUFAMILY_ARM_TYPHOON) {
-                workaroundMessage = [workaroundMessage stringByAppendingString:[NSString stringWithFormat:@"\n\n%@", DOLocalizedString(@"Respring_Required_Notice_A8")]];
-            }
 
             UIAlertController *contiguousMappingWorkaroundAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Respring_Required") message:workaroundMessage preferredStyle:UIAlertControllerStyleAlert];
 

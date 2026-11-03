@@ -63,7 +63,7 @@ char* proc_get_path(pid_t pid, char buffer[PATH_MAX])
 {
     static char __thread threadbuffer[PATH_MAX];
     if(!buffer) buffer = threadbuffer;
-    int ret = proc_pidpath(pid, buffer, PATH_MAX); /* proc_pidpath is not always reliable, 
+    int ret = proc_pidpath(pid, buffer, PATH_MAX); /* proc_pidpath is not always reliable,
     it will return ENOENT if the original executable file of a running process is removed from disk (e.g.  upgrading/reinstalling a package) */
     if (ret <= 0) return NULL;
     return buffer;
@@ -103,24 +103,24 @@ char* proc_get_identifier(pid_t pid, char buffer[255])
 {
     static char __thread threadbuffer[255];
     if(!buffer) buffer = threadbuffer;
-    
+
     struct csheader {
         uint32_t magic;
         uint32_t length;
     } header = {0};
-    
+
     int result = csops(pid, CS_OPS_IDENTITY, &header, sizeof(header));
     if (result != 0 && errno != ERANGE) {
         return NULL;
     }
-    
+
     uint32_t bufferLen = ntohl(header.length);
 
     char* csbuffer = malloc(bufferLen);
     if (!csbuffer) {
         return NULL;
     }
-    
+
     result = csops(pid, CS_OPS_IDENTITY, csbuffer, bufferLen);
     if (result == 0) {
         char* identity = csbuffer + sizeof(struct csheader);
@@ -128,7 +128,7 @@ char* proc_get_identifier(pid_t pid, char buffer[255])
     } else {
         buffer = NULL;
     }
-    
+
     free(csbuffer);
 
     return buffer;
@@ -186,7 +186,6 @@ bool process_force_dyld_patch(const char* path, const char** argv)
 {
     if(!path && !argv) return false;
 
-    if(__builtin_available(iOS 16.0, *))
     {
         bool is_stock_binary = string_has_prefix(path, "/System/") || string_has_prefix(path, "/private/preboot/");
         if(is_stock_binary && string_has_suffix(path, "/com.apple.WebKit.WebContent")) {
@@ -202,21 +201,6 @@ bool process_force_dyld_patch(const char* path, const char** argv)
                     return true;
                 }
                 else if(string_has_prefix(argv[1], "com.apple.WebKit.WebContent.CaptivePortal")) {
-                    return true;
-                }
-            }
-        }
-    }
-    
-    if(__builtin_available(iOS 17.0, *))
-    {
-        if(strcmp(path, "/System/Library/PrivateFrameworks/MessagesBlastDoorSupport.framework/XPCServices/MessagesAirlockService.xpc/MessagesAirlockService") == 0) {
-            return true;
-        }
-        else if(strcmp(path, "/usr/libexec/xpcproxy") == 0)
-        {
-            if (argv && argv[0] && argv[1]) {
-                if(string_has_prefix(argv[1], "com.apple.MessagesAirlockService")) {
                     return true;
                 }
             }
@@ -238,29 +222,6 @@ int roothide_patch_proc(pid_t pid)
         return proc_patch_dyld(pid);
     }
     return proc_patch_csflags(pid);
-}
-
-int roothide_config_set_spinlock_fix(bool enabled)
-{
-    NSString* roothideDir = JBROOT_PATH(@"/var/mobile/Library/RootHide");
-    if(![NSFileManager.defaultManager fileExistsAtPath:roothideDir]) {
-        NSDictionary* attr = @{NSFilePosixPermissions:@(0755), NSFileOwnerAccountID:@(501), NSFileGroupOwnerAccountID:@(501)};
-        if(![NSFileManager.defaultManager createDirectoryAtPath:roothideDir withIntermediateDirectories:YES attributes:attr error:nil])
-        {
-            JBLogError("Failed to create directory: %s", roothideDir.fileSystemRepresentation);
-            return -1;
-        }
-    }
-
-    NSString *configFilePath = JBROOT_PATH(@"/var/mobile/Library/RootHide/RootHideConfig.plist");
-    NSMutableDictionary* defaults = [NSMutableDictionary dictionaryWithContentsOfFile:configFilePath];
-    if(!defaults) defaults = [[NSMutableDictionary alloc] init];
-    [defaults setValue:@(enabled) forKey:@"spinlockFixApplied"];
-    if(![defaults writeToFile:configFilePath atomically:YES]) {
-        JBLogError("Failed to write config file: %s", configFilePath.fileSystemRepresentation);
-        return -1;
-    }
-    return 0;
 }
 
 bool string_has_prefix(const char *str, const char* prefix)
@@ -313,7 +274,7 @@ char* getAppUUIDPath(const char* path)
     //is normal app or jailbroken app/daemon?
     if((p2 - p1) != (sizeof("xxxxxxxx-xxxx-xxxx-yxxx-xxxxxxxxxxxx")-1))
         return NULL;
-	
+
 	*p2 = '\0';
 
 	return strdup(abspath);
@@ -411,7 +372,7 @@ void ensure_jbroot_symlink(const char* filepath)
 
 	struct stat jbrootst;
 	assert(stat(jbrootpath, &jbrootst) == 0);
-	
+
 	char sympath[PATH_MAX];
 	snprintf(sympath,sizeof(sympath),"%s/.jbroot", realdirpath);
 
@@ -422,7 +383,7 @@ void ensure_jbroot_symlink(const char* filepath)
 		{
 			if(stat(sympath, &symst) == 0)
 			{
-				if(symst.st_dev==jbrootst.st_dev 
+				if(symst.st_dev==jbrootst.st_dev
 					&& symst.st_ino==jbrootst.st_ino)
 					return;
 			}
@@ -430,7 +391,7 @@ void ensure_jbroot_symlink(const char* filepath)
 			if(unlink(sympath) != 0) { //race
                 return;
             }
-			
+
 		} else {
 			//not a symlink? just let it go
 			return;
@@ -462,7 +423,7 @@ char* generate_sandbox_extensions(audit_token_t *processToken, bool writable)
     if(extension1 && extension2 && extension3) {
         asprintf(&sandboxExtensionsOut, "%s|%s|%s", extension1, extension2, extension3);
     }
-    
+
     if (extension1) free(extension1);
     if (extension2) free(extension2);
     if (extension3) free(extension3);
@@ -621,7 +582,7 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
 
     bool need_patch_child = exec_patch_enabled;
     if(dlopen("systemhook.dylib", RTLD_NOLOAD)) {
-    /* if systemhook has been loaded into the current process, 
+    /* if systemhook has been loaded into the current process,
         it means posix_spawn has been hooked and we can skip patching. */
         need_patch_child = false;
     } else if(argc==3 && strcmp(argv[1],"trollstore")==0 && strcmp(argv[2],"delete-bootstrap")==0) {
@@ -653,7 +614,7 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
 
     JBLogDebug("spawn path=%s ret=%d (%s) pid=%d", path, ret, ret == 0 ? "success" : strerror(ret), pid);
 
-    if(ret == 0 && pid > 0) 
+    if(ret == 0 && pid > 0)
     {
         if(need_patch_child) {
             JBLogDebug("exec_cmd_roothide_spawn: patching child pid=%d should_resume=%d", pid, should_resume);
@@ -716,7 +677,7 @@ int ensure_dyld_trustcache(const char* path)
 bool is_apple_internal_identifier(const char* identifier)
 {
     if(!identifier || !*identifier) return false;
-    
+
     for(NSString* item in APPLE_INTERNAL_IDENTIFIERS) {
         if([@(identifier) hasPrefix:item]) {
             return true;
@@ -757,7 +718,7 @@ bool is_sensitive_app_identifier(const char* identifier)
 
 int wait_for_exit(pid_t pid)
 {
-    while (1)  
+    while (1)
     {
 		int status=0;
         if (waitpid(pid, &status, 0) == -1) {

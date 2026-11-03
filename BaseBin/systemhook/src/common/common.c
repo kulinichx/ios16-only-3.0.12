@@ -17,7 +17,6 @@
 #include <libjailbreak/jbserver_domains.h>
 #include <libjailbreak/util.h>
 #include <libjailbreak/jbroot.h>
-#include <libjailbreak/hookd.h>
 #include <libkern/OSCacheControl.h>
 
 bool string_has_prefix(const char *str, const char* prefix)
@@ -163,7 +162,6 @@ kSpawnConfig roothide_spawn_config_for_executable(const char* path, char *const 
 // 1. Ensure the binary about to be spawned and all of it's dependencies are trust cached
 // 2. Insert "DYLD_INSERT_LIBRARIES=/usr/lib/systemhook.dylib" into all binaries spawned
 // 3. Increase Jetsam limit to more sane value (Multipler defined as JETSAM_MULTIPLIER)
-// 4. Fix spawning as root via persona entitlement on iOS 17.6+
 
 static int spawn_exec_hook_common(bool isExec,
 						   const char *path,
@@ -177,10 +175,6 @@ static int spawn_exec_hook_common(bool isExec,
 	if (!path) {
 		return orig(NULL, envp);
 	}
-
-	bool personaFixNeedsResume = true;
-	int personaFixUid = -1;
-	int personaFixGid = -1;
 	posix_spawnattr_t attr = NULL;
 	if (desc) attr = desc->attrp;
 
@@ -266,47 +260,6 @@ static int spawn_exec_hook_common(bool isExec,
 				}
 			}
 		}
-
-		// On iOS 17.6 and up Apple neutered persona overwrites to block going from (non root) -> (root)
-		// Since jailbreak infra relies on this, we need to reenable it via our patches
-		// To do this we will spawn the process as suspended, modify the ucred to the desired uid/gid and resume it
-		// POSIX_SPAWN_SETEXEC is not a concern since using it together with POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE is not supported anyways
-		if (__builtin_available(iOS 17.6, *)) {
-			bool hasExecFlag = false;
-			short flags = 0;
-			if (posix_spawnattr_getflags(&attr, &flags) == 0) {
-				if (flags & POSIX_SPAWN_SETEXEC) {
-					hasExecFlag = true;
-				}
-			}
-			if (!hasExecFlag && !isExec && getuid() != 0) {
-				struct _posix_spawn_persona_info *personaInfo = *(struct _posix_spawn_persona_info **)(attrStruct + POSIX_SPAWNATTR_OFF_PERSONA);
-				if (personaInfo) {
-					if (personaInfo->pspi_id == 99 && (personaInfo->pspi_flags & POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)) {
-						if (personaInfo->pspi_flags & POSIX_SPAWN_PERSONA_UID) {
-							personaFixUid = personaInfo->pspi_uid;
-						}
-						if (personaInfo->pspi_flags & POSIX_SPAWN_PERSONA_GID) {
-							personaFixGid = personaInfo->pspi_gid;
-						}
-					}
-				}
-
-				if (personaFixUid == 0 || personaFixGid == 0) {
-					// Revert any request to become root back to mobile
-					// Otherwise posix_spawn will straight up fail
-					if (personaFixUid == 0) personaInfo->pspi_uid = 501;
-					if (personaFixGid == 0) personaInfo->pspi_gid = 501;
-
-					if (flags & POSIX_SPAWN_START_SUSPENDED) {
-						personaFixNeedsResume = false;
-					}
-					else {
-						posix_spawnattr_setflags(&attr, flags | POSIX_SPAWN_START_SUSPENDED);
-					}
-				}
-			}
-		}
 	}
 
 	int r = -1;
@@ -369,17 +322,10 @@ static int spawn_exec_hook_common(bool isExec,
 		envbuf_free(envc);
 	}
 
-	if (personaFixUid == 0 || personaFixGid == 0 && childPid != -1) {
-		jbclient_persona_fix(childPid, personaFixUid, personaFixGid);
-		if (personaFixNeedsResume) {
-			kill(childPid, SIGCONT);
-		}
-	}
-
 	return r;
 }
 
-int posix_spawn_hook_shared(pid_t *restrict pid, 
+int posix_spawn_hook_shared(pid_t *restrict pid,
 					   const char *restrict path,
 			 struct _posix_spawn_args_desc *desc,
 						  	    char *const argv[restrict],
@@ -460,33 +406,4 @@ __attribute__((noinline, naked)) volatile void *get_tpidrr0_el0(void)
 {
 	asm("MRS X0, TPIDRRO_EL0");
 	asm("RET");
-}
-
-kern_return_t litehook_hook_memory_hookd(void *target, void *source, size_t sourceSize)
-{
-	kern_return_t kr = hookd_hook(mach_task_self_, (uint64_t)target, source, sourceSize);
-	if (kr == KERN_SUCCESS) {
-		sys_icache_invalidate(target, sourceSize);
-	}
-	return kr;
-}
-
-kern_return_t mach_vm_protect_fixed(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t new_protection)
-{
-	kern_return_t rv;
-
-	bool skipped = false;
-	if (!skipped) {
-		if ((new_protection & VM_PROT_EXECUTE) || (new_protection & VM_PROT_COPY)) {
-			rv = hookd_vm_protect(task, address, size, set_maximum, new_protection);
-		}
-		else {
-			rv = _kernelrpc_mach_vm_protect_trap(task, address, size, set_maximum, new_protection);
-			if (rv == MACH_SEND_INVALID_DEST) {
-				rv = _kernelrpc_mach_vm_protect(task, address, size, set_maximum, new_protection);
-			}
-		}
-	}
-
-	return rv;
 }

@@ -161,49 +161,9 @@ uint64_t task_get_ipc_port_kobject(uint64_t task, mach_port_t port)
 	return kread_ptr(task_get_ipc_port_object(task, port) + koffsetof(ipc_port, kobject));
 }
 
-uint32_t sptm_frame_get_refcnt_off(uint64_t frame)
-{
-	uint8_t typeIdx = kread8(frame + koffsetof(sptm_frame, type));
-	uint32_t refcnt_off = 0;
-
-	if (ksymbol(libsptm_frame_type_params)) {
-		uint64_t typeDescriptor = kread64(ksymbol(libsptm_frame_type_params)) + (ksizeof(sptm_frame_type_descriptor) * typeIdx);
-		uint8_t type = kread8(typeDescriptor + koffsetof(sptm_frame_type_descriptor, type));
-		
-		if (type == 1) {
-			refcnt_off = koffsetof(sptm_frame, nested_refcnt);
-		}
-		else if (type == 2) {
-			refcnt_off = koffsetof(sptm_frame, mapping_refcnt);
-		}
-		else {
-			printf("WARNING: Hit unknown refcnt type (%d) from index %d on frame %#llx (nested_refcnt: %u, mapping_refcnt: %u)\n", type, typeIdx, frame, kread16(frame + koffsetof(sptm_frame, nested_refcnt)), kread16(frame + koffsetof(sptm_frame, mapping_refcnt)));
-		}
-	}
-	else {
-		if (typeIdx == 8 || typeIdx == 17 || typeIdx == 18 || typeIdx == 31) {
-			refcnt_off = koffsetof(sptm_frame, nested_refcnt);
-		}
-		else if (typeIdx == 9 || typeIdx == 19 || typeIdx == 20 || typeIdx == 32) {
-			refcnt_off = koffsetof(sptm_frame, mapping_refcnt);
-		}
-		else {
-			printf("WARNING: Hit unknown refcnt type index (%d) on frame %#llx (nested_refcnt: %u, mapping_refcnt: %u)\n", typeIdx, frame, kread16(frame + koffsetof(sptm_frame, nested_refcnt)), kread16(frame + koffsetof(sptm_frame, mapping_refcnt)));
-		}
-	}
-
-	return refcnt_off;
-}
-
 uint16_t pagetable_get_refcnt(uint64_t pt_pa)
 {
-	if (ksymbol(libsptm_frame_table)) {
-		uint64_t sptmFrame = pa_to_sptm_frame(pt_pa);
-		uint64_t refcntOff = sptm_frame_get_refcnt_off(sptmFrame);
-		if (!refcntOff) return 0;
-		return kread16(sptmFrame + refcntOff);
-	}
-	else {
+	{
 		uint64_t pvh = pai_to_pvh(pa_index(pt_pa));
 		uint64_t ptdp = pvh_ptd(pvh);
 		uint64_t pinfo = kread64(ptdp + koffsetof(pt_desc, ptd_info));
@@ -213,13 +173,7 @@ uint16_t pagetable_get_refcnt(uint64_t pt_pa)
 
 void pagetable_set_refcnt(uint64_t pt_pa, uint16_t refcnt)
 {
-	if (ksymbol(libsptm_frame_table)) {
-		uint64_t sptmFrame = pa_to_sptm_frame(pt_pa);
-		uint64_t refcntOff = sptm_frame_get_refcnt_off(sptmFrame);
-		if (!refcntOff) return;
-		physwrite16(kvtophys(sptmFrame + refcntOff), refcnt);
-	}
-	else {
+	{
 		uint64_t pvh = pai_to_pvh(pa_index(pt_pa));
 		uint64_t ptdp = pvh_ptd(pvh);
 		uint64_t pinfo = kread64(ptdp + koffsetof(pt_desc, ptd_info));
@@ -233,13 +187,7 @@ void pagetable_modify_refcount(uint64_t pt_pa, int32_t delta)
 
 	uint64_t refcntPtr = 0;
 
-	if (ksymbol(libsptm_frame_table)) {
-		uint64_t sptmFrame = pa_to_sptm_frame(pt_pa);
-		uint64_t refcntOff = sptm_frame_get_refcnt_off(sptmFrame);
-		if (!refcntOff) return;
-		refcntPtr = kvtophys(sptmFrame + refcntOff);
-	}
-	else {
+	{
 		uint64_t pvh = pai_to_pvh(pa_index(pt_pa));
 		uint64_t ptdp = pvh_ptd(pvh);
 		uint64_t pinfo = kread64(ptdp + koffsetof(pt_desc, ptd_info));
@@ -284,16 +232,8 @@ void pagetable_set_vas(uint64_t pt_pa, uint64_t va_start)
 	}
 }
 
-void pagetable_set_level(uint64_t pt_pa, uint8_t level)
-{
-	if (ksymbol(libsptm_frame_table)) {
-		uint64_t sptmFrame = pa_to_sptm_frame(pt_pa);
-		physwrite16(kvtophys(sptmFrame + koffsetof(sptm_frame, level)), level);
-	}
-}
-
 #define L2_ROUND_DOWN(x) (((vm_address_t)(x)) & (~(L2_BLOCK_SIZE-1)))
-#define L2_ROUND_UP(x) ( (((vm_address_t)(x)) + L2_BLOCK_SIZE-1)  & (~(L2_BLOCK_SIZE-1)) ) 
+#define L2_ROUND_UP(x) ( (((vm_address_t)(x)) + L2_BLOCK_SIZE-1)  & (~(L2_BLOCK_SIZE-1)) )
 
 void *allocate_page_table_range(void)
 {
@@ -335,7 +275,7 @@ uint64_t alloc_page_table_unassigned(void)
 		}
 		// Now, fault in one page to make the kernel allocate the page table for it
 		mlock((void *)free_lvl2, 0x4000);
-	
+
 		// Find the newly allocated page table
 		uint64_t lvl = PMAP_TT_L2_LEVEL;
 		allocatedPT = vtophys_lvl(ttep, (uint64_t)free_lvl2, &lvl, &ttep_lvl2);
@@ -396,11 +336,6 @@ uint64_t alloc_page_table_unassigned(void)
 	// Our new PTEs are not part of the pmap layer though so refcount needs to be 0
 	pagetable_set_refcnt(allocatedPT, 0);
 
-	if (ksymbol(libsptm_frame_table)) {
-		// On SPTM, the refcount of the parent has to be decremented aswell
-		pagetable_modify_refcount(ttep_lvl2, -1);
-	}
-
 	// After we leaked the page table, the ledger still thinks it belongs to our process
 	// We need to remove it from there aswell so that the process doesn't get jetsam killed
 	// (This ended up more complicated than I thought, so I just disabled jetsam in launchd)
@@ -422,11 +357,9 @@ uint64_t pmap_alloc_page_table(uint64_t pmap, uint8_t level, uint64_t va_start)
 	if (!pt_pa) return 0;
 
 	// At this point the allocated page table is associated to the pmap of this process and the virtual address it was allocated on
-	// On SPTM devices, the page table is also associated to the level it was previously used for
 	// We now need to replace this info with the correct context in which it will be used
 	pagetable_set_pmap(pt_pa, pmap);
 	pagetable_set_vas(pt_pa, va_start);
-	pagetable_set_level(pt_pa, level);
 
 	return pt_pa;
 }
@@ -435,54 +368,7 @@ int pmap_expand_range(uint64_t pmap, uint64_t vaStart, uint64_t size)
 {
 	uint64_t ttep = kread64(pmap + koffsetof(pmap, ttep));
 
-	if (is_kcall_available()) {
-		uint64_t unmappedStart = 0, unmappedSize = 0;
-
-		uint64_t l2Start = vaStart & ~L2_BLOCK_MASK;
-		uint64_t l2End = (vaStart + (size - 1)) & ~L2_BLOCK_MASK;
-		uint64_t l2Count = ((l2End - l2Start) / L2_BLOCK_SIZE) + 1;
-
-		for (uint64_t i = 0; i <= l2Count; i++) {
-			uint64_t curL2 = l2Start + (i * L2_BLOCK_SIZE);
-
-			uint64_t leafLevel = PMAP_TT_L3_LEVEL;
-			uint64_t pt3 = 0;
-			vtophys_lvl(ttep, curL2, &leafLevel, &pt3);
-			if (leafLevel == PMAP_TT_L3_LEVEL || i == l2Count) {
-				// i == l2Count: one extra cycle that this for loop takes
-				// We hit this block either if there was a mapping or at the end
-				// Alloc page tables for the current area (unmappedStart, unmappedSize) by running pmap_enter_options on every page
-				// And then running pmap_remove on the entire area while nested is true
-
-				for (uint64_t l2Off = 0; l2Off < unmappedSize; l2Off += L2_BLOCK_SIZE) {
-					kern_return_t kr = pmap_enter_options_addr(pmap, FAKE_PHYSPAGE_TO_MAP, unmappedStart + l2Off);
-					if (kr != KERN_SUCCESS) {
-						return -7;
-					}
-				}
-
-				// Set type to nested
-				physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 3);
-
-				// Remove mapping (table will stay cause nested is set)
-				pmap_remove(pmap, unmappedStart, unmappedStart + unmappedSize);
-
-				// Change type back
-				physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 0);
-				
-				unmappedStart = 0;
-				unmappedSize = 0;
-				continue;
-			}
-			else {
-				if (unmappedStart == 0) {
-					unmappedStart = curL2;
-				}
-				unmappedSize += L2_BLOCK_SIZE;
-			}
-		}
-	}
-	else {
+	{
 		uint64_t l2Start = (vaStart & ~L2_BLOCK_MASK);
 		uint64_t l2End   = (((vaStart + size) + (L2_BLOCK_SIZE-1)) & ~L2_BLOCK_MASK);
 		for (uint64_t va = l2Start; va < l2End; va += L2_BLOCK_SIZE) {
@@ -508,22 +394,6 @@ int pmap_expand_range(uint64_t pmap, uint64_t vaStart, uint64_t size)
 					if (newTable) {
 						uint64_t oldEntry = physread64(pte);
 						physwrite64(pte, newTable | ARM_TTE_VALID | ARM_TTE_TYPE_TABLE);
-						if (ksymbol(libsptm_frame_table) && !oldEntry) {
-							// On SPTM, we need to bump the refcount of the parent page table aswell
-							uint64_t parentPt = 0;
-							uint64_t parentLevel = leafLevel - 1;
-
-							if (parentLevel == 1) {
-								// The level 1 page table can either be 0x4000 in size (iOS 17-18) or 0x40 in size (iOS 26+)
-								// To make sure this is always right, we just take it directly from ttep
-								parentPt = ttep;
-							}
-							else {
-								parentPt = pte & ~PAGE_MASK;
-							}
-
-							pagetable_modify_refcount(parentPt, 1);
-						}
 					}
 					else {
 						return -2;
@@ -605,7 +475,7 @@ int pmap_map_in_with_flags(uint64_t pmap, uint64_t uaStart, uint64_t paStart, ui
 
 int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size)
 {
-	return pmap_map_in_with_flags(pmap, uaStart, paStart, size, PERM_TO_PTE(PERM_KRW_URW) | PTE_NON_GLOBAL | PTE_OUTER_SHAREABLE | PTE_LEVEL3_ENTRY);	
+	return pmap_map_in_with_flags(pmap, uaStart, paStart, size, PERM_TO_PTE(PERM_KRW_URW) | PTE_NON_GLOBAL | PTE_OUTER_SHAREABLE | PTE_LEVEL3_ENTRY);
 }
 
 uint64_t pmap_find_main_binary_code_dir(uint64_t pmap)
@@ -644,7 +514,7 @@ uint32_t pmap_cs_trust_string_to_int(const char *trustString)
 	if (!host_is_arm64e()) return -1;
 
 	int trustInt = 0;
-	if (__builtin_available(iOS 16.0, *)) {
+	{
 		if      (!strcmp(trustString, "PMAP_CS_UNTRUSTED"))             trustInt = 0;
 		else if (!strcmp(trustString, "PMAP_CS_RETIRED"))               trustInt = 1;
 		else if (!strcmp(trustString, "PMAP_CS_PROFILE_PREFLIGHT"))     trustInt = 2;
@@ -655,17 +525,6 @@ uint32_t pmap_cs_trust_string_to_int(const char *trustString)
 		else if (!strcmp(trustString, "PMAP_CS_APP_STORE"))             trustInt = 7;
 		else if (!strcmp(trustString, "PMAP_CS_IN_LOADED_TRUST_CACHE")) trustInt = 8;
 		else if (!strcmp(trustString, "PMAP_CS_IN_STATIC_TRUST_CACHE")) trustInt = 9;
-	}
-	else {
-		if      (!strcmp(trustString, "PMAP_CS_UNTRUSTED"))             trustInt = 0;
-		else if (!strcmp(trustString, "PMAP_CS_RETIRED"))               trustInt = 1;
-		else if (!strcmp(trustString, "PMAP_CS_PROFILE_PREFLIGHT"))     trustInt = 2;
-		else if (!strcmp(trustString, "PMAP_CS_COMPILATION_SERVICE"))   trustInt = 3;
-		else if (!strcmp(trustString, "PMAP_CS_LOCAL_SIGNING"))         trustInt = 4;
-		else if (!strcmp(trustString, "PMAP_CS_PROFILE_VALIDATED"))     trustInt = 5;
-		else if (!strcmp(trustString, "PMAP_CS_APP_STORE"))             trustInt = 6;
-		else if (!strcmp(trustString, "PMAP_CS_IN_LOADED_TRUST_CACHE")) trustInt = 7;
-		else if (!strcmp(trustString, "PMAP_CS_IN_STATIC_TRUST_CACHE")) trustInt = 8;
 	}
 	return trustInt;
 }
@@ -735,7 +594,6 @@ int kwrite1_bits(uint64_t startPtr, uint32_t bitCount)
 
 void proc_allow_all_syscalls(uint64_t proc)
 {
-	if (!gSystemInfo.kernelStruct.proc_ro.exists) return;
 	uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 
 	uint64_t bsdFilter = kread_ptr(proc_ro + koffsetof(proc_ro, syscall_filter_mask));
@@ -755,7 +613,7 @@ void proc_allow_all_syscalls(uint64_t proc)
 
 void proc_remove_msg_filter(uint64_t proc)
 {
-	if (__builtin_available(iOS 16.0, *)) {
+	{
 		#define TFRO_FILTER_MSG                 0x00004000
 
 		if (koffsetof(proc_ro, t_flags_ro)) {
@@ -1002,12 +860,9 @@ void walk_backtrace(bool (^block)(int frame_index, unw_word_t pc, unw_word_t off
 
 void proc_ucred_update(uint64_t proc, uint64_t newUcred)
 {
-	if (gSystemInfo.kernelStruct.proc_ro.exists) {
+	{
 		uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 		kwrite64(proc_ro + koffsetof(proc_ro, ucred), newUcred);
-	}
-	else {
-		kwrite_ptr(proc + koffsetof(proc, ucred), newUcred, 0x84E8);
 	}
 }
 
@@ -1023,7 +878,7 @@ void proc_copy_ucred(uint64_t procCopyFrom, uint64_t procCopyTo)
 	// Every process and every thread holds a lock on both ucred and ucred_rw
 
 	// Since we replace the ucred of procCopyTo, we need to decrement the refcnt of it's original ucred
-	// Then it will be freed by the system as soon as all threads have switched 
+	// Then it will be freed by the system as soon as all threads have switched
 	// to the new ucred via current_cached_proc_cred_update
 	kauth_cred_drop(origUcred);
 	kauth_cred_unref(origUcred);
@@ -1037,96 +892,9 @@ void proc_copy_ucred(uint64_t procCopyFrom, uint64_t procCopyTo)
 	proc_ucred_update(procCopyTo, ucredToCopy);
 }
 
-int target_proc_with_ucred(const char *procPath, uid_t uid, gid_t gid, uid_t ruid, gid_t rgid, gid_t groups[NGROUPS_MAX])
-{
-	int comPipe[2];
-	pipe(comPipe);
-
-	posix_spawn_file_actions_t act;
-	posix_spawn_file_actions_init(&act);
-	posix_spawn_file_actions_adddup2(&act, comPipe[1], 3);
-
-	char uidString[12];
-	snprintf(uidString, sizeof(uidString), "%d", uid);
-
-	char gidString[12];
-	snprintf(gidString, sizeof(gidString), "%d", gid);
-
-	char ruidString[12];
-	snprintf(ruidString, sizeof(ruidString), "%d", ruid);
-
-	char rgidString[12];
-	snprintf(rgidString, sizeof(rgidString), "%d", rgid);
-
-	char groupsStrings[NGROUPS_MAX][12];
-	for (int i = 0; i < NGROUPS_MAX; i++) {
-		snprintf(groupsStrings[i], sizeof(groupsStrings[i]), "%d", groups[i]);
-	}
-
-	// exec_path
-	// 6 options
-	// 5 options with one arg
-	// 1 option with NGROUPS_MAX args
-	// NULL
-	const char *argv[1 + 6 + (5 * 1) + (1 * NGROUPS_MAX) + 1];
-	int idx = 0;
-	argv[idx++] = procPath;
-	argv[idx++] = "--fd";
-	argv[idx++] = "3";
-	argv[idx++] = "--uid";
-	argv[idx++] = uidString;
-	argv[idx++] = "--ruid";
-	argv[idx++] = ruidString;
-	argv[idx++] = "--gid";
-	argv[idx++] = gidString;
-	argv[idx++] = "--rgid";
-	argv[idx++] = rgidString;
-	argv[idx++] = "--groups";
-	for (int i = 0; i < NGROUPS_MAX; i++) {
-		argv[idx++] = groupsStrings[i];
-	}
-	argv[idx++] = NULL;
-
-	// In order to speed things up, skip any injection into the child process we spawn
-	const char *envp[] = {
-		// "_SafeMode=1", //remove this to allow injecting systemhook into stock executables
-		"DYLD_HOOK_SETUID=1",
-		NULL,
-	};
-
-	pid_t pid = 0;
-	int r = posix_spawn(&pid, procPath, &act, NULL, (char *const *)argv, (char *const *)envp);
-	posix_spawn_file_actions_destroy(&act);
-	if (r == 0) {
-		int r = 0;
-		close(comPipe[1]); // close first
-		read(comPipe[0], &r, sizeof(r));
-		close(comPipe[0]);
-		if(r!=0x42) { kill(pid, SIGKILL); return -1; } //safe guard
-		return pid;
-	}
-
-	close(comPipe[0]);
-	close(comPipe[1]);
-
-	return -1;
-}
-
 int proc_ucred_update_content(uint64_t proc, const char *procPath, uid_t uid, gid_t gid, uid_t ruid, gid_t rgid, gid_t groups[NGROUPS_MAX])
 {
-	if (__builtin_available(iOS 17.0, *)) {
-		int childPid = target_proc_with_ucred(procPath, uid, gid, ruid, rgid, groups);
-		if (childPid == -1) {
-			return -1;
-		}
-
-		uint64_t childProc = proc_find(childPid);
-		proc_copy_ucred(childProc, proc);
-
-		kill(childPid, SIGKILL);
-		cmd_wait_for_exit(childPid);
-	}
-	else {
+	{
 		uint64_t ucred = proc_ucred(proc);
 
 		kwrite32(ucred + koffsetof(ucred, svuid), uid);
@@ -1136,7 +904,7 @@ int proc_ucred_update_content(uint64_t proc, const char *procPath, uid_t uid, gi
 		kwrite32(ucred + koffsetof(ucred, groups), gid);
 	}
 
-	if (gSystemInfo.kernelStruct.proc_ro.exists) {
+	{
 		uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 
 		if (koffsetof(proc_ro, task_tokens)) {
@@ -1167,14 +935,6 @@ uint64_t vm_page_for_pnum(uint64_t pnum)
 	{
 		page = vm_pages + ((pnum - vm_pages_first_pnum) * ksizeof(vm_page));
 	}
-	else if (__builtin_available(iOS 27.0, *)) // pnum < vm_pages_first_pnum
-	{
-		// New path in iOS 27.0+ for pages between pmap_first_pnum and vm_pages_first_pnum
-		// Actually not a new path, but we have no need for supporting this API on lower versions at the moment
-		if (ksymbol(vm_pages_radix_root)) {
-			page = vm_page_find_canonical_radix(pnum);
-		}
-	}
 
 	return page;
 }
@@ -1204,7 +964,7 @@ void killall(const char *executablePath, int signal)
 	struct kinfo_proc *info;
 	size_t length;
 	int count;
-	
+
 	if (sysctl(mib, 3, NULL, &length, NULL, 0) < 0)
 		return;
 	if (!(info = malloc(length)))
@@ -1293,7 +1053,7 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 			strlcat(outputPath, currentFile, PATH_MAX);
 
 			archive_entry_set_pathname(entry, outputPath);
-			
+
 			r = archive_write_header(ext, entry);
 			if (r < ARCHIVE_OK)
 					fprintf(stderr, "%s\n", archive_error_string(ext));
@@ -1314,10 +1074,9 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 	archive_read_free(a);
 	archive_write_close(ext);
 	archive_write_free(ext);
-	
+
 	return 0;
 }
-
 
 // code from ktrw by Brandon Azad : https://github.com/googleprojectzero/ktrw
 // A worker thread for activity_thread that just spins.
@@ -1415,7 +1174,7 @@ int convert_hex_string_to_data(const char *string, void *outBuf)
 char *boot_manifest_hash(void)
 {
 	static char *gBuf = NULL;
-	
+
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		io_registry_entry_t registryEntry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen");

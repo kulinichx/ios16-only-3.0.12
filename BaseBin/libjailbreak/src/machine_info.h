@@ -3,11 +3,6 @@
 
 #include <mach/machine.h>
 
-/* A8 */
-#ifndef CPUFAMILY_ARM_TYPHOON
-#define CPUFAMILY_ARM_TYPHOON               0x2c91a47e
-#endif
-
 /* A9 */
 #ifndef CPUFAMILY_ARM_TWISTER
 #define CPUFAMILY_ARM_TWISTER               0x92fb37c8
@@ -46,31 +41,6 @@
 /* A16 */
 #ifndef CPUFAMILY_ARM_EVEREST_SAWTOOTH
 #define CPUFAMILY_ARM_EVEREST_SAWTOOTH      0x8765edea
-#endif
-
-/* A17 */
-#ifndef CPUFAMILY_ARM_COLL
-#define CPUFAMILY_ARM_COLL                  0x2876f5b5
-#endif
-
-/* A18 */
-#ifndef CPUFAMILY_ARM_TUPAI
-#define CPUFAMILY_ARM_TUPAI                 0x204526d0
-#endif
-
-/* A18 Pro */
-#ifndef CPUFAMILY_ARM_TAHITI
-#define CPUFAMILY_ARM_TAHITI                0x75d4acb9
-#endif
-
-/* M3 */
-#ifndef CPUFAMILY_ARM_IBIZA
-#define CPUFAMILY_ARM_IBIZA                 0xfa33415e
-#endif
-
-/* M4 */
-#ifndef CPUFAMILY_ARM_DONAN
-#define CPUFAMILY_ARM_DONAN                 0x6f5129ac
 #endif
 
 #endif /* MACHINE_INFO_H */

@@ -21,14 +21,8 @@ void _trustcache_file_init(trustcache_file_v1 *file)
 
 uint64_t _trustcache_list_get_start(void)
 {
-	if (ksymbol(pmap_image4_trust_caches)) { // iOS <=15
-		return kread64(ksymbol(pmap_image4_trust_caches));
-	}
-	else if (ksymbol(ppl_trust_cache_rt)) {  // iOS >=16, PPL
+	if (ksymbol(ppl_trust_cache_rt)) {  // iOS >=16, PPL
 		return kread64(kread64(ksymbol(ppl_trust_cache_rt) + 0x20));
-	}
-	else if (ksymbol_txm(txm_trustcache_root)) { // iOS >=17, SPTM/TXM
-		return kread64(kread64(ksymbol_txm(txm_trustcache_root) + 0x20));
 	}
 
 	return 0;
@@ -36,14 +30,8 @@ uint64_t _trustcache_list_get_start(void)
 
 void _trustcache_list_set_start(uint64_t newStart)
 {
-	if (ksymbol(pmap_image4_trust_caches)) { // iOS <=15
-		kwrite64(ksymbol(pmap_image4_trust_caches), newStart);
-	}
-	else if (ksymbol(ppl_trust_cache_rt)) {  // iOS >=16
+	if (ksymbol(ppl_trust_cache_rt)) {  // iOS >=16
 		kwrite64(kread64(ksymbol(ppl_trust_cache_rt) + 0x20), newStart);
-	}
-	else if (ksymbol_txm(txm_trustcache_root)) { // iOS >=17, SPTM/TXM
-		kwrite64(kread64(ksymbol_txm(txm_trustcache_root) + 0x20), newStart);
 	}
 }
 
@@ -62,22 +50,7 @@ int trustcache_list_insert(uint64_t tcToInsert)
 {
 	if (!tcToInsert) return -1;
 
-	if (ksymbol(SPTMArgs)) {
-		// On SPTM/TXM devices, our allocations are read-only by TXM so it cannot write to the prevptr field 
-		// Since TXM will only add trust caches to the start of the list, we simply add ours to the end
-		// We avoid a panic when loading a new trustcache, since we guarantee the first trustcache in the list is always writable
-
-		__block uint64_t lastTC = 0;
-		_trustcache_list_enumerate(^(uint64_t tcKaddr, bool *stop) {
-			lastTC = tcKaddr;
-		});
-
-		if (koffsetof(trustcache, prevptr)) {
-			kwrite64(tcToInsert + koffsetof(trustcache, prevptr), lastTC);
-		}
-		kwrite64(lastTC + koffsetof(trustcache, nextptr), tcToInsert);
-	}
-	else {
+	{
 		uint64_t previousStartTC = _trustcache_list_get_start();
 		kwrite64(tcToInsert + koffsetof(trustcache, nextptr), previousStartTC);
 		if (koffsetof(trustcache, prevptr)) {
@@ -238,10 +211,9 @@ int jb_trustcache_add_entry(struct trustcache_entry_v1 entry)
 	return jb_trustcache_add_entries(&entry, 1);
 }
 
-
 /*int jb_trustcache_add_file(const char *filePath)
 {
-	
+
 }
 
 int jb_trustcache_add_directory(const char *directoryPath)
@@ -285,7 +257,7 @@ void jb_trustcache_debug_print(FILE *f)
 
 		uint32_t *uuidData = (uint32_t *)uuid;
 		fprintf(f, "Jailbreak TrustCache %d <%08x%08x%08x%08x> (length: %u) (kaddr: 0x%llx):\n", i++, htonl(uuidData[0]), htonl(uuidData[1]), htonl(uuidData[2]), htonl(uuidData[3]), length, jbTcKaddr);
-		
+
 		for (uint32_t j = 0; j < length; j++) {
 			trustcache_entry_v1 entry;
 			kreadbuf(jbTcKaddr + offsetof(jb_trustcache, file.entries[j]), &entry, sizeof(entry));
@@ -297,7 +269,6 @@ void jb_trustcache_debug_print(FILE *f)
 		}
 	});
 
-
 	/////////////////////////////////////////////////////////////////
 	_trustcache_list_enumerate(^(uint64_t tcKaddr, bool *stop) {
 		if (_is_jb_trustcache(tcKaddr)) return;
@@ -305,13 +276,13 @@ void jb_trustcache_debug_print(FILE *f)
 		uint64_t tcFileKaddr = kread64(tcKaddr + koffsetof(trustcache, fileptr));
 		uint32_t length = kread32(tcFileKaddr + offsetof(trustcache_file_v1, length));
 		if (length == 0) return;
-	
+
 		uuid_t uuid;
 		kreadbuf(tcFileKaddr + offsetof(trustcache_file_v1, uuid), (void *)uuid, sizeof(uuid));
 
 		uint32_t *uuidData = (uint32_t *)uuid;
 		fprintf(f, "TrustCache File <%08x%08x%08x%08x> (length: %u) (kaddr: 0x%llx):\n", htonl(uuidData[0]), htonl(uuidData[1]), htonl(uuidData[2]), htonl(uuidData[3]), length, tcFileKaddr);
-		
+
 		for (uint32_t j = 0; j < length; j++) {
 			trustcache_entry_v1 entry;
 			kreadbuf(tcFileKaddr + offsetof(trustcache_file_v1, entries[j]), &entry, sizeof(entry));
@@ -322,7 +293,7 @@ void jb_trustcache_debug_print(FILE *f)
 			fprintf(f, "\n");
 		}
 	});
-	
+
 }
 
 int trustcache_file_upload(trustcache_file_v1 *tc)
@@ -425,7 +396,7 @@ int trustcache_file_build_from_path(const char *filePath, trustcache_file_v1 **t
 	int fd = open(filePath, O_RDONLY);
 	struct stat s = { 0 };
 	fstat(fd, &s);
-	
+
 	size_t tcSize = s.st_size;
 	if (tcSize < (sizeof(trustcache_file_v1))) {
 		// To small to be a TrustCache, file is probably malformed

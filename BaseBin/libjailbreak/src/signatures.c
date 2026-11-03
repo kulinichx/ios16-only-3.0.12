@@ -130,14 +130,12 @@ if(isRemovableBundlePath(filepath) && !hasTrollstoreLiteMarker(filepath) && !has
 			if (macho_parse_code_signature(macho, cdhash)) {
 				if (!is_cdhash_trustcached(cdhash)) {
 
-
 /*************************************** roothide specfic *************************************/
 if(ensure_randomized_cdhash_for_slice(filepath, macho->archDescriptor.offset, cdhash) != 0) {
 	JBLogError("Failed to ensure randomized cdhash for %s", filepath);
 	return;
 }
 /**************************************** roothide specfic *************************************/
-
 
 					cdhashCount++;
 					cdhashes = realloc(cdhashes, cdhashCount * sizeof(cdhash_t));
@@ -215,7 +213,6 @@ void file_collect_signatures(int fd, struct siginfo **sigInfosOut, uint32_t *sig
 	fat_free(fat);
 }
 
-
 CS_SuperBlob *siginfo_resolve_superblob(struct siginfo *siginfo, int pid, int fd)
 {
 	if (!siginfo) return NULL;
@@ -288,48 +285,6 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 				if (csd_superblob_is_adhoc_signed(decodedSuperblob)) {
 					CS_DecodedBlob *bestCDBlob = csd_superblob_find_best_code_directory(decodedSuperblob);
 					if (bestCDBlob) {
-						if (ksymbol(SPTMArgs)) {
-							uint32_t flags = csd_code_directory_get_flags(bestCDBlob);
-							bool hasTeamId = false;
-							char *teamId = csd_code_directory_copy_team_id(bestCDBlob, NULL);
-							if (teamId) {
-								free(teamId);
-								hasTeamId = true;
-							}
-
-							if (!!(flags & CS_ADHOC) == hasTeamId) {
-								// According to TXM, either CS_ADHOC or TeamID is fine
-								// Both or neither are not
-								// Neither: We give it CS_ADHOC
-								// Both: We strip CS_ADHOC
-
-								if (curSigInfo->source == SIGNATURE_SOURCE_ALLOCATION) {
-									if (hasTeamId) {
-										// Has both TeamID and CS_ADHOC, strip CS_ADHOC
-										csd_code_directory_set_flags(bestCDBlob, flags & ~CS_ADHOC);
-									}
-									else {
-										// Has neither TeamID or CS_ADHOC, add CS_ADHOC
-										csd_code_directory_set_flags(bestCDBlob, flags | CS_ADHOC);
-									}
-
-									free(curSigInfo->signature.fs_blob_start);
-									superblob = csd_superblob_encode(decodedSuperblob);
-									curSigInfo->signature.fs_blob_start = superblob;
-									curSigInfo->signature.fs_blob_size = OSSwapBigToHostInt32(superblob->length);
-
-									sigInfosToAttach[sigInfosToAttachCount++] = curSigInfo;
-								}
-								else {
-									// If the signature does not reside inside our own address space, there is nothing we can do
-									// Such a signature should have been caught by dyldhook so in reality this code path will probably never fire
-									csd_superblob_free(decodedSuperblob);
-									free(cdhashes);
-									free(sigInfosToAttach);
-									return -1;
-								}
-							}
-						}
 
 						cdhash_t cdhash;
 						csd_code_directory_calculate_hash(bestCDBlob, &cdhash);
@@ -356,7 +311,7 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 			if (fd_r != 0) r = fd_r;
 		}
 	}
-	
+
 	free(sigInfosToAttach);
 	free(cdhashes);
 	return r;

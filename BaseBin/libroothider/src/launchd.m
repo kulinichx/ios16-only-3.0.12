@@ -43,7 +43,6 @@ mach_port_t startAlternativeJBServer(void(^message_handler)(xpc_object_t))
 	return port;
 }
 
-
 struct sysctl_oid {
 	struct sysctl_oid_list *  oid_parent;
 	SLIST_ENTRY(sysctl_oid) oid_link;
@@ -73,7 +72,7 @@ void oid_remove(struct sysctl_oid_list* oid_parent, struct sysctl_oid* oid)
         char name[64]={0};
         kreadbuf((uint64_t)current_oid.oid_name, &name, sizeof(name));
         JBLogDebug("oid_remove: current_oid=%p number=%d name=%s\n", current, current_oid.oid_number, name);
-        
+
         if(current == (uint64_t)oid) {
             uint64_t next = (uint64_t)current_oid.oid_link.sle_next;
             JBLogDebug("oid_remove: found@%p remove %p next->%p\n", pnext-gSystemInfo.kernelConstant.slide, current-gSystemInfo.kernelConstant.slide, next-gSystemInfo.kernelConstant.slide);
@@ -107,7 +106,7 @@ void oid_insert(struct sysctl_oid_list* oid_parent, struct sysctl_oid* oid)
         char name[64]={0};
         kreadbuf((uint64_t)current_oid.oid_name, &name, sizeof(name));
         JBLogDebug("oid_insert: current_oid=%p number=%d name=%s\n", current, current_oid.oid_number, name);
-        
+
         if(insert_oid.oid_number < current_oid.oid_number) {
             JBLogDebug("oid_insert: insert@%p before %p\n", pnext-gSystemInfo.kernelConstant.slide, current-gSystemInfo.kernelConstant.slide);
             kwrite64((uint64_t)oid + offsetof(struct sysctl_oid, oid_link.sle_next), current);
@@ -165,7 +164,7 @@ void fix__iosConnect()
 
     JBLogDebug("__iosService=%p __iosConnect=%p\n", __iosService, __iosConnect);
     JBLogDebug("*__iosService=%d *__iosConnect=%d\n", *__iosService, *__iosConnect);
-    
+
     io_connect_t old__iosConnect = *__iosConnect;
 
     if(old__iosConnect) {
@@ -226,15 +225,15 @@ void loadAppStoredIdentifiers()
 
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSString *applicationsPath = @"/private/var/containers/Bundle/Application/";
-    
+
     NSError *error = nil;
     NSArray *appContainers = [fileManager contentsOfDirectoryAtPath:applicationsPath error:&error];
     if (error) {
         JBLogError("Error reading Application directory: %s", error.description.UTF8String);
         abort();
     }
-    
-    for (NSString *containerUUID in appContainers) 
+
+    for (NSString *containerUUID in appContainers)
     {
         NSString *containerPath = [applicationsPath stringByAppendingPathComponent:containerUUID];
 
@@ -262,7 +261,7 @@ void loadAppStoredIdentifiers()
         NSArray *containerContents = [fileManager contentsOfDirectoryAtPath:containerPath error:nil];
         for (NSString *item in containerContents)
         {
-            if ([item hasSuffix:@".app"]) 
+            if ([item hasSuffix:@".app"])
             {
                 NSString *appPath = [containerPath stringByAppendingPathComponent:item];
                 NSString *infoPlistPath = [appPath stringByAppendingPathComponent:@"Info.plist"];
@@ -272,7 +271,7 @@ void loadAppStoredIdentifiers()
                 if([appBundleID isEqualToString:MCMMetadataIdentifier]==NO) {
                     JBLogDebug("*** Mismatched Bundle ID and MCMMetadataIdentifier: %s != %s : %s", appBundleID.UTF8String, MCMMetadataIdentifier.UTF8String, appPath.UTF8String);
                 }
-                
+
                 if(![fileManager fileExistsAtPath:[appPath stringByAppendingPathComponent:@"SC_Info"]])
                 {
                     JBLogDebug("Skipping non-encrypted app: %s", appPath.UTF8String);
@@ -286,18 +285,18 @@ void loadAppStoredIdentifiers()
                     JBLogDebug("*** No Bundle ID found: %s", appPath.UTF8String);
                     continue;
                 }
-                
+
                 NSString *plugInsPath = [appPath stringByAppendingPathComponent:@"PlugIns"];
-                if ([fileManager fileExistsAtPath:plugInsPath]) 
+                if ([fileManager fileExistsAtPath:plugInsPath])
                 {
                     NSArray *plugIns = [fileManager contentsOfDirectoryAtPath:plugInsPath error:nil];
-                    for (NSString *plugIn in plugIns) 
+                    for (NSString *plugIn in plugIns)
                     {
                         NSString *plugInPath = [plugInsPath stringByAppendingPathComponent:plugIn];
                         NSString *plugInInfoPath = [plugInPath stringByAppendingPathComponent:@"Info.plist"];
                         NSDictionary *plugInInfo = [NSDictionary dictionaryWithContentsOfFile:plugInInfoPath];
                         NSString *plugInBundleID = plugInInfo[@"CFBundleIdentifier"];
-                        
+
                         if (plugInBundleID) {
                             JBLogDebug("  PlugIn: %s -> %s", plugIn.UTF8String, plugInBundleID.UTF8String);
                             [StoredAppIdentifiers addObject:plugInBundleID];
@@ -308,16 +307,16 @@ void loadAppStoredIdentifiers()
                 }
 
                 NSString *extensionsPath = [appPath stringByAppendingPathComponent:@"Extensions"];
-                if ([fileManager fileExistsAtPath:extensionsPath]) 
+                if ([fileManager fileExistsAtPath:extensionsPath])
                 {
                     NSArray *extensions = [fileManager contentsOfDirectoryAtPath:extensionsPath error:nil];
-                    for (NSString *extension in extensions) 
+                    for (NSString *extension in extensions)
                     {
                         NSString *extensionPath = [extensionsPath stringByAppendingPathComponent:extension];
                         NSString *extensionInfoPath = [extensionPath stringByAppendingPathComponent:@"Info.plist"];
                         NSDictionary *extensionInfo = [NSDictionary dictionaryWithContentsOfFile:extensionInfoPath];
                         NSString *extensionBundleID = extensionInfo[@"CFBundleIdentifier"];
-                        
+
                         if (extensionBundleID) {
                             JBLogDebug("  Extensions: %s -> %s", extension.UTF8String, extensionBundleID.UTF8String);
                             [StoredAppIdentifiers addObject:extensionBundleID];
@@ -333,7 +332,6 @@ void loadAppStoredIdentifiers()
 
 void roothider_launchd_postinit(bool firstLoad)
 {
-    if (__builtin_available(iOS 16.0, *))
     {
         if(firstLoad)
         {

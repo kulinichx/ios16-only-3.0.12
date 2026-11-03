@@ -40,7 +40,6 @@ static char *read_file_to_string(const char *path) {
     return buffer;
 }
 
-
 bool dopamine_domain_allowed(audit_token_t clientToken)
 {
 	char path[PATH_MAX];
@@ -64,7 +63,7 @@ int dopamine_get_root(audit_token_t *processToken)
 		kwrite32(ucred + koffsetof(ucred, uid), 0);
 		kwrite32(ucred + koffsetof(ucred, groups), 0);
 
-		if (gSystemInfo.kernelStruct.proc_ro.exists) {
+		{
 			uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 
 			if (koffsetof(proc_ro, task_tokens)) {
@@ -90,7 +89,7 @@ int dopamine_drop_root(audit_token_t *processToken)
 		kwrite32(ucred + koffsetof(ucred, uid), 501);
 		kwrite32(ucred + koffsetof(ucred, groups), 501);
 
-		if (gSystemInfo.kernelStruct.proc_ro.exists) {
+		{
 			uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 
 			if (koffsetof(proc_ro, task_tokens)) {

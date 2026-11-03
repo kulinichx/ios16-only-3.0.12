@@ -9,6 +9,7 @@ on:
       - Application/**
       - BaseBin/**
       - tests/**
+      - scripts/**
   workflow_dispatch:
 
 permissions:
@@ -30,6 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: node scripts/prepare-xpf-ios16.cjs
       - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs
 
   build:
@@ -64,6 +68,7 @@ jobs:
 
       - name: Check iOS 16 source contracts
         run: |
+          node scripts/prepare-xpf-ios16.cjs
           node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
           plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
@@ -71,6 +76,9 @@ jobs:
           plutil -lint Application/Dopamine/en.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-Hans.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-CN.lproj/Localizable.strings
+          for plist in Application/Dopamine/Exploits/*/Info.plist; do
+            plutil -lint "$plist"
+          done
 
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
@@ -124,6 +132,7 @@ jobs:
             echo "xcode_iphoneos_sdk=$(xcrun --sdk iphoneos --show-sdk-version)"
             git submodule status --recursive
           } > build-provenance.txt
+          node scripts/prepare-xpf-ios16.cjs --verify >> build-provenance.txt
 
       - name: Build and Install trustcache
         run: |
@@ -164,6 +173,7 @@ jobs:
 
       - name: Verify IPA
         run: |
+          set -euo pipefail
           ipa="Application/roothide-Dopamine-${{ env.version }}.ipa"
           tipa="Application/roothide-Dopamine-${{ env.version }}.tipa"
           unzip -tq "$ipa"
@@ -173,8 +183,27 @@ jobs:
           for required in bootstrap_1900.tar.zst basebin.tar sileo.deb roothideapp.deb roothideWhite.deb libroot.deb libkrw-dopamine.deb basebin-link.deb; do
             grep -Fx "Payload/Dopamine.app/$required" package-files.txt
           done
-          if grep -Ei 'zebra|bootstrap_1800|launchctl_.*\.deb|palera1n\.framework|badRecovery\.framework' package-files.txt; then
+          if grep -Ei 'zebra|bootstrap_1800|launchctl_.*\.deb|palera1n\.framework|badRecovery\.framework|weightBufs\.framework|multicast_bytecopy\.framework' package-files.txt; then
             echo "::error::Excluded resources were found in the iOS 16 package."
+            exit 1
+          fi
+          expected_frameworks='ClearSword DarkSword Titan dmaFail kfd momentarius'
+          actual_frameworks="$(sed -nE 's@^Payload/Dopamine.app/Frameworks/([^/]+)\.framework/.*@\1@p' package-files.txt | sort -u | paste -sd ' ' -)"
+          test "$actual_frameworks" = "$expected_frameworks"
+          unzip -p "$ipa" Payload/Dopamine.app/basebin.tar > "$RUNNER_TEMP/ios16-basebin.tar"
+          tar -tf "$RUNNER_TEMP/ios16-basebin.tar" > basebin-files.txt
+          for architecture in arm64 arm64e; do
+            grep -Fx "basebin/dyldhook_merge.$architecture.iOS16-17.dylib" basebin-files.txt
+          done
+          test "$(grep -Ec '^basebin/dyldhook.*\.dylib$' basebin-files.txt)" -eq 2
+          if grep -Ei '(^|/)(hookd|[^/]*iOS15[^/]*|[^/]*iOS18[^/]*)(/|$)' basebin-files.txt; then
+            echo "::error::Non-iOS-16 payload found inside basebin.tar."
+            exit 1
+          fi
+          tar -xOf "$RUNNER_TEMP/ios16-basebin.tar" basebin/libxpf.dylib > "$RUNNER_TEMP/ios16-libxpf.dylib"
+          nm -gj "$RUNNER_TEMP/ios16-libxpf.dylib" > xpf-exports.txt
+          if grep -E '_xpf_(bad_recovery_init|sptm_txm_init|supported_15|supported_sptm|supported_26)' xpf-exports.txt; then
+            echo "::error::Non-iOS-16 XPF exports found in packaged libxpf."
             exit 1
           fi
           unzip -p "$ipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
@@ -196,6 +225,8 @@ jobs:
             ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.ipa
             build-provenance.txt
             package-contents.txt
+            basebin-files.txt
+            xpf-exports.txt
 
       - name: Upload Artifact(TIPA)
         id: dopamine-latest-upload-tipa

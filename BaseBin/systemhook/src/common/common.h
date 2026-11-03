@@ -7,7 +7,7 @@
 // #define HOOK_DYLIB_PATH "/usr/lib/systemhook.dylib"
 extern const char* HOOK_DYLIB_PATH;
 
-typedef enum 
+typedef enum
 {
 	kSpawnConfigInject = 1 << 0,
 	kSpawnConfigTrust = 1 << 1,
@@ -29,5 +29,4 @@ int posix_spawn_hook_shared(pid_t *restrict pid, const char *restrict path, stru
 int execve_hook_shared(const char *path, char *const argv[], char *const envp[], void *orig, int (*trust_binary)(const char *path));
 
 volatile void *get_tpidrr0_el0(void);
-kern_return_t litehook_hook_memory_hookd(void *target, void *source, size_t sourceSize);
 kern_return_t mach_vm_protect_fixed(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t new_protection);

@@ -158,7 +158,6 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
-		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
 
 	pid_t pidval = 0;
@@ -240,7 +239,6 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 	if(string_has_suffix(path, "/basebin/jailbreakd")) {
 		return __posix_spawn_orig_wrapper(pidp, path, desc, argv, envp);
 	}
-
 
     extern int trust_jailfools_bundle_before_spawn(const char *path);
     int jailFoolsStatus = trust_jailfools_bundle_before_spawn(path);

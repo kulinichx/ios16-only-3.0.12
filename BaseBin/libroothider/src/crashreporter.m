@@ -120,7 +120,7 @@ const char *crashreporter_string_for_code(int code)
 
 		case EXC_SOFTWARE:
 		return "EXC_SOFTWARE";
-	
+
 		case EXC_BREAKPOINT:
 		return "EXC_BREAKPOINT";
 
@@ -351,7 +351,7 @@ void crashreporter_dump_objc(FILE *f, NSException *e)
 				fprintf(f, "%s\n", symbol.UTF8String);
 			}
 			fprintf(f, "\n");
-		} 
+		}
 	}
 }
 
@@ -390,17 +390,17 @@ void *crashreporter_listen(void *arg)
 {
     int bufsize = 4096;
     mach_msg_header_t* msg = (mach_msg_header_t*)malloc(bufsize);
-    
+
 	while (true) {
-        
+
         memset(msg, 0, bufsize);
         msg->msgh_size = bufsize;
         mach_msg_return_t ret = mach_msg(msg, MACH_RCV_MSG|MACH_RCV_LARGE, 0, msg->msgh_size, gExceptionPort, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
-        
+
         if(ret == MACH_RCV_TOO_LARGE) {
             ABORT("msg too large: %x", msg->msgh_size);
         }
-        
+
         if(ret != MACH_MSG_SUCCESS) {
             ABORT("recv mach msg failed: %x", ret);
         }
@@ -422,7 +422,7 @@ void *crashreporter_listen(void *arg)
 		/*
 		if(proc_traced(getpid()))
 		{
-			if(request->exception == EXC_SOFTWARE && request->codeCnt == 2 && request->code[0] == EXC_SOFT_SIGNAL) 
+			if(request->exception == EXC_SOFTWARE && request->codeCnt == 2 && request->code[0] == EXC_SOFT_SIGNAL)
 			{
 				int signum = (int)request->code[1];
 				if(signum < SIGILL || signum > SIGSYS)
@@ -450,13 +450,6 @@ void *crashreporter_listen(void *arg)
 int gCrashReporterStateKey = 0;
 int crashreporter_pause(void)
 {
-	if (@available(iOS 17.0, *))
-	{
-		if(getpid()==1)
-		{
-			return 0;
-		}
-	}
 
 	int key = 0;
 	@synchronized(@"CrashReporterStateKey")
@@ -475,13 +468,6 @@ int crashreporter_pause(void)
 
 void crashreporter_resume(int key)
 {
-	if (@available(iOS 17.0, *))
-	{
-		if(getpid()==1)
-		{
-			return;
-		}
-	}
 
 	@synchronized(@"CrashReporterStateKey")
 	{
@@ -501,7 +487,6 @@ void crashreporter_resume(int key)
 	}
 }
 
-
 #include <execinfo.h>
 void signal_handler(int signo, siginfo_t *info, void *context)
 {
@@ -512,11 +497,11 @@ void signal_handler(int signo, siginfo_t *info, void *context)
     FILE *f = crashreporter_open_outfile(gReportName, &name);
     if (f) {
 		fprintf(f, "Thread %llu crashed.\n\n", tid);
-        
+
         ucontext_t* ucontext = (ucontext_t*)context;
         fprintf(f, "Signal %s(%d/%d), errno=%d, code=%d, status=%d, addr=%p, value=%p, band=%lx\n\n", strsignal(signo), signo, info->si_signo,
                info->si_errno, info->si_code, info->si_status, info->si_addr, info->si_value.sival_ptr, info->si_band);
-        
+
         fprintf(f, "Register State:\n");
         for(int i = 0; i <= 28; i++) {
             if (i < 10) {
@@ -548,8 +533,8 @@ void signal_handler(int signo, siginfo_t *info, void *context)
 			(uint64_t)__darwin_arm_thread_state64_get_pc(threadState),
 			(uint64_t)__darwin_arm_thread_state64_get_sp(threadState),
 			(uint64_t)__darwin_arm_thread_state64_get_fp(threadState),
-			ucontext->uc_mcontext->__ss.__cpsr, flags, 
-			ucontext->uc_mcontext->__es.__esr, 
+			ucontext->uc_mcontext->__ss.__cpsr, flags,
+			ucontext->uc_mcontext->__es.__esr,
 			ucontext->uc_mcontext->__es.__far);
 
 		fprintf(f, "Stripped State:\n");
@@ -564,7 +549,7 @@ void signal_handler(int signo, siginfo_t *info, void *context)
 
         fprintf(f, "Stack trace:\n");
         char** symbols = backtrace_symbols(callstacks, nptrs);
-        
+
         if(symbols != NULL) {
             for(int i = 0; i < nptrs; i++) {
                 fprintf(f, "%p\t%s\n", callstacks[i], symbols[i]);
@@ -576,10 +561,10 @@ void signal_handler(int signo, siginfo_t *info, void *context)
         }
 
         crashreporter_dump_image_list(f);
-        
+
         crashreporter_save_outfile(f);
     }
-    
+
     ABORT("Unexpected signal %d on thread %llu, A detailed report has been written to the file %s.", signo, tid, name ? name : "(null)");
 }
 
@@ -602,7 +587,7 @@ void crashreporter_start()
 	uint32_t pathlen = sizeof(pathbuf);
 	_NSGetExecutablePath(pathbuf, &pathlen);
 	gReportName = strdup(basename(pathbuf));
-	
+
 	for(int i=0; i<sizeof(sigcatch)/sizeof(sigcatch[0]); i++) {
 		struct sigaction act = {0};
 		act.sa_flags = SA_SIGINFO|SA_RESETHAND;
@@ -618,4 +603,3 @@ void crashreporter_start()
 		crashreporter_resume(0);
 	}
 }
-

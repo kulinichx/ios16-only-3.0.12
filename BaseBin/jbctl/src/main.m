@@ -1,7 +1,6 @@
 #import <libjailbreak/libjailbreak.h>
 #import <libjailbreak/jbclient_xpc.h>
 #import <libjailbreak/jbclient_mach.h>
-#import <libjailbreak/stock_fixes.h>
 #import "internal.h"
 
 #import <Foundation/Foundation.h>
@@ -153,7 +152,6 @@ int main(int argc, char* argv[])
 			return jbclient_dyld_patch_enabled() ? jbclient_trust_file_by_path(filepath) : jbclient_trust_executable_recurse(filepath,NULL);
 /************************ roothide specific ********************************/
 
-			
 		}
 	}
 	else if (!strcmp(cmd, "reboot_userspace")) {

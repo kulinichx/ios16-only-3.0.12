@@ -4,16 +4,12 @@
 #include <sandbox.h>
 #include <libproc.h>
 #include <sys/proc_info.h>
-
-#include <libjailbreak/hookd.h>
 #include <libjailbreak/signatures.h>
 #include <libjailbreak/trustcache.h>
 #include <libjailbreak/kernel.h>
 #include <libjailbreak/util.h>
 #include <libjailbreak/primitives.h>
 #include <libjailbreak/codesign.h>
-#include <libjailbreak/txm.h>
-
 #include <signal.h>
 #include <libroothider/libroothider.h>
 
@@ -70,7 +66,7 @@ extern bool roothide_domain_allowed(audit_token_t clientToken);
 	return roothide_domain_allowed(clientToken);
 	bool gSystemwideDomainEnabled = true;
 /*******************************************************************/
-	
+
 	if (!gSystemwideDomainEnabled) {
 		// While the jailbreak is hidden, we need to disable the systemwide domain
 		pid_t pid = audit_token_to_pid(clientToken);
@@ -188,7 +184,7 @@ return retval;
 	if (sigInfos) {
 		free(sigInfos);
 	}
-	
+
 	close(fd);
 	return r;
 }
@@ -259,16 +255,14 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	bool fullyDebugged = isSubPathOf(procPath, JBROOT_PATH("/Applications"));
 	if (isRemovableBundlePath(procPath)) {
 /*************************************** roothide specific *********************************/
-		
+
 		// This is an app, enable CS_DEBUGGED based on user preference
 		if (jbsetting(markAppsAsDebugged)) {
 			fullyDebugged = true;
 		}
 	}
 	*fullyDebuggedOut = fullyDebugged;
-
-	// CS_ADHOC needs to be forced in dyld's fcntl hook on SPTM devices
-	*forceCSAdhocOut = (ksymbol(SPTMArgs) != 0);
+	*forceCSAdhocOut = false;
 
 	// Allow invalid pages
 	cs_allow_invalid(proc, fullyDebugged);
@@ -307,7 +301,7 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 		}
 	}
 
-	if (__builtin_available(iOS 16.0, *)) {
+	{
 		// In iOS 16+ there is a super annoying security feature called Protobox
 		// Amongst other things, it allows for a process to have a syscall mask
 		// If a process calls a syscall it's not allowed to call, it immediately crashes
@@ -347,21 +341,12 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 /*************************************************************/
 	}
 
-if (ksymbol(SPTMArgs) && isPlatformProcess) {
-int txm_fix_trustlevel(uint64_t);
-	if(txm_fix_trustlevel(proc) != 0) {
-		JBLogError("Failed to fix txm trustlevel for %d, %s", pid, proc_get_path(pid,NULL));
-	}
-}
-
 	xpc_object_t customTrustObj = xpc_copy_entitlement_for_token("jb.pmap_cs.custom_trust", processToken);
 	if (customTrustObj) {
 		if (xpc_get_type(customTrustObj) == XPC_TYPE_STRING) {
 			const char *customTrustStr = xpc_string_get_string_ptr(customTrustObj);
 			uint32_t customTrust = pmap_cs_trust_string_to_int(customTrustStr);
-
-			// SPTM 使用 TXM 签名租约，不能按旧 PPL 链表解释 pmap 中的 ASID。
-			if (host_is_arm64e() && !ksymbol(SPTMArgs)) {
+			if (host_is_arm64e()) {
 				if (customTrust >= 2) {
 					uint64_t mainCodeDir = proc_find_main_binary_code_dir(proc);
 					if (mainCodeDir) {
@@ -370,96 +355,10 @@ int txm_fix_trustlevel(uint64_t);
 				}
 			}
 
-			if (__builtin_available(iOS 17.0, *)) {
-				if (customTrust <= pmap_cs_trust_string_to_int("PMAP_CS_APP_STORE")) {
-					proc_csflags_clear(proc, CS_PLATFORM_BINARY);
-
-					uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
-					uint32_t t_flags = kread32(proc_ro + koffsetof(proc_ro, t_flags_ro));
-					
-					t_flags &= ~(kconstant(TFRO_PLATFORM));
-					if (kconstant(TFRO_HARDENED)) {
-						t_flags &= ~(kconstant(TFRO_HARDENED));
-					}
-
-					kwrite32(proc_ro + koffsetof(proc_ro, t_flags_ro), t_flags);
-
-					if (koffsetof(task, security_config)) {
-						uint64_t task = proc_task(proc);
-						kwrite8(task + koffsetof(task, security_config), kread8(task + koffsetof(task, security_config)) & ~(0b111 << 3));
-					}
-				}
-			}
 		}
 	}
 
 	proc_rele(proc);
-	return 0;
-}
-
-int txm_fix_trustlevel(uint64_t proc)
-{
-    uint64_t task = proc_task(proc);
-	if(!task) return -1;
-
-	uint64_t map = kread_ptr(task + koffsetof(task, map));
-	if (!map) return -1;
-	
-	uint64_t pmap = kread_ptr(map + koffsetof(vm_map, pmap));
-	if (!pmap) return -1;
-
-    uint64_t txm_space_addr = kread_ptr(pmap + koffsetof(pmap, txm_address_space));
-	if(!txm_space_addr) return -1;
-
-    uint64_t mainCodeRegion = kread_ptr(txm_space_addr + 0x40);
-	if(!mainCodeRegion) return -1;
-
-    uint64_t mainCodeSignature = kread_ptr(mainCodeRegion + koffsetof(TXMCodeRegion, codeSignature));
-	if(!mainCodeSignature) return -1;
-
-	uint8_t trustLevel = kread8(mainCodeSignature + 0xC9);
-	uint8_t evaluatedTrust = kread8(mainCodeSignature + 0xC8);
-	if(!(evaluatedTrust>0 && evaluatedTrust<10 && trustLevel>0 && trustLevel<10)) {
-		return -1;
-	}
-    
-    kwrite16(mainCodeSignature + 0xC8, 0x0505); // PMAP_CS_LOCAL_SIGNING=5 on ios16+
-
-    return 0;
-}
-
-int txm_fork_fix(uint64_t parentAddressSpace, uint64_t childAddressSpace)
-{
-	uint64_t parentHead = parentAddressSpace + koffsetof(TXMAddressSpace, codeRegions);
-	uint64_t childHead  =  childAddressSpace + koffsetof(TXMAddressSpace, codeRegions);
-
-	uint64_t curCodeRegion = 0, nextCodeRegion = 0;
-	for (curCodeRegion = RB_MIN(TXMCodeRegionRBTree, parentHead); curCodeRegion; curCodeRegion = nextCodeRegion) {
-		nextCodeRegion = RB_NEXT(TXMCodeRegionRBTree, parentHead, curCodeRegion);
-
-		uint8_t  curRegionType      =    kread8(curCodeRegion + koffsetof(TXMCodeRegion, type));
-		uint64_t curRegionStartAddr =   kread64(curCodeRegion + koffsetof(TXMCodeRegion, startAddr));
-		uint64_t curRegionEndAddr   =   kread64(curCodeRegion + koffsetof(TXMCodeRegion, endAddr));
-		uint64_t curRegionCodeSig   = kread_ptr(curCodeRegion + koffsetof(TXMCodeRegion, codeSignature));
-
-		uint64_t childCodeRegion = RB_FIND(TXMCodeRegionRBTree, childHead, CodeRegionRBTree_KEY(curRegionStartAddr));
-		if (!childCodeRegion && !curRegionCodeSig) {
-			// If no region exists in the child yet, allocate a new one
-			// But only if the parent region does not have a code signature
-			childCodeRegion = allocateCodeRegionObject();
-
-			kwrite64(childCodeRegion + koffsetof(TXMCodeRegion, startAddr), curRegionStartAddr);
-			kwrite64(childCodeRegion + koffsetof(TXMCodeRegion, endAddr),   curRegionEndAddr);
-
-			RB_INSERT(TXMCodeRegionRBTree, childHead, childCodeRegion);
-		}
-
-		if (childCodeRegion) {
-			// Copy type from parent to child
-			kwrite8(childCodeRegion + koffsetof(TXMCodeRegion, type), curRegionType);
-		}
-	}
-
 	return 0;
 }
 
@@ -523,7 +422,7 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 						childFlagsNeedUpdate = true;
 					}
 
-					if (__builtin_available(iOS 16.0, *)) {
+					{
 						// On iOS 16+ devices, there exists the vme_xnu_user_debug flag, which we also need to copy
 						bool parentUserDebugFlag = VM_FLAGS_GET_XNU_USER_DEBUG(parentFlags);
 						bool childUserDebugFlag  = VM_FLAGS_GET_XNU_USER_DEBUG(childFlags);
@@ -545,12 +444,6 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 			} while (parentEntry != 0 && childEntry != 0 && parentEntry != parentFirstEntry && childEntry != childFirstEntry && parentIdx < parentNentries && childIdx < childNentries);
 
 			retval = 0;
-			// On TXM devices, fix up the TXM address space aswell
-			if (koffsetof(pmap, txm_address_space)) {
-				uint64_t parentAddressSpace = kread_ptr(parentPmap + koffsetof(pmap, txm_address_space));
-				uint64_t childAddressSpace  = kread_ptr(childPmap  + koffsetof(pmap, txm_address_space));
-				retval = txm_fork_fix(parentAddressSpace, childAddressSpace);
-			}
 		}
 	}
 	if (childProc)  proc_rele(childProc);

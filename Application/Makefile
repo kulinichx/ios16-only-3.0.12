@@ -3,13 +3,22 @@
 all: Dopamine.ipa
 
 IOS16_DEBS = sileo.deb roothideapp.deb roothideWhite.deb
+IOS16_EXPLOITS = kfd ClearSword DarkSword dmaFail momentarius Titan
 
 Dopamine.ipa: build/Build/Products/Debug-iphoneos/Dopamine.app
 	# 暂不打包 1800，同时移除旧构建目录遗留的副本。
 	rm -f build/Build/Products/Debug-iphoneos/Dopamine.app/bootstrap_1800.tar.zst
-	# 不再打包 palera1n，并清理增量构建中的旧框架。
-	rm -rf build/Build/Products/Debug-iphoneos/Dopamine.app/Frameworks/palera1n.framework
-	rm -rf build/Build/Products/Debug-iphoneos/Dopamine.app/Frameworks/badRecovery.framework
+	@for framework in build/Build/Products/Debug-iphoneos/Dopamine.app/Frameworks/*.framework; do \
+		test -d "$$framework" || continue; \
+		name=$$(basename "$$framework" .framework); \
+		case " $(IOS16_EXPLOITS) " in \
+			*" $$name "*) ;; \
+			*) echo "FAIL: unexpected framework $$name; clean the build directory"; exit 1 ;; \
+		esac; \
+	done
+	@for name in $(IOS16_EXPLOITS); do \
+		test -d "build/Build/Products/Debug-iphoneos/Dopamine.app/Frameworks/$$name.framework" || exit 1; \
+	done
 	@echo Ad-Hoc signing Dopamine
 	xattr -rc build/Build/Products/Debug-iphoneos/Dopamine.app
 	ldid -SDopamine/Dopamine.entitlements build/Build/Products/Debug-iphoneos/Dopamine.app/Dopamine

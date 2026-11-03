@@ -5,33 +5,16 @@
 #import <Foundation/Foundation.h>
 #import <sys/sysctl.h>
 
-
 NSString *dyldhook_dylib_for_platform(void)
 {
 	cpu_subtype_t cpusubtype = 0;
 	size_t len = sizeof(cpusubtype);
 	if (sysctlbyname("hw.cpusubtype", &cpusubtype, &len, NULL, 0) == -1) { return nil; }
 	if ((cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64E) {
-		if (@available(iOS 18.0, *)) {
-			return @"dyldhook_merge.arm64e.iOS18+.dylib"; 
-		}
-		else if (@available(iOS 16.0, *)) {
-			return @"dyldhook_merge.arm64e.iOS16-17.dylib"; 
-		}
-		else {
-			return @"dyldhook_merge.arm64e.iOS15.dylib"; 
-		}
+		return @"dyldhook_merge.arm64e.iOS16-17.dylib";
 	}
 	else {
-		if (@available(iOS 18.0, *)) {
-			return @"dyldhook_merge.arm64.iOS18+.dylib"; 
-		}
-		else if (@available(iOS 16.0, *)) {
-			return @"dyldhook_merge.arm64.iOS16-17.dylib"; 
-		}
-		else {
-			return @"dyldhook_merge.arm64.iOS15.dylib"; 
-		}
+		return @"dyldhook_merge.arm64.iOS16-17.dylib";
 	}
 }
 
@@ -121,7 +104,7 @@ int basebin_generate_internal(NSString *originUsrLibPath, NSString *basebinPath,
 
 	NSString *targetDyldPath         = [targetBasebinPath stringByAppendingPathComponent:@"gen/dyld"];
 	NSString *targetSystemhookPath   = [targetBasebinPath stringByAppendingPathComponent:@"systemhook.dylib"];
-	
+
 	NSString *dopamineVersion = [NSString stringWithContentsOfFile:versionPath encoding:NSUTF8StringEncoding error:nil];
 	if (!dopamineVersion) return 1;
 

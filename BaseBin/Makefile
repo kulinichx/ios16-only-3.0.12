@@ -9,7 +9,7 @@
 
 all: basebin.tar
 
-subprojects: ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks dopamine
+subprojects: ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook boomerang jbctl idownloadd watchdoghook rootlesshooks dopamine
 subprojects: roothidehooks libroothider jailbreakd bootstrapper
 
 ChOma: .build .include
@@ -19,6 +19,7 @@ ChOma: .build .include
 	@cp -r ChOma/output/ios/include/choma .include
 
 XPF: .build .include ChOma
+	@node ../scripts/prepare-xpf-ios16.cjs
 	@$(MAKE) -C XPF output/ios/libxpf.dylib CHOMA_PATH=../ChOma CHOMA_DYLIB_PATH="../.build"
 	@ldid -Cadhoc -s XPF/output/ios/libxpf.dylib
 	@cp XPF/output/ios/libxpf.dylib .build/libxpf.dylib
@@ -50,10 +51,6 @@ forkfix: .build .include libjailbreak systemhook
 launchdhook: .build .include libjailbreak
 	$(MAKE) -C launchdhook
 	@cp launchdhook/launchdhook.dylib .build
-
-hookd: .build .include libjailbreak
-	$(MAKE) -C hookd
-	@cp hookd/hookd .build
 
 boomerang: .build .include libjailbreak
 	$(MAKE) -C boomerang
@@ -129,7 +126,8 @@ basebin.tc: subprojects
 # dyldhook dylibs do not need to be added to the basebin trustcache
 dyldhook: basebin.tc
 	$(MAKE) -C dyldhook
-	@cp dyldhook/*.dylib .build
+	@rm -f .build/dyldhook*.dylib .build/hookd
+	@cp dyldhook/dyldhook_merge.arm64.iOS16-17.dylib dyldhook/dyldhook_merge.arm64e.iOS16-17.dylib .build
 
 basebin.tar: basebin.tc dyldhook
 	@find ./.build -name ".DS_Store" -delete
@@ -155,10 +153,9 @@ clean:
 	@$(MAKE) -C jailbreakd $@
 	@$(MAKE) -C dyldhook $@
 	@$(MAKE) -C dopamine $@
-	@$(MAKE) -C hookd $@
 	@rm -rf .build
 	@rm -rf .include
 	@rm -rf basebin.tar
 	@rm -rf basebin.tc
 
-.PHONY: clean .build .include ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks basebin.tc dyldhook basebin.tar
+.PHONY: clean .build .include ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook boomerang jbctl idownloadd watchdoghook rootlesshooks basebin.tc dyldhook basebin.tar

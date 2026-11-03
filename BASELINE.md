@@ -188,11 +188,20 @@ device reference; native compilation alone does not validate the glass UI.
 
 ## Compatibility and remaining work
 
-This is an iOS-16-restricted slimming pass, not a claim that every non-16
-branch has been deleted. Low-level shared compatibility branches, offsets,
-exploit metadata/targets and signed-installation fallback flows still need
-separate dependency review. Do not remove code merely because it uses the
-word "rootless", "signing" or a historical version constant.
+The subsequent local source-pruning pass is recorded in
+`IOS16-PURITY-AUDIT.md`. It physically removes the retired exploit modules,
+Xcode targets and non-16 first-party runtime paths, and specializes the
+offset initializer to iOS 16. This supersedes the earlier packaging-only
+badRecovery exclusion.
+
+That pass is not yet a natively built/device-validated replacement for the
+working baseline. Third-party commit pins remain unchanged; XPF working
+sources are reproducibly specialized to iOS 16 by the parent-controlled
+preparation script before building. Its removed implementations are checked
+independently of the package. Public ABI slots and general-purpose shared
+parsers remain; do not claim every version string is erased, or remove
+required code merely because it uses "rootless", "signing" or a historical
+version constant.
 
 RC9 source is preserved at `G:\RootHide\runtime-rc9-audit`. Its
 `DOPAMINE_INSTALL_VERSION` is 2; this baseline uses 3. The new source can
@@ -215,12 +224,13 @@ Next work:
 2. Finish the RC9 migration/rollback review and compare the existing
    MB-additive Jetsam implementation with RC9. Keep the current algorithm
    unchanged unless the review establishes a concrete defect.
-3. Port RC9 glass UI without changing bootstrap, package data, signing,
-   exploit behavior or authorization in the same change.
+3. Regress the ported RC9 glass UI independently of the local runtime source
+   pruning, preserving the previous native-build/device references.
 4. Integrate authorization separately after the glass build is verified.
    Audit initialization order and failure behavior before enforcing it.
-5. Review remaining non-16 paths and optional assets only where dependency
-   analysis shows they are unused; retain required iOS 16 components.
+5. Build and validate the local source-pruning pass before treating it as a
+   working package, including the prepared XPF instruction searches against
+   real supported iOS 16 kernelcaches and the inner-package symbol checks.
 
 At the user's request, the old rootless branch `ios16-only-3.0.12` was deleted
 from the target GitHub repository and the old local checkout. The old

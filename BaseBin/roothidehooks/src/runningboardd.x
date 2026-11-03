@@ -26,7 +26,7 @@ NSSet<NSString*>* fixAllowedPaths(pid_t pid, NSSet<NSString*>* paths)
     for (NSString* path in paths)
     {
         NSString* newPath = path;
-        
+
         if([rootfs(path) hasPrefix:@"/rootfs/"]) {
             //redirect to jbroot
             newPath = jbroot(path);
@@ -43,25 +43,11 @@ NSSet<NSString*>* fixAllowedPaths(pid_t pid, NSSet<NSString*>* paths)
     return result;
 }
 
-%group ios15
-%hookf(NSSet<NSString*>*, __RBProcess__lock_allowedLockedFilePaths_, RBProcess* process)
-{
-    NSSet* result = %orig;
-    
-    if(!result) return result;
-
-    pid_t pid = [process rbs_pid];
-    if(pid <= 0) return result;
-
-    return fixAllowedPaths(pid, result);
-}
-%end // group ios15
-
-%group ios16up
+%group ios16
 %hookf(NSSet<NSString*>*, __RBProcess__allowedLockedFilePaths_, RBProcess* process)
 {
     NSSet* result = %orig;
-    
+
     if(!result) return result;
 
     pid_t pid = [process rbs_pid];
@@ -69,15 +55,13 @@ NSSet<NSString*>* fixAllowedPaths(pid_t pid, NSSet<NSString*>* paths)
 
     return fixAllowedPaths(pid, result);
 }
-%end //group ios16up
+%end //group ios16
 
 void rbdInit()
 {
 	NSLog(@"rbdInit...");
     MSImageRef RunningBoardImage = MSGetImageByName("/System/Library/PrivateFrameworks/RunningBoard.framework/RunningBoard");
-    if(@available(iOS 16.0, *)) {
-        %init(ios16up, __RBProcess__allowedLockedFilePaths_ = MSFindSymbol(RunningBoardImage, "-[RBProcess _allowedLockedFilePaths]"));
-    } else {
-        %init(ios15, __RBProcess__lock_allowedLockedFilePaths_ = MSFindSymbol(RunningBoardImage, "-[RBProcess _lock_allowedLockedFilePaths]"));
+    {
+        %init(ios16, __RBProcess__allowedLockedFilePaths_ = MSFindSymbol(RunningBoardImage, "-[RBProcess _allowedLockedFilePaths]"));
     }
 }

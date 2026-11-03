@@ -37,16 +37,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)isSupported;
 - (BOOL)isArm64e;
-- (BOOL)isSPTM;
 - (NSString *)versionSupportString;
 - (NSString *)accessibleKernelPath;
-- (NSString *)accessibleSPTMPath;
-- (NSString *)accessibleTXMPath;
 - (void)locateJailbreakRoot;
 - (NSError *)ensureJailbreakRootExists;
 
 - (void)setJailbroken:(BOOL)jailbroken withVersion:(NSString *)version;
-
 
 - (void)runUnsandboxed:(void (^)(void))unsandboxBlock;
 - (void)runAsRoot:(void (^)(void))rootBlock;

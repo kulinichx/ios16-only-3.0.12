@@ -101,7 +101,7 @@ const char *crashreporter_string_for_code(int code)
 
 		case EXC_SOFTWARE:
 		return "EXC_SOFTWARE";
-	
+
 		case EXC_BREAKPOINT:
 		return "EXC_BREAKPOINT";
 
@@ -316,7 +316,7 @@ void crashreporter_dump_objc(FILE *f, NSException *e)
 				fprintf(f, "%s\n", symbol.UTF8String);
 			}
 			fprintf(f, "\n");
-		} 
+		}
 	}
 }
 
@@ -377,8 +377,7 @@ void *crashreporter_listen(void *arg)
 
 void crashreporter_pause(void)
 {
-	if (@available(iOS 17.0, *)) {}
-	else {
+	{
 		if (gCrashReporterState == kCrashReporterStateActive) {
 			task_set_exception_ports(mach_task_self_, EXC_MASK_CRASH_RELATED, 0, EXCEPTION_DEFAULT, ARM_THREAD_STATE64);
 			NSSetUncaughtExceptionHandler(defaultNSExceptionHandler);
@@ -390,8 +389,7 @@ void crashreporter_pause(void)
 
 void crashreporter_resume(void)
 {
-	if (@available(iOS 17.0, *)) {}
-	else {
+	{
 		if (gCrashReporterState == kCrashReporterStatePaused) {
 			task_set_exception_ports(mach_task_self_, EXC_MASK_CRASH_RELATED, gExceptionPort, EXCEPTION_DEFAULT, ARM_THREAD_STATE64);
 			defaultNSExceptionHandler = NSGetUncaughtExceptionHandler();
@@ -403,8 +401,7 @@ void crashreporter_resume(void)
 
 void crashreporter_start(void)
 {
-	if (@available(iOS 17.0, *)) {}
-	else {
+	{
 		if (gCrashReporterState == kCrashReporterStateNotActive) {
 			mach_port_allocate(mach_task_self_, MACH_PORT_RIGHT_RECEIVE, &gExceptionPort);
 			mach_port_insert_right(mach_task_self_, gExceptionPort, gExceptionPort, MACH_MSG_TYPE_MAKE_SEND);
@@ -414,6 +411,5 @@ void crashreporter_start(void)
 		}
 	}
 }
-
 
 #endif

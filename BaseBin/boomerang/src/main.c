@@ -4,11 +4,7 @@
 #include <libjailbreak/physrw.h>
 #include <libjailbreak/physrw_pte.h>
 #include <libjailbreak/primitives_IOSurface.h>
-#include <libjailbreak/kcall_Fugu14.h>
-#include <libjailbreak/kcall_arm64.h>
 #include <libjailbreak/jbserver_boomerang.h>
-#include <libjailbreak/stock_fixes.h>
-
 /******************* roothide specific **********************/
 #include <errno.h>
 #include <signal.h>
@@ -17,24 +13,7 @@
 
 static int resume_launchd(void)
 {
-	if (__builtin_available(iOS 19.0, *)) {
-		// iOS 26 rejects signals to launchd from other processes, including SIGCONT.
-		// Reacquire its task port after exec: the port used when registering our
-		// server belonged to the previous launchd task.
-		task_t task = MACH_PORT_NULL;
-		kern_return_t kr = task_for_pid(mach_task_self(), 1, &task);
-		if (kr != KERN_SUCCESS || task == MACH_PORT_NULL) {
-			JBLogError("Failed to get new launchd task port: %d (%s)", kr, mach_error_string(kr));
-			return -1;
-		}
-		kr = task_resume(task);
-		mach_port_deallocate(mach_task_self(), task);
-		if (kr != KERN_SUCCESS) {
-			JBLogError("Failed to resume launchd task: %d (%s)", kr, mach_error_string(kr));
-			return -1;
-		}
-	}
-	else if (kill(1, SIGCONT) != 0) {
+	if (kill(1, SIGCONT) != 0) {
 		JBLogError("Failed to resume launchd with SIGCONT: %d (%s)", errno, strerror(errno));
 		return -1;
 	}
@@ -95,7 +74,6 @@ JBLogDebug("Boomerang started");
 	// Send done message to launchd
 	jbclient_boomerang_done();
 
-
 /******************* roothide specific **********************/
 // patch new launchd process
 if(unrestrict(1, roothide_patch_proc, false) != 0) {
@@ -104,7 +82,6 @@ if(unrestrict(1, roothide_patch_proc, false) != 0) {
 }
 if (resume_launchd() != 0) return -1;
 /******************* roothide specific **********************/
-
 
 	// Now make our server run so that launchd can get everything back
 	dispatch_main();

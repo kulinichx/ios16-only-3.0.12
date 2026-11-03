@@ -373,30 +373,30 @@
         DOExploitManager *exploitManager = [DOExploitManager sharedManager];
 
         NSNumber *buttonHeight = @(44);
-        
+
         SEL defGetter = @selector(readPreferenceValue:);
         SEL defSetter = @selector(setPreferenceValue:specifier:);
         SEL expGetter = @selector(readExploitPreferenceValue:);
-        
+
         NSSortDescriptor *prioritySortDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"priority" ascending:NO];
-        
+
         _availableKernelExploits = [[exploitManager availableExploitsForType:EXPLOIT_TYPE_KERNEL] sortedArrayUsingDescriptors:@[prioritySortDescriptor]];
         if (envManager.isArm64e) {
             _availablePACBypasses = [[exploitManager availableExploitsForType:EXPLOIT_TYPE_PAC] sortedArrayUsingDescriptors:@[prioritySortDescriptor]];
             _availablePPLBypasses = [[exploitManager availableExploitsForType:EXPLOIT_TYPE_PPL] sortedArrayUsingDescriptors:@[prioritySortDescriptor]];
         }
-        
+
         PSSpecifier *headerSpecifier = [PSSpecifier emptyGroupSpecifier];
         [headerSpecifier setProperty:@"DOHeaderCell" forKey:@"headerCellClass"];
         [headerSpecifier setProperty:[NSString stringWithFormat:@"Settings"] forKey:@"title"];
         [specifiers addObject:headerSpecifier];
-        
+
         if (envManager.isSupported) {
             if (!envManager.isJailbroken) {
                 PSSpecifier *exploitGroupSpecifier = [PSSpecifier emptyGroupSpecifier];
                 exploitGroupSpecifier.name = DOLocalizedString(@"Section_Exploits");
                 [specifiers addObject:exploitGroupSpecifier];
-                
+
                 PSSpecifier *kernelExploitSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Kernel Exploit") target:self set:defSetter get:expGetter detail:nil cell:PSLinkListCell edit:nil];
                 [kernelExploitSpecifier setProperty:@YES forKey:@"enabled"];
                 [kernelExploitSpecifier setProperty:exploitManager.preferredKernelExploit.identifier forKey:@"default"];
@@ -406,7 +406,7 @@
                 [kernelExploitSpecifier setProperty:@"selectedKernelExploit" forKey:@"key"];
                 [kernelExploitSpecifier setProperty:(_availableKernelExploits.firstObject.identifier ?: @"none") forKey:@"recommendedExploitIdentifier"];
                 [specifiers addObject:kernelExploitSpecifier];
-                
+
                 if (envManager.isArm64e) {
                     PSSpecifier *pacBypassSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"PAC Bypass") target:self set:defSetter get:expGetter detail:nil cell:PSLinkListCell edit:nil];
                     [pacBypassSpecifier setProperty:@YES forKey:@"enabled"];
@@ -423,12 +423,8 @@
                     [pacBypassSpecifier setProperty:@"selectedPACBypass" forKey:@"key"];
                     [pacBypassSpecifier setProperty:([envManager isPACBypassRequired] ? _availablePACBypasses.firstObject.identifier : @"none") forKey:@"recommendedExploitIdentifier"];
                     [specifiers addObject:pacBypassSpecifier];
-                    
+
                     NSString *pplBypassName = @"PPL Bypass";
-                    if ([DOEnvironmentManager sharedManager].isSPTM) {
-                        // SPTM bypasses are also handled as PPL bypasses in the code, we just change the name of the setting in the UI
-                        pplBypassName = @"SPTM Bypass";
-                    }
 
                     PSSpecifier *pplBypassSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(pplBypassName) target:self set:defSetter get:expGetter detail:nil cell:PSLinkListCell edit:nil];
                     [pplBypassSpecifier setProperty:@YES forKey:@"enabled"];
@@ -441,17 +437,17 @@
                     [specifiers addObject:pplBypassSpecifier];
                 }
             }
-            
+
             PSSpecifier *settingsGroupSpecifier = [PSSpecifier emptyGroupSpecifier];
             settingsGroupSpecifier.name = DOLocalizedString(@"Section_Jailbreak_Settings");
             [specifiers addObject:settingsGroupSpecifier];
-            
+
             PSSpecifier *tweakInjectionSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Tweak_Injection") target:self set:@selector(setTweakInjectionEnabled:specifier:) get:@selector(readTweakInjectionEnabled:) detail:nil cell:PSSwitchCell edit:nil];
             [tweakInjectionSpecifier setProperty:@YES forKey:@"enabled"];
             [tweakInjectionSpecifier setProperty:@"tweakInjectionEnabled" forKey:@"key"];
             [tweakInjectionSpecifier setProperty:@YES forKey:@"default"];
             [specifiers addObject:tweakInjectionSpecifier];
-            
+
             if (!envManager.isJailbroken) {
                 PSSpecifier *verboseLogSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Verbose_Logs") target:self set:defSetter get:defGetter detail:nil cell:PSSwitchCell edit:nil];
                 [verboseLogSpecifier setProperty:@YES forKey:@"enabled"];
@@ -459,20 +455,19 @@
                 [verboseLogSpecifier setProperty:@NO forKey:@"default"];
                 [specifiers addObject:verboseLogSpecifier];
             }
-            
+
             PSSpecifier *idownloadSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_iDownload") target:self set:@selector(setIDownloadEnabled:specifier:) get:@selector(readIDownloadEnabled:) detail:nil cell:PSSwitchCell edit:nil];
             [idownloadSpecifier setProperty:@YES forKey:@"enabled"];
             [idownloadSpecifier setProperty:@"idownloadEnabled" forKey:@"key"];
             [idownloadSpecifier setProperty:@NO forKey:@"default"];
             [specifiers addObject:idownloadSpecifier];
-            
+
             PSSpecifier *appJitSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Apps_JIT") target:self set:@selector(setAppJITEnabled:specifier:) get:@selector(readAppJITEnabled:) detail:nil cell:PSSwitchCell edit:nil];
             [appJitSpecifier setProperty:@YES forKey:@"enabled"];
             [appJitSpecifier setProperty:@"appJITEnabled" forKey:@"key"];
             [appJitSpecifier setProperty:@YES forKey:@"default"];
             [specifiers addObject:appJitSpecifier];
-            
-            
+
             /**************************** roothide specfic *********************************/
             NSString* namedesc = DOLocalizedString(@"Enable dyld patch");
             PSSpecifier *dyldPatchSpecifier = [PSSpecifier preferenceSpecifierNamed:namedesc target:self set:@selector(setDyldPatchEnabled:specifier:) get:@selector(readDyldPatchEnabled:) detail:nil cell:PSSwitchCell edit:nil];
@@ -481,8 +476,7 @@
             [dyldPatchSpecifier setProperty:@NO forKey:@"default"];
             [specifiers addObject:dyldPatchSpecifier];
             /**************************** roothide specfic *********************************/
-            
-            
+
             PSSpecifier *jetsamSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Jetsam_Multiplier") target:self set:@selector(setJetsamMultiplier:specifier:) get:@selector(readJetsamMultiplier:) detail:nil cell:PSLinkListCell edit:nil];
             [jetsamSpecifier setProperty:@YES forKey:@"enabled"];
             [jetsamSpecifier setProperty:@"jetsamMultiplier" forKey:@"key"];
@@ -491,7 +485,7 @@
             [jetsamSpecifier setProperty:@"jetsamOptionNumbers" forKey:@"valuesDataSource"];
             [jetsamSpecifier setProperty:@"jetsamOptionTitles" forKey:@"titlesDataSource"];
             [specifiers addObject:jetsamSpecifier];
-            
+
             if (!envManager.isJailbroken && !envManager.isInstalledThroughTrollStore) {
                 PSSpecifier *removeJailbreakSwitchSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Button_Remove_Jailbreak") target:self set:@selector(setRemoveJailbreakEnabled:specifier:) get:defGetter detail:nil cell:PSSwitchCell edit:nil];
                 [removeJailbreakSwitchSpecifier setProperty:@YES forKey:@"enabled"];
@@ -523,7 +517,7 @@
                     [refreshAppsSpecifier setProperty:@"arrow.triangle.2.circlepath" forKey:@"image"];
                     [refreshAppsSpecifier setProperty:@"refreshJailbreakAppsPressed" forKey:@"action"];
                     [specifiers addObject:refreshAppsSpecifier];
-                    
+
                     PSSpecifier *changeMobilePasswordSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
                     [changeMobilePasswordSpecifier setProperty:@"Button_Change_Mobile_Password" forKey:@"title"];
                     [changeMobilePasswordSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
@@ -531,15 +525,12 @@
                     [changeMobilePasswordSpecifier setProperty:@"key" forKey:@"image"];
                     [changeMobilePasswordSpecifier setProperty:@"changeMobilePasswordWithAuthenticationPressed" forKey:@"action"];
                     [specifiers addObject:changeMobilePasswordSpecifier];
-                    
+
                     PSSpecifier *reinstallPackageManagersSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
                     [reinstallPackageManagersSpecifier setProperty:@"Button_Reinstall_Package_Managers" forKey:@"title"];
                     [reinstallPackageManagersSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
                     [reinstallPackageManagersSpecifier setProperty:buttonHeight forKey:@"height"];
-                    if (@available(iOS 16.0, *))
-                        [reinstallPackageManagersSpecifier setProperty:@"shippingbox.and.arrow.backward" forKey:@"image"];
-                    else
-                        [reinstallPackageManagersSpecifier setProperty:@"shippingbox" forKey:@"image"];
+                    [reinstallPackageManagersSpecifier setProperty:@"shippingbox.and.arrow.backward" forKey:@"image"];
                     [reinstallPackageManagersSpecifier setProperty:@"reinstallPackageManagersPressed" forKey:@"action"];
                     [specifiers addObject:reinstallPackageManagersSpecifier];
                 }
@@ -579,7 +570,7 @@
                     [removeJailbreakSpecifier setProperty:@"removeJailbreakPressed" forKey:@"action"];
                     [specifiers addObject:removeJailbreakSpecifier];
                 }
-                
+
 /*
                 if (hideJailbreakButtonShown) {
                     [actionsGroupSpecifier setProperty:DOLocalizedString(envManager.isJailbroken ? @"Hint_Hide_Jailbreak_Jailbroken" : @"Hint_Hide_Jailbreak") forKey:@"footerText"];
@@ -587,7 +578,7 @@
 */
             }
         }
-        
+
         PSSpecifier *bootlogoGropSpecifier = [PSSpecifier emptyGroupSpecifier];
         bootlogoGropSpecifier.name = DOLocalizedString(@"Section_Boot_Logo");
         [specifiers addObject:bootlogoGropSpecifier];
@@ -706,7 +697,7 @@
             [[DOEnvironmentManager sharedManager] rebootUserspace];
         }];
         UIAlertAction *rebootLaterAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Reboot_Later") style:UIAlertActionStyleCancel handler:nil];
-        
+
         [userspaceRebootAlertController addAction:rebootNowAction];
         [userspaceRebootAlertController addAction:rebootLaterAction];
         [self presentViewController:userspaceRebootAlertController animated:YES completion:nil];
@@ -907,7 +898,7 @@
 	LAContext *context = [[LAContext alloc] init];
 	NSError *authError = nil;
 	NSString *reason = DOLocalizedString(@"Password_Auth_Required");
-	
+
 	if ([context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&authError]) {
 		[context evaluatePolicy:LAPolicyDeviceOwnerAuthentication
 			localizedReason:reason
@@ -927,17 +918,17 @@
 - (void)changeMobilePassword
 {
     UIAlertController *changeMobilePasswordAlert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Button_Change_Mobile_Password") message:DOLocalizedString(@"Alert_Change_Mobile_Password_Body") preferredStyle:UIAlertControllerStyleAlert];
-    
+
     [changeMobilePasswordAlert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.placeholder = DOLocalizedString(@"Password_Placeholder");
         textField.secureTextEntry = YES;
     }];
-    
+
     [changeMobilePasswordAlert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.placeholder = DOLocalizedString(@"Repeat_Password_Placeholder");
         textField.secureTextEntry = YES;
     }];
-    
+
     UIAlertAction *changeButton = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Change") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action){
         NSString *password = changeMobilePasswordAlert.textFields[0].text;
         NSString *repeatPassword = changeMobilePasswordAlert.textFields[1].text;
@@ -995,7 +986,6 @@
     [self reloadSpecifiers];
 }
 
-
 - (id)readDyldPatchEnabled:(PSSpecifier *)specifier
 {
     DOEnvironmentManager *envManager = [DOEnvironmentManager sharedManager];
@@ -1008,17 +998,17 @@
 - (void)setDyldPatchEnabled:(id)value specifier:(PSSpecifier *)specifier
 {
     DOEnvironmentManager *envManager = [DOEnvironmentManager sharedManager];
-    
+
     bool enable = ((NSNumber *)value).boolValue;
-    
+
     void (^confirmAction)(void) = ^{
-        
+
         if (!envManager.isJailbroken) {
-            
+
             [self setPreferenceValue:value specifier:specifier];
             return;
         }
-    
+
         UIAlertController *userspaceRebootAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Title") message:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Body") preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction *rebootNowAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Menu_Reboot_Userspace_Title") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
             if(jbclient_set_dyld_patch(enable) == 0) {
@@ -1031,28 +1021,13 @@
         UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
             [self reloadSpecifiers];
         }];
-        
+
         [userspaceRebootAlertController addAction:cancelAction];
         [userspaceRebootAlertController addAction:rebootNowAction];
         [self presentViewController:userspaceRebootAlertController animated:YES completion:nil];
     };
-    
-    
-    if(enable && envManager.isArm64e && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion==15) {
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Warning") message:DOLocalizedString(@"When spinlock fix is ​​enabled, app extensions of blacklisted apps will be disabled and may also cause spinlock panics when the blacklisted app is in foreground/background.\n\nYou can first try disabling tweak injection for the app in Choicy (spinlock fix still works), and only blacklist the app if that doesn't work.") preferredStyle:UIAlertControllerStyleAlert];
-        UIAlertAction *continueAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Continue") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-            confirmAction();
-        }];
-        UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
-            [self reloadSpecifiers];
-        }];
-        
-        [alert addAction:cancelAction];
-        [alert addAction:continueAction];
-        [self presentViewController:alert animated:YES completion:nil];
-    } else {
-        confirmAction();
-    }
+
+    confirmAction();
 }
 
 @end

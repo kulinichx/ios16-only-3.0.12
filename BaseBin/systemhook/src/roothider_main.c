@@ -20,7 +20,7 @@ const char* HOOK_DYLIB_PATH = NULL;
 bool dyld_patch_fallback_enabled = false;
 
 //export for PatchLoader
-__attribute__((visibility("default"))) 
+__attribute__((visibility("default")))
 int PLRequiredJIT() {
 	return 0;
 }
@@ -79,9 +79,9 @@ void redirect_env_paths(const char* rootdir)
 
     char* homedir = NULL;
 
-/* 
+/*
 there is a bug in NSHomeDirectory,
-if a containerized root process changes its uid/gid, 
+if a containerized root process changes its uid/gid,
 NSHomeDirectory may return a home directory that it cannot access. (exclude NSTemporaryDirectory)
 We just keep this bug:
 */
@@ -129,49 +129,48 @@ We just keep this bug:
 void redirect_paths(const char* rootdir)
 {
     do {
-        
+
         char executablePath[PATH_MAX]={0};
         uint32_t bufsize=sizeof(executablePath);
         if(_NSGetExecutablePath(executablePath, &bufsize) != 0)
             break;
-        
+
         char realexepath[PATH_MAX]={0};
         if(!realpath(executablePath, realexepath))
             break;
-            
+
         char realjbroot[PATH_MAX+1]={0};
         if(!realpath(rootdir, realjbroot))
             break;
-        
+
         if(realjbroot[0] && realjbroot[strlen(realjbroot)-1] != '/')
             strlcat(realjbroot, "/", sizeof(realjbroot));
-        
+
         if(strncmp(realexepath, realjbroot, strlen(realjbroot)) != 0)
             break;
 
         //for jailbroken binaries
         redirect_env_paths(rootdir);
-		
+
 		if(_CFCanChangeEUIDs()) {
 			loadPathHook();
 		}
-    
+
         pid_t ppid = __getppid();
         ASSERT(ppid > 0);
         if(ppid != 1)
             break;
-        
+
         char pwd[PATH_MAX];
         if(getcwd(pwd, sizeof(pwd)) == NULL)
             break;
         if(strcmp(pwd, "/") != 0)
             break;
-    
+
         ASSERT(chdir(rootdir)==0);
-        
+
     } while(0);
 }
-
 
 kSpawnConfig roothide_spawn_config_for_executable(const char* path, char *const argv[restrict]);
 void string_enumerate_components(const char *string, const char *separator, void (^enumBlock)(const char *pathString, bool *stop));
@@ -285,12 +284,11 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 		}
 	}
 
-	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const, 
+	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const,
 	// so we need to disable dyld-in-cache here. (or we can use VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
-		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
 
 	if(!jbclient_dyld_patch_enabled())
@@ -304,7 +302,7 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	if (!pidp) pidp = &pidval;
 	int ret = __posix_spawn_inline(pidp, path, desc, argv, envc);
 	pid_t pid = *pidp;
-	
+
 	envbuf_free(envc);
 
 	// maybe caller will use it again? restore flags
@@ -348,7 +346,7 @@ int roothide_systemhook___execve_prehook(const char *path, char *const argv[], c
 
 	// posix_spawn will return errno and restore errno if it fails
 	// so we need to set errno by ourself
-	errno = ret; 
+	errno = ret;
 	return -1;
 }
 
@@ -370,12 +368,11 @@ int roothide_systemhook___execve_posthook(const char *path, char *const argv[], 
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
-		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
-	
+
 	int ret = __execve_inline(path, argv, envc);
 	int olderr = errno;
-	
+
 	envbuf_free(envc);
 
 	// exec* should never return if successful
@@ -461,17 +458,7 @@ void init_dyldhooks()
 		hook_dyld_routine(*gDyldPtr, 97, (void *)&dyld_dlopen_from_hook, (void **)&dyld_dlopen_from_orig, 0xD48C);
 		hook_dyld_routine(*gDyldPtr, 98, (void *)&dyld_dlopen_audited_hook, (void **)&dyld_dlopen_audited_orig, 0xD2A5);
 	}
-	else { // ios18.4+
-		void ***gAPIsPtr = litehook_find_dsc_symbol("/usr/lib/system/libdyld.dylib", "__ZN5dyld45gAPIsE");
-		if (gAPIsPtr) {
-			hook_dyld_routine(*gAPIsPtr, 13, (void *)&dyld_dlopen_hook, (void **)&dyld_dlopen_orig, 0xBF31);
-            hook_dyld_routine(*gAPIsPtr, 17, (void *)&dyld_dlopen_preflight_hook, (void **)&dyld_dlopen_preflight_orig, 0xB1B6);
-            hook_dyld_routine(*gAPIsPtr, 92, (void *)&dyld_dlopen_from_hook, (void **)&dyld_dlopen_from_orig, 0xD48C);
-            hook_dyld_routine(*gAPIsPtr, 93, (void *)&dyld_dlopen_audited_hook, (void **)&dyld_dlopen_audited_orig, 0xD2A5);
-		}
-	}
 }
-
 
 extern char** NXArgv;
 extern int    NXArgc;
@@ -584,22 +571,9 @@ void roothide_init()
 		if(DYLD_IN_CACHE && strcmp(DYLD_IN_CACHE, "0") == 0) {
 			unsetenv("DYLD_IN_CACHE");
 		}
-		//ios18.4+
-		const char* DYLD_SHARED_REGION = getenv("DYLD_SHARED_REGION");
-		if(DYLD_SHARED_REGION && strcmp(DYLD_SHARED_REGION, "use") == 0) {
-			unsetenv("DYLD_SHARED_REGION");
-		}
 	}
 
-	if (__builtin_available(iOS 19.0, *)) {
-		roothider_inline_version = 19;
-	} else if (__builtin_available(iOS 18.0, *)) {
-		roothider_inline_version = 18;
-	} else if (__builtin_available(iOS 16.0, *)) {
-		roothider_inline_version = 16;
-	} else if (__builtin_available(iOS 15.0, *)) {
-		roothider_inline_version = 15;
-	}
+	roothider_inline_version = 16;
 
 	if(parse_dyldhook_jbinfo(NULL, NULL, NULL, NULL) != 0)
 	{
@@ -607,9 +581,9 @@ void roothide_init()
 
 		roothider_inline_init_dyld_symbols(resolve_dyld_symbol_callback, (void*)get_dyld_mach_header());
 	}
-	
+
 	HOOK_DYLIB_PATH = strdup(dyld_image_path_containing_address(&__dso_handle));
-	
+
 	jbdSystemwideLog("CoreFoundation=%llx Foundation=%llx IOKit=%llx",
 		dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_NOLOAD),
 		dlopen("/System/Library/Frameworks/Foundation.framework/Foundation", RTLD_NOLOAD),
@@ -631,7 +605,6 @@ void roothide_init_with_checkin(const char* rootdir)
 
 void roothide_init_with_executable(const char* executable)
 {
-	if (__builtin_available(iOS 16.0, *))
 	{
 		if(!isRemovableBundlePath(executable)) {
 			litehook_hook_function(__sysctl, __sysctl_hook);
@@ -644,25 +617,9 @@ void roothide_init_with_executable(const char* executable)
 		dlopen(JBROOT_PATH("/basebin/roothidehooks.dylib"), RTLD_NOW);
 	}
 
-#ifndef __arm64e__
-	if(strcmp(executable, "/System/Library/Frameworks/LocalAuthentication.framework/Support/coreauthd")==0
-	|| strcmp(executable, "/System/Library/Frameworks/CryptoTokenKit.framework/ctkd")==0
-	|| strcmp(executable, "/usr/libexec/securityd")==0
-	|| strcmp(executable, "/usr/libexec/keybagd")==0) {
-		if(jbclient_palehide_present())
-		{
-			void* roothidehooks = dlopen(JBROOT_PATH("/basebin/roothidehooks.dylib"), RTLD_NOW);
-			ASSERT(roothidehooks != NULL);
-			void (*palera1n)() = dlsym(roothidehooks, "palera1n");
-			palera1n();
-		}
-	}
-#endif
-
 	if(isRemovableBundlePath(executable) && string_has_suffix(executable, "/Dopamine")) {
 		loadPathHook(); //requre jit
 	}
 
 	dlopen(JBROOT_PATH("/usr/lib/roothidepatch.dylib"), RTLD_NOW); //require jit
 }
-

@@ -28,18 +28,6 @@ _MACHOMERGER_START_HOOK:
     // Jump to real start
     b _MACHOMERGER_REAL_START
 
-#if IOS==15 && __arm64e__
-
-.global _MACHOMERGER_ORIG__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE
-.global _MACHOMERGER_HOOKTRAMPOLINE__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE
-_MACHOMERGER_ORIG__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE:
-    nop // Will be replaced with the original first instruction by machomerger
-    // FALLTHROUGH
-_MACHOMERGER_HOOKTRAMPOLINE__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE:
-    b . // Will be patched by machomerger
-
-#endif
-
 .global _MACHOMERGER_ORIG__ZN5dyld44APIs11dlopen_fromEPKciPv
 .global _MACHOMERGER_HOOKTRAMPOLINE__ZN5dyld44APIs11dlopen_fromEPKciPv
 _MACHOMERGER_ORIG__ZN5dyld44APIs11dlopen_fromEPKciPv:
@@ -78,12 +66,8 @@ MAKE_TRAMPOLINE(_simple_dprintf)
 MAKE_TRAMPOLINE(mach_init)
 MAKE_TRAMPOLINE(mig_get_reply_port)
 
-#if IOS>=16
 MAKE_TRAMPOLINE(mach_msg_overwrite)
 MAKE_TRAMPOLINE(mach_msg2_internal)
-#else
-MAKE_TRAMPOLINE(mach_msg)
-#endif
 
 DEF_SYSCALL(read, 3)
 DEF_SYSCALL(write, 4)
@@ -102,7 +86,6 @@ DEF_SYSCALL(setgroups, 80)
 // DEF_SYSCALL(getgid, 47)
 // DEF_SYSCALL(getegid, 43)
 // DEF_SYSCALL(getppid, 39)
-
 
 .data
 .global ___stack_chk_guard

@@ -27,7 +27,7 @@ void recurse_collect_untrusted_cdhashes(const char *path, const char *callerImag
 static int trust_macho_recurse(const char *machoPath, const char *dlopenCallerImagePath, const char *dlopenCallerExecutablePath, const char *workingDir, xpc_object_t preferredArchsArray)
 {
 	if(!machoPath || !dlopenCallerExecutablePath) return -1;
-	
+
 	size_t preferredArchCount = 0;
 	if (preferredArchsArray) preferredArchCount = xpc_array_get_count(preferredArchsArray);
 	uint32_t preferredArchTypes[preferredArchCount];
@@ -41,7 +41,7 @@ static int trust_macho_recurse(const char *machoPath, const char *dlopenCallerIm
 			preferredArchSubtypes[i] = xpc_dictionary_get_uint64(arch, "subtype");
 		}
 	}
-	
+
 	preferredArchInfo preferredArch = {preferredArchCount, preferredArchTypes, preferredArchSubtypes};
 
 	cdhash_t *cdhashes = NULL;
@@ -76,31 +76,15 @@ static int roothide_jailbroken_check(audit_token_t *callerToken, bool* jailbroke
 
 static int roothide_palehide_present(audit_token_t *callerToken, bool* palehide)
 {
-	static bool result = false;
-
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-		if(jbinfo(palera1n)=='hide') {
-			result = true;
-		} else {
-			// hang forver on iphone7p ios15.8.2
-			// mach_port_t tfp0 = MACH_PORT_NULL;
-			// kern_return_t kr = task_for_pid(mach_task_self(), 0, &tfp0);
-			// if(kr == KERN_SUCCESS && MACH_PORT_VALID(tfp0)) {
-			// 	mach_port_deallocate(mach_task_self(), tfp0);
-			// 	result = true;
-			// }
-		}
-	});
-
-	*palehide = result;
+	// Keep the protocol slot stable for existing RootHide clients.
+	*palehide = false;
 	return 0;
 }
 
 static int roothide_blacklist_check(audit_token_t *callerToken, const char* checktype, xpc_object_t checkvalue, bool* blacklisted)
 {
 	if(!checktype) return -1;
-	
+
 	if(strcmp(checktype, "pid")==0) {
 		pid_t pid = (pid_t)xpc_uint64_get_value(checkvalue);
 		if(pid > 1) {
@@ -164,19 +148,12 @@ static int roothide_set_dyld_patch(audit_token_t *callerToken, bool enabled)
 		JBLogError("roothide_set_dyld_patch: denying request from %d,%d", pid, uid);
 		return -1;
 	}
-	
+
 #ifdef __arm64e__
-	if (!__builtin_available(iOS 16.0, *))
-	{
-		if(roothide_config_set_spinlock_fix(enabled) != 0) {
-			JBLogError("roothide_config_set_spinlock_fix failed");
-			return -1;
-		}
-	}
 #endif
 
 	jbinfo(dyld_patch_enabled) = enabled;
-	
+
 	return 0;
 }
 

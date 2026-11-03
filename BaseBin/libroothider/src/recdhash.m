@@ -19,8 +19,8 @@ extern CS_DecodedBlob *csd_superblob_find_best_code_directory(CS_DecodedSuperBlo
 extern bool code_directory_calculate_page_hash(CS_CodeDirectory *codeDir, MachO *macho, int slot, uint8_t *pageHashOut);
 extern bool csd_superblob_is_adhoc_signed(CS_DecodedSuperBlob *superblob);
 
-/* 
-if here are any unclosed file descriptors before the Dopamine process ends, 
+/*
+if here are any unclosed file descriptors before the Dopamine process ends,
 	the "attempt to map verified executable page" panic may occur.
 */
 Fat* fat_init_for_writing(const char *filePath)
@@ -49,7 +49,7 @@ int calc_cdhash(uint8_t *cdBlob, size_t cdBlobSize, uint8_t hashtype, void *cdha
 			CC_SHA1(cdBlob, (CC_LONG)cdBlobSize, cdhash);
 			break;
 		}
-		
+
 		case CS_HASHTYPE_SHA256_256:
 		case CS_HASHTYPE_SHA256_160: {
 			CC_SHA256(cdBlob, (CC_LONG)cdBlobSize, cdhash);
@@ -87,9 +87,9 @@ int ensure_randomized_cdhash(const char* inputPath, void* cdhashOut)
 }
 
 /* on ios16(+?)
-1: if an executable has process(es) running it, after opening it with open(O_RDWR), 
+1: if an executable has process(es) running it, after opening it with open(O_RDWR),
 		it can no longer be executed (EBADMACHO) until the previous process(es) exits.
-2: if an executable is opened with O_RDWR, 
+2: if an executable is opened with O_RDWR,
 	it cannot be executed until the file descriptor is closed.
 3: `open(O_RDWR)` on certain binaries(e.g., WebContent) may cause deadlock (krwlock for writing)
 	while `read`/`posix_spawn` happen to be running on the binary.
@@ -144,7 +144,7 @@ int ensure_randomized_cdhash_for_slice(const char* inputPath, uint64_t offset, v
 				*stop=true;
 				return;
 			}
-			
+
 			*stop = foundOne;
 			foundOne = true;
 			foundCount++;
@@ -212,16 +212,16 @@ int ensure_randomized_cdhash_for_slice(const char* inputPath, uint64_t offset, v
 				break;
 			}
 		}
-	
+
 		*rd2 = jbinfo(jbrand);
 
 		JBLogDebug("randomize cdhash with %016llX: %s\n", *rd2, inputPath);
-		
+
 		if(memory_stream_write(fat->stream, macho->archDescriptor.offset + firstsectoffset, sizeof(firstsection), &firstsection) != 0) {
 			JBLogError("Error: failed to write macho file: %s\n", inputPath);
 			break;
 		}
-				
+
 		CS_CodeDirectory codeDir;
 		if(csd_blob_read(bestCDBlob, 0, sizeof(CS_CodeDirectory), &codeDir) != 0) {
 			JBLogError("Error: failed to read code directory: %s\n", inputPath);
@@ -246,26 +246,6 @@ int ensure_randomized_cdhash_for_slice(const char* inputPath, uint64_t offset, v
 				if(0 != memory_stream_write(fat->stream, macho->archDescriptor.offset + linkedit.dataoff + curIndex.offset + codeDir.hashOffset, codeDir.hashSize, pageHash)) {
 					JBLogError("Error: failed to write page hash: %s\n", inputPath);
 					break;
-				}
-
-				if(ksymbol(SPTMArgs)) //dopamine fix adhoc flag on TXM devices
-				{
-					if(csd_superblob_is_adhoc_signed(decodedSuperblob))
-					{
-						uint32_t flags = csd_code_directory_get_flags(bestCDBlob);
-						char *teamId = csd_code_directory_copy_team_id(bestCDBlob, NULL);
-						bool hasTeamId = (teamId != NULL);
-						if (teamId) free(teamId);
-
-						if((!!(flags & CS_ADHOC)) == hasTeamId) {
-							uint32_t newFlags = HOST_TO_BIG(hasTeamId ? (flags & ~CS_ADHOC) : (flags | CS_ADHOC));
-							uint64_t flagsOffset = macho->archDescriptor.offset + linkedit.dataoff + curIndex.offset + offsetof(CS_CodeDirectory, flags);
-							if(memory_stream_write(fat->stream, flagsOffset, sizeof(newFlags), &newFlags) != 0) {
-								JBLogError("Error: failed to write cs flags: %s\n", inputPath);
-								break;
-							}
-						}
-					}
 				}
 
 				void* newCDBlob = malloc(codeDir.length);

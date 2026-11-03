@@ -56,7 +56,7 @@ DOJailbreaker *gJb;
 @end
 
 void init_libjailbreak(void)
-{	
+{
 	int r = corellium_krw_init();
 	if (r != 0) {
 		printf("Failed initializing krw: %d\n", r);
@@ -112,7 +112,7 @@ void activate_basebin(NSString *basebinPath)
 		printf("Activating basebin failed: cdhashesCount != 1\n");
 		exit(-1);
 	}
-	
+
 	trustcache_file_v1 *dyldTCFile = NULL;
 	int r = trustcache_file_build_from_cdhashes(cdhashes, cdhashesCount, &dyldTCFile);
 	free(cdhashes);
@@ -266,11 +266,6 @@ void install_builtin_packages(void)
 			}
 		}
 		[[NSFileManager defaultManager] removeItemAtURL:packageDirURL error:nil];
-		if (@available(iOS 19.0, *)) {
-			// If we just installed prep packages on iOS 26+, load daemons now
-			// This wasn't working before, since launchctl had to be updated first
-			load_var_jb_daemons();
-		}
 	}
 }
 
@@ -361,7 +356,7 @@ void activate_environment(bool applyProtection, bool prepareBootstrap)
 	load_basebin_trustcache();
 
 	inject_launchd_hook();
-	
+
 	if (applyProtection) {
 		apply_preboot_protection();
 	}
@@ -406,7 +401,7 @@ void activate_dopamine(void)
 {
 	activate_environment(true, false);
 	activate_basebin(JBROOT_PATH(@"/basebin"));
-	
+
 	// Now that fakelib is up, we want to make systemhook inject into any binary we spawn
 	setenv("DYLD_INSERT_LIBRARIES", "/usr/lib/systemhook.dylib", 1);
 

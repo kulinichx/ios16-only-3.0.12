@@ -1,8 +1,5 @@
-TARGET := iphone:clang:latest:15.0
+TARGET := iphone:clang:latest:16.0
 INSTALL_TARGET_PROCESSES = lsd cfprefsd backboardd runningboardd SpringBoard
-ifeq ($(PALEHIDE),1)
-INSTALL_TARGET_PROCESSES += coreauthd securityd ctkd keybagd
-endif
 FINALPACKAGE = 1
 THEOS_PACKAGE_SCHEME = roothide
 ARCHS = arm64 arm64e

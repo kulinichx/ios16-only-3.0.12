@@ -6,7 +6,6 @@
 #include <sys/stat.h>
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
-#include <CoreSymbolication.h>
 
 #include <libjailbreak/libjailbreak.h>
 #include "common.h"
@@ -15,7 +14,7 @@
 uint64_t show_dyld_regions(mach_port_t task, bool more)
 {
     uint64_t dyld_address = 0;
-    
+
     vm_address_t region_base = 0;
     vm_size_t region_size = 0;
 
@@ -42,7 +41,7 @@ uint64_t show_dyld_regions(mach_port_t task, bool more)
 		if(info.protection==(VM_PROT_READ|VM_PROT_EXECUTE)) {
             // JBLogDebug("show_dyld_regions: region base=%llx size=%llx prot=%x/%x inhert=%d shared=%d", region_base, region_size, info.protection, info.max_protection, info.inheritance, info.shared);
             JBLogDebug("show_dyld_regions: region base=%llx size=%llx prot=%x/%x inhert=%d share_mode=%d", region_base, region_size, info.protection, -1, -1, info.share_mode);
-    
+
 			size_t readsize=0;
 			struct mach_header_64 header={0};
 			kr = vm_read_overwrite(task, (vm_address_t)region_base, sizeof(header), (vm_address_t)&header, &readsize);
@@ -67,11 +66,8 @@ void patchedtest(mach_port_t task, uint64_t remoteLoadAddress)
     // show_dyld_regions(task, true);
 
     uint64_t getAMFI=0;
-    if (__builtin_available(iOS 16.0, *)) {
+    {
      getAMFI = remoteLoadAddress + 0x197FC;
-    }
-    else {
-     getAMFI = remoteLoadAddress + 0x1C3C0;
     }
 
     size_t readsize=0;
@@ -111,18 +107,18 @@ int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
         }
         JBLogDebug("task_set_dyld_info: all_image_info_addr=%p", (void*)dyldInfo.all_image_info_addr);
         JBLogDebug("task_set_dyld_info: all_image_info_size=%p", (void*)dyldInfo.all_image_info_size);
-    
+
         uint64_t selftask = task_self();
         JBLogDebug("task_set_dyld_info: selftask=%llx", selftask);
 
         int i=0;
-        for(; i<DYLD_INFO_MAX_SEARCH_INDEX; i++) 
+        for(; i<DYLD_INFO_MAX_SEARCH_INDEX; i++)
         {
             if(kread64(selftask + i*8)==dyldInfo.all_image_info_addr
              && kread64(selftask + (i+1)*8)==dyldInfo.all_image_info_size) {
                 JBLogDebug("task_set_dyld_info: all_image_info_addr offset=[%d]0x%x", i, i*8 );
                 JBLogDebug("task_set_dyld_info: all_image_info_size offset=[%d]0x%x", i+1, (i+1)*8 );
-                
+
                 all_image_info_addr_offset = i*8;
                 all_image_info_size_offset = (i+1)*8;
 
@@ -171,7 +167,7 @@ void analyzeSegmentsLayout(struct mach_header_64* header, uint64_t* vmSpace, boo
     uint64_t preferredLoadAddress = 0;
 
     struct load_command* lc = (struct load_command*)((uint64_t)header + sizeof(*header));
-    for (int i = 0; i < header->ncmds; i++) {        
+    for (int i = 0; i < header->ncmds; i++) {
         if(lc->cmd == LC_SEGMENT_64)
         {
             struct segment_command_64* seg = (struct segment_command_64*)lc;
@@ -217,7 +213,7 @@ void analyzeSegmentsLayout(struct mach_header_64* header, uint64_t* vmSpace, boo
 int loadSinature(int fd, struct mach_header_64* header)
 {
     struct load_command* lc = (struct load_command*)((uint64_t)header + sizeof(*header));
-    for (int i = 0; i < header->ncmds; i++) {        
+    for (int i = 0; i < header->ncmds; i++) {
         switch(lc->cmd) {
             case LC_CODE_SIGNATURE: {
                 struct linkedit_data_command* codeSignCmd = (struct linkedit_data_command*)lc;
@@ -242,27 +238,12 @@ int loadSinature(int fd, struct mach_header_64* header)
     return -1;
 }
 
-static uint64_t get_symbol(const char* path, const char* name)
-{
-    void *csHandle = dlopen("/System/Library/PrivateFrameworks/CoreSymbolication.framework/CoreSymbolication", RTLD_NOW);
-	CSSymbolicatorRef (*__CSSymbolicatorCreateWithPathAndArchitecture)(const char* path, cpu_type_t type) = dlsym(csHandle, "CSSymbolicatorCreateWithPathAndArchitecture");
-	CSSymbolRef (*__CSSymbolicatorGetSymbolWithMangledNameAtTime)(CSSymbolicatorRef cs, const char* name, uint64_t time) = dlsym(csHandle, "CSSymbolicatorGetSymbolWithMangledNameAtTime");
-	CSRange (*__CSSymbolGetRange)(CSSymbolRef sym) = dlsym(csHandle, "CSSymbolGetRange");
-
-	CSSymbolicatorRef symbolicator = __CSSymbolicatorCreateWithPathAndArchitecture(path, CPU_TYPE_ARM64);
-	CSSymbolRef symbol = __CSSymbolicatorGetSymbolWithMangledNameAtTime(symbolicator, name, 0);
-	CSRange range = __CSSymbolGetRange(symbol);
-    return range.location;
-}
-
 struct DYLDINFO {
     uint64_t entrypoint;
     uint64_t vmSpaceSize;
     void*    imageAddress;
     uint64_t all_image_info_addr;
     uint64_t all_image_info_size;
-    uint64_t loadDyldCache_function;
-    uint64_t loadDyldCache_trampoline;
 };
 
 struct DYLDINFO* loadDyldInfo(const char* path)
@@ -275,16 +256,6 @@ struct DYLDINFO* loadDyldInfo(const char* path)
 
     struct DYLDINFO* result = malloc(sizeof(struct DYLDINFO));
     memset(result, 0, sizeof(struct DYLDINFO));
-
-    result->loadDyldCache_function = get_symbol(path, "__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE");
-    JBLogDebug("loadDyldCache function: %llx", result->loadDyldCache_function);
-    if(result->loadDyldCache_function == 0) {
-        JBLogError("loadDyldInfo: loadDyldCache_function not found in %s", path);
-        goto failed;
-    }
-
-    result->loadDyldCache_trampoline = get_symbol(path, "_ORIG__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE");
-    JBLogDebug("loadDyldCache orig trampoline: %llx", result->loadDyldCache_trampoline);
 
     fd = open(path, O_RDONLY);
     if(fd<0) {
@@ -333,11 +304,11 @@ struct DYLDINFO* loadDyldInfo(const char* path)
 
     int segIndex=0;
     struct load_command* lc = (struct load_command*)((uint64_t)header + sizeof(*header));
-    for (int i = 0; i < header->ncmds; i++) {        
+    for (int i = 0; i < header->ncmds; i++) {
         switch(lc->cmd) {
             case LC_SEGMENT_64: {
                 struct segment_command_64 * seg = (struct segment_command_64 *) lc;
-                
+
                 JBLogDebug("segment: %s file=%llx:%llx vm=%llx:%llx prot=%x/%x", seg->segname, seg->fileoff, seg->filesize, seg->vmaddr, seg->vmsize, seg->initprot, seg->maxprot);
 
                 if (seg->filesize == 0)  {
@@ -378,8 +349,8 @@ struct DYLDINFO* loadDyldInfo(const char* path)
                 struct section_64* sec = (struct section_64*)((uint64_t)seg+sizeof(*seg));
                 for(int j=0; j<seg->nsects; j++)
                 {
-                    JBLogDebug("section[%d] = %.*s/%.*s vm=%llx offset=%x:%llx", j, 
-                        sizeof(sec[j].segname),sec[j].segname, 
+                    JBLogDebug("section[%d] = %.*s/%.*s vm=%llx offset=%x:%llx", j,
+                        sizeof(sec[j].segname),sec[j].segname,
                         sizeof(sec[j].sectname),sec[j].sectname,
                         sec[j].addr, sec[j].offset, sec[j].size);
 
@@ -399,9 +370,9 @@ struct DYLDINFO* loadDyldInfo(const char* path)
                     JBLogError("unexpected dyld thread_command: %x", lc->cmdsize);
                     goto failed;
                 }
-                
+
                 uint32_t* tcdata = (uint32_t*)((uint64_t)lc + sizeof(struct thread_command));
-                
+
                 uint32_t flavor = tcdata[0];
                 uint32_t count = tcdata[1];
                 if(tcdata[0] != ARM_THREAD_STATE64 || count != ARM_THREAD_STATE64_COUNT) {
@@ -420,7 +391,7 @@ struct DYLDINFO* loadDyldInfo(const char* path)
                 break;
             }
         }
-        
+
         /////////
         lc = (struct load_command *) ((char *)lc + lc->cmdsize);
     }
@@ -451,7 +422,7 @@ final:
 int hook_dyld_entry(mach_port_t task, uint64_t old_header, uint64_t old_entry, uint64_t new_entry)
 {
     //Destroy the old dyld header first to avoid double dyld being found via vm_region*
-    
+
     struct mach_header_64 padding = {0};
 
     kern_return_t kr = vm_protect(task, (vm_address_t)old_header, sizeof(padding), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
@@ -513,84 +484,7 @@ br   x0
     return 0;
 }
 
-int hook_dyld_function(mach_port_t task, uint64_t old_func, uint64_t new_func, uint64_t orig_func)
-{
-/*
-movz x17, 0x0000, lsl 48
-movk x17, 0x0000, lsl 32
-movk x17, 0x0000, lsl 16
-movk x17, 0x0000
-br   x17
-*/
-#define HOOK_CODE_TEMPLATE { \
-    0xD2E00011, \
-    0xF2C00011, \
-    0xF2A00011, \
-    0xF2800011, \
-    0xD61F0220  \
-}
-
-    uint32_t tramp[] = HOOK_CODE_TEMPLATE;
-    tramp[0] |= (((old_func+sizeof(tramp)) >> 48) & 0xffff) << 5;
-    tramp[1] |= (((old_func+sizeof(tramp)) >> 32) & 0xffff) << 5;
-    tramp[2] |= (((old_func+sizeof(tramp)) >> 16) & 0xffff) << 5;
-    tramp[3] |= (((old_func+sizeof(tramp)) >>  0) & 0xffff) << 5;
-
-    kern_return_t kr = vm_protect(task, (vm_address_t)orig_func, sizeof(tramp)*2, false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_protect rw(cpoy) failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_copy(task, (vm_address_t)old_func, sizeof(tramp), (vm_address_t)orig_func);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_copy failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_write(task, (vm_address_t)(orig_func+sizeof(tramp)), (vm_offset_t)tramp, sizeof(tramp));
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_write failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_protect(task, (vm_address_t)orig_func, sizeof(tramp)*2, false, VM_PROT_READ|VM_PROT_EXECUTE);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_protect rx failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-
-
-    uint32_t codes[] = HOOK_CODE_TEMPLATE;
-
-    codes[0] |= ((new_func >> 48) & 0xffff) << 5;
-    codes[1] |= ((new_func >> 32) & 0xffff) << 5;
-    codes[2] |= ((new_func >> 16) & 0xffff) << 5;
-    codes[3] |= ((new_func >>  0) & 0xffff) << 5;
-
-    kr = vm_protect(task, (vm_address_t)old_func, sizeof(codes), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_protect rw(cpoy) failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_write(task, (vm_address_t)old_func, (vm_offset_t)codes, sizeof(codes));
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_write failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_protect(task, (vm_address_t)old_func, sizeof(void*), false, VM_PROT_READ|VM_PROT_EXECUTE);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_protect rx failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    return 0;
-}
-
-int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
+int proc_patch_dyld_internal(pid_t pid)
 {
     int ret = 0;
 
@@ -652,48 +546,10 @@ int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
         goto failed;
     }
 
-    if(spinlockFixOnly)
-    {
-        bool iOS15Arm64e = false;
-#ifdef __arm64e__
-        if (!__builtin_available(iOS 16.0, *))
-        {
-            iOS15Arm64e = true;
-        }
-#endif
-        assert(iOS15Arm64e == true);
-        assert(dyld_patch_enabled());
-
-        uint64_t loadDyldCache_old = dyld_address + stockDyldInfo->loadDyldCache_function;
-        uint64_t loadDyldCache_new = remoteLoadAddress + patchedDyldInfo->loadDyldCache_function;
-        uint64_t loadDyldCache_orig = remoteLoadAddress + patchedDyldInfo->loadDyldCache_trampoline;
-
-        cs_allow_invalid(bsd_proc, false);
-
-        if(hook_dyld_function(task, loadDyldCache_old, loadDyldCache_new, loadDyldCache_orig) != 0) {
-            JBLogError("hook dyld loadDyldCache failed");
-            goto failed;
-        }
-
-        if(task_set_dyld_info(mach_task, dyld_address + stockDyldInfo->all_image_info_addr, stockDyldInfo->all_image_info_size) != 0) {
-            JBLogError("task_set_dyld_info failed");
-            goto failed;
-        }
-
-        //destroy macho header
-        kr = vm_deallocate(task, remoteLoadAddress, PAGE_SIZE);
-        if(kr != KERN_SUCCESS) {
-            JBLogError("vm_deallocate failed: %d,%s", kr, mach_error_string(kr));
-            goto failed;
-        }
-
-        goto final;
-    }
-
     void* new_entry = (void*)(remoteLoadAddress + patchedDyldInfo->entrypoint);
 
     bool reentry = false;
-    
+
     thread_act_array_t allThreads=NULL;
     mach_msg_type_number_t threadCount = 0;
     kr = task_threads(task, &allThreads, &threadCount);
@@ -790,7 +646,6 @@ reentry_end:
 
     JBLogDebug("dyld all_image_info update: %p -> %p", (void*)(dyld_address + stockDyldInfo->all_image_info_addr), (void*)(remoteLoadAddress + patchedDyldInfo->all_image_info_addr));
 
-
     //patchedtest(task, remoteLoadAddress);
 
     JBLogDebug("dyld entrypoint updated: %p -> %p", (void*)dyld_entry, new_entry);
@@ -809,10 +664,5 @@ final:
 
 int proc_patch_dyld(pid_t pid)
 {
-    return proc_patch_dyld_internal(pid, false);
-}
-
-int proc_fix_spinlock(pid_t pid)
-{
-    return proc_patch_dyld_internal(pid, true);
+    return proc_patch_dyld_internal(pid);
 }

@@ -6,7 +6,6 @@
 #include <xpc/xpc.h>
 #include <xpc_private.h>
 #include "signatures.h"
-#include "hookd.h"
 #include "jbserver_domains.h"
 
 typedef enum {
@@ -53,7 +52,6 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 #define JBSERVER_MACH_CHECKIN 0
 #define JBSERVER_MACH_FORK_FIX 1
 #define JBSERVER_MACH_TRUST_FILE 2
-#define JBSERVER_MACH_HOOKD_SEND_MSG 3
 
 struct jbserver_mach_msg {
 	mach_msg_header_t hdr;
@@ -98,16 +96,6 @@ struct jbserver_mach_msg_trust_fd {
 
 struct jbserver_mach_msg_trust_fd_reply {
 	struct jbserver_mach_msg_reply base;
-};
-
-struct jbserver_mach_msg_hookd_send_msg {
-	struct jbserver_mach_msg base;
-	char hookdMsg[];
-};
-
-struct jbserver_mach_msg_hookd_send_msg_reply {
-	struct jbserver_mach_msg_reply base;
-	char hookdReply[];
 };
 
 struct jbserver_mach_complex_msg {

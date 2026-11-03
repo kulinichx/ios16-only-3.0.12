@@ -106,8 +106,6 @@ void mach_init_4real(void)
 
 void dyldhook_init(uintptr_t kernelParams)
 {
-extern void dyldhook_init_roothide(uintptr_t);
-dyldhook_init_roothide(kernelParams);
 
 	mach_init_4real();
 
@@ -205,7 +203,7 @@ dyldhook_init_roothide(kernelParams);
 		if (gDyldHookLog) {
 			_simple_dprintf(2, "Not checking in, DYLD_INSERT_LIBRARIES was not found\n");
 		}
-		return;		
+		return;
 	}
 	if (!strstr(insertLibrariesVar, "/systemhook")) {
 		if (gDyldHookLog) {

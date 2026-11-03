@@ -11,7 +11,6 @@
 #include <sys/mount.h>
 #include <litehook.h>
 #include "jbserver/jbserver_local.h"
-#include "hookd_provider.h"
 extern char **environ;
 
 //void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const char *reason_string, uint64_t reason_flags);
@@ -76,7 +75,7 @@ if (!pid) pid = &pidval;
 	// we need to disable the crash reporter during the orig call
 	// otherwise the child process inherits the exception ports
 	// and this would trip jailbreak detections
-	int key = crashreporter_pause();	
+	int key = crashreporter_pause();
 	int r = __posix_spawn_inline(pid, path, desc, argv, envp);
 	// 底层失败依赖 errno，后续异常端口恢复和登记不能覆盖它。
 	int spawnError = errno;
@@ -110,8 +109,6 @@ int __posix_spawn_hook(pid_t *restrict pid, const char *restrict path,
 			// Mainly so we don't lock up while spawning boomerang
 			gInEarlyBoot = true;
 
-			hookd_provider_teardown();
-
 			// If the jailbreak is currently hidden, fakelib is not mounted
 			// It needs to be mounted to regain launchd code execution after the userspace reboot
 //			ensure_fakelib_mounted();
@@ -126,10 +123,7 @@ int __posix_spawn_hook(pid_t *restrict pid, const char *restrict path,
 			boomerang_stashPrimitives();
 
 			// Fix Xcode debugging being broken after the userspace reboot
-			if (__builtin_available(iOS 17.0, *)) {
-				unmount("/System/Developer", MNT_FORCE);
-			}
-			else {
+			{
 				unmount("/Developer", MNT_FORCE);
 			}
 

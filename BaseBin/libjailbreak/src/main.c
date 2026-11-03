@@ -6,8 +6,6 @@
 #include "info.h"
 #include "translation.h"
 #include "util.h"
-#include "kcall_Fugu14.h"
-#include "kcall_arm64.h"
 #include <xpc/xpc.h>
 
 int jbclient_initialize_primitives_internal(bool physrwPTE)
@@ -28,16 +26,6 @@ int jbclient_initialize_primitives_internal(bool physrwPTE)
 			}
 			libjailbreak_translation_init();
 			libjailbreak_IOSurface_primitives_init();
-			if (gPrimitives.kalloc_local) {
-				if (host_is_arm64e()) {
-					if (jbinfo(usesPACBypass)) {
-						jbclient_get_fugu14_kcall();
-					}
-				}
-				else {
-					arm64_kcall_init();
-				}
-			}
 
 			return 0;
 		}

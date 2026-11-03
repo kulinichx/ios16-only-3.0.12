@@ -62,28 +62,24 @@ int roothider_inline_version = 0;
 	        "mov x16, #-" _ASM_STRINGIFY(num) "\n" \
 	        "svc #0x80\nret\n")
 
-
 static void cerror(void);
 mach_msg_return_t mach_msg2_internal(void*,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 
 // SYMBOL(to, min, max), ALIAS(to, alias, min, max); max = 0 means unlimited.
 #define DYLD_TRAMPOLINE_SYMBOLS(SYMBOL, ALIAS) \
-	SYMBOL(cerror, 15, 0) \
-	SYMBOL(mach_msg, 15, 15) \
-	ALIAS(_kernelrpc_mach_vm_allocate_trap, vm_allocate, 15, 0) \
-	ALIAS(_kernelrpc_mach_vm_deallocate_trap, vm_deallocate, 15, 0) \
-	SYMBOL(task_self_trap, 15, 0) \
-	SYMBOL(mach_msg_destroy, 15, 0) \
+	SYMBOL(cerror, 16, 0) \
+	ALIAS(_kernelrpc_mach_vm_allocate_trap, vm_allocate, 16, 0) \
+	ALIAS(_kernelrpc_mach_vm_deallocate_trap, vm_deallocate, 16, 0) \
+	SYMBOL(task_self_trap, 16, 0) \
+	SYMBOL(mach_msg_destroy, 16, 0) \
 	SYMBOL(mach_msg_overwrite, 16, 0) \
 	SYMBOL(mach_msg2_internal, 16, 0) \
-	SYMBOL(mig_get_reply_port, 15, 0) \
-	SYMBOL(mach_port_deallocate, 15, 0)
-
+	SYMBOL(mig_get_reply_port, 16, 0) \
+	SYMBOL(mach_port_deallocate, 16, 0)
 
 // Data Symbols
 mach_port_t* roothider_inline_mach_task_self_pointer;
 #define mach_task_self_      (*roothider_inline_mach_task_self_pointer)
-
 
 #define DEFINE_INLINE_SYMBOL(to, min, max) MAKE_TRAMPOLINE(to);
 #define DEFINE_INLINE_SYMBOL_ALIAS(to, alias, min, max) MAKE_TRAMPOLINE_ALIAS(to, alias);
@@ -147,35 +143,6 @@ static unsigned long inline_strlcpy(char *dst, const char *src, unsigned long si
 #define strlcpy              inline_strlcpy
 
 // ============================================================
-// IOS=15: reimpl.c + task.c
-// ============================================================
-#define IOS 15
-#define NDR_record                NDR_record_ios15
-#define NDR_record_t              NDR_record_t_ios15
-#define msyscall_errno            msyscall_errno_ios15
-#define sandbox_extension_consume sandbox_extension_consume_ios15
-typedef struct NDR_record_t_ios15 NDR_record_t_ios15;
-#include "../dyldhook/src/reimpl.c"
-#undef NDR_record
-#define NDR_record             (*(NDR_record_t*)&NDR_record_ios15)
-#define task_get_special_port  task_get_special_port_ios15
-#define mach_ports_lookup      mach_ports_lookup_ios15
-#include "../dyldhook/src/generated/ios15/task.c"
-#undef __MachMsgErrorWithoutTimeout
-#undef __DeclareSendRpc
-#undef __BeforeSendRpc
-#undef __AfterSendRpc
-#undef sandbox_extension_consume
-#undef task_get_special_port
-#undef mach_ports_lookup
-#undef msgh_request_port
-#undef msgh_reply_port
-#undef msyscall_errno
-#undef NDR_record
-#undef NDR_record_t
-#undef IOS
-
-// ============================================================
 // IOS=16: reimpl.c + mach_msg2 wrapper + task.c
 // ============================================================
 #define IOS 16
@@ -227,87 +194,18 @@ static inline mach_msg_return_t inline_mach_msg2_ios16(void *data, uint64_t opti
 #undef IOS
 
 // ============================================================
-// IOS=18: reimpl.c + mach_msg2 wrapper + task.c
-// ============================================================
-#undef __options_decl
-#define __options_decl(name, type, ...) typedef type name;
-#define IOS 18
-#define NDR_record                NDR_record_ios18
-#define NDR_record_t              NDR_record_t_ios18
-#define msyscall_errno            msyscall_errno_ios18
-#define sandbox_extension_consume sandbox_extension_consume_ios18
-#define mach_msg_option64_t       mach_msg_option64_t_ios18
-#define mach_msg_vector_t         mach_msg_vector_t_ios18
-#define mach_msg2                 mach_msg2_ios18
-#define mach_msg                  mach_msg_ios18
-#define mach_ports_lookup         mach_ports_lookup_ios18
-#define _kernelrpc_mach_ports_lookup3 _kernelrpc_mach_ports_lookup3_ios18
-typedef struct NDR_record_t_ios18 NDR_record_t_ios18;
-#include "../dyldhook/src/reimpl.c"
-// mach_msg2 wrapper
-#undef _kernelrpc_mach_ports_lookup3
-#undef mach_ports_lookup
-#undef mach_msg
-#undef mach_msg2
-#undef mach_msg_vector_t
-#undef mach_msg_option64_t
-static inline mach_msg_return_t inline_mach_msg2_ios18(void *data, uint64_t option64, mach_msg_header_t header, mach_msg_size_t send_size, mach_msg_size_t rcv_size, mach_port_t rcv_name, uint64_t timeout, uint32_t priority) {
-	return mach_msg2_ios18(data, (mach_msg_option64_t_ios18)option64, header, send_size, rcv_size, rcv_name, timeout, priority);
-}
-// task.c ios18+: mach_msg via mach_msg2
-#undef NDR_record
-#define NDR_record             (*(NDR_record_t*)&NDR_record_ios18)
-#define mach_msg_option64_t    uint64_t
-#define mach_msg2              inline_mach_msg2_ios18
-#define mig_mach_msg           mig_mach_msg_ios18
-#define task_get_special_port  task_get_special_port_ios18
-#define _kernelrpc_mach_ports_lookup3 _kernelrpc_mach_ports_lookup3_ios18
-#include "../dyldhook/src/generated/ios18+/task.c"
-#undef __MachMsgErrorWithoutTimeout
-#undef __DeclareSendRpc
-#undef __BeforeSendRpc
-#undef __AfterSendRpc
-#undef MACH64_SEND_KOBJECT_CALL
-#undef _kernelrpc_mach_ports_lookup3
-#undef sandbox_extension_consume
-#undef task_get_special_port
-#undef mach_ports_lookup
-#undef msgh_request_port
-#undef msgh_reply_port
-#undef msyscall_errno
-#undef NDR_record
-#undef NDR_record_t
-#undef mig_mach_msg
-#undef mach_msg
-#undef mach_msg2
-#undef mach_msg_option64_t
-#undef IOS
-
-// ============================================================
 // Runtime dispatch wrappers
 // ============================================================
 static kern_return_t reimpl_task_get_special_port(task_inspect_t task, int which_port, mach_port_t *special_port) {
-	if (roothider_inline_version >= 18)
-		return task_get_special_port_ios18(task, which_port, special_port);
-	if (roothider_inline_version >= 16)
-		return task_get_special_port_ios16(task, which_port, special_port);
-	return task_get_special_port_ios15(task, which_port, special_port);
+	return task_get_special_port_ios16(task, which_port, special_port);
 }
 
 static kern_return_t reimpl_mach_ports_lookup(task_t task, mach_port_array_t *ports, mach_msg_type_number_t *count) {
-	if (roothider_inline_version >= 18)
-		return mach_ports_lookup_ios18(task, ports, count);
-	if (roothider_inline_version >= 16)
-		return mach_ports_lookup_ios16(task, ports, count);
-	return mach_ports_lookup_ios15(task, ports, count);
+	return mach_ports_lookup_ios16(task, ports, count);
 }
 
 static mach_msg_return_t reimpl_mach_msg(mach_msg_header_t *msg, mach_msg_option_t option, mach_msg_size_t send_size, mach_msg_size_t rcv_size, mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_port_name_t notify) {
-	if (roothider_inline_version >= 18)
-		return mach_msg_ios18(msg, option, send_size, rcv_size, rcv_name, timeout, notify);
-	if (roothider_inline_version >= 16)
-		return mach_msg_ios16(msg, option, send_size, rcv_size, rcv_name, timeout, notify);
-	return mach_msg(msg, option, send_size, rcv_size, rcv_name, timeout, notify);
+	return mach_msg_ios16(msg, option, send_size, rcv_size, rcv_name, timeout, notify);
 }
 
 // ============================================================
@@ -321,7 +219,6 @@ static mach_msg_return_t reimpl_mach_msg(mach_msg_header_t *msg, mach_msg_option
 #define jbclient_mach_send_msg          inline_jbclient_mach_send_msg
 #define jbclient_mach_fork_fix          inline_jbclient_mach_fork_fix
 #define jbclient_mach_trust_file        inline_jbclient_mach_trust_file
-#define jbclient_mach_hookd_send_msg    inline_jbclient_mach_hookd_send_msg
 #define jbclient_mach_process_checkin   inline_jbclient_mach_process_checkin
 #define jbclient_mach_get_launchd_port  inline_jbclient_mach_get_launchd_port
 

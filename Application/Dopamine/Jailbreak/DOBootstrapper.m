@@ -625,7 +625,6 @@ NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
 
 @end
 
-
 /************************* roothide specific *******************/
 
 ///////////// debian package version comparison ////////////
@@ -1164,7 +1163,6 @@ int getCFMajorVersion(void)
             continue;
         }
 
-
         STRAPLOG("remove unknown/unfinished jbroot %@", subItem);
 
         NSString* jbroot_secondary = [NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/%@", subItem];
@@ -1433,7 +1431,6 @@ int getCFMajorVersion(void)
         }
     }
 
-
     if ([self fileOrSymlinkExistsAtPath:jbrootPrefix(@"/usr/lib/libroot.dylib")]) {
         [[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/usr/lib/libroot.dylib") error:nil];
     }
@@ -1455,12 +1452,6 @@ int getCFMajorVersion(void)
     
     [[NSString stringWithFormat:@"%d",DOPAMINE_INSTALL_VERSION] writeToFile:jbrootPrefix(@"/.installed_dopamine") atomically:YES encoding:NSUTF8StringEncoding error:nil];
     
-    if(jbclient_palehide_present()) {
-        [@"" writeToFile:jbrootPrefix(@"/.installed_palera1n") atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    } else {
-        [[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/.installed_palera1n") error:nil];
-    }
-
     return nil;
 }
 

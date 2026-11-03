@@ -3,7 +3,6 @@
 
 #include <xpf/xpf.h>
 
-extern bool xpf_supported_16up(void);
 extern bool xpf_supported_always(void);
 extern PFSection *xpf_pfsec_init(const char *filesetEntryId, const char *segName, const char *sectName);
 
@@ -22,7 +21,7 @@ XPFSet gNameCacheSet = {
 
 XPFSet gAMFIOidsSet = {
     .name="amfi_oids",
-    .supported=xpf_supported_16up,
+    .supported=xpf_supported_always,
     .metrics={
         "kernelSymbol.launch_env_logging",
         "kernelSymbol.developer_mode_status",

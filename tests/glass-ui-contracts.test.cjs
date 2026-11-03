@@ -31,11 +31,13 @@ function fingerprint(source) {
   return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
-test('jailbreak execution remains identical to the tested 1754adf6 baseline', () => {
+test('homepage action wiring preserves the baseline except for the removed A8-only notice', () => {
+  // The iOS 16 projection removes only the A8 CPU lookup and notice append.
   assert.equal(
     fingerprint(section(main, '- (void)startJailbreak', '-(void)setupUpdateAvailable:')),
-    'a7372380df80f365d42d094ab0aea92ed7758b5adacd7d31c94890c1b0a521bb',
+    '166c37f577e6bcb773da0c2a08c9c420fcba0408b9515d0dd010759c12796e89',
   );
+  assert.doesNotMatch(main, /CPUFAMILY_ARM_TYPHOON|Respring_Required_Notice_A8/);
   assert.equal(
     fingerprint(section(main, '- (NSString *)jailbreakButtonTitle', '// 读取含休眠时间')),
     '7a31c112fb7259e68c18924acb3834ed220ffe23ba2be8993f6ba4fc92d1ba88',
@@ -324,11 +326,21 @@ test('stale theme selection falls back safely and the old settings picker is gon
   assert.match(read(ui + 'Themes/DOTheme.m'), /generateBootLogo/);
 });
 
-test('settings presentation leaves all existing specifiers, actions and preferences unchanged', () => {
+test('iOS 16 slimming preserves settings data sources and action/preference implementations', () => {
   assert.equal(
-    fingerprint(settings.slice(settings.indexOf('- (NSArray *)availableKernelExploitIdentifiers'))),
-    'c6f43eee7638c83d4ecc9c91a3d2af8477d5ccea2b0ea4c2ff2b39bc95680c32',
+    fingerprint(section(settings, '- (NSArray *)availableKernelExploitIdentifiers', '- (id)specifiers')),
+    'd9b1e11b9aaf31b59efa0849e2b8a7014fecfcf9731f1a9d42420fe0886ae84c',
   );
+  // Ignore empty-line normalization, not executable source.
+  const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:');
+  assert.equal(fingerprint(actions.replace(/\n{3,}/g, '\n\n')),
+    '5dfccf9e11149a8c176dfe51a39cf9382ffe6f0c71f0f4e81a9aa09bd9c3e3a4');
+  assert.match(settings, /setProperty:@"shippingbox\.and\.arrow\.backward" forKey:@"image"/);
+  assert.doesNotMatch(settings, /isSPTM|majorVersion==15|spinlock fix is/);
+  const dyld = settings.slice(settings.indexOf('- (void)setDyldPatchEnabled:'));
+  assert.match(dyld, /jbclient_set_dyld_patch\(enable\) == 0/);
+  assert.match(dyld, /\[self setPreferenceValue:value specifier:specifier\]/);
+  assert.match(dyld, /confirmAction\(\);/);
 });
 
 test('the reboot card and its confirmation have localized copy instead of raw keys', () => {

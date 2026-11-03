@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <libjailbreak/util.h>
 #include <libjailbreak/trustcache.h>
-#include <libjailbreak/kcall_arm64.h>
 #include <libjailbreak/signatures.h>
 #include <libjailbreak/basebin_gen.h>
 #include <xpc/xpc.h>
@@ -112,13 +111,8 @@ void jbupdate_update_system_info(void)
 		const char *kernelPath = prebootUUIDPath("/System/Library/Caches/com.apple.kernelcaches/kernelcache");
 		xpc_object_t newSystemInfoXdict = NULL;
 
-		const char *sptmPath = prebootUUIDPath("/usr/standalone/firmware/FUD/Ap,SecurePageTableMonitor.img4");
-		if (access(sptmPath, F_OK) != 0) sptmPath = NULL;
-		const char *txmPath = prebootUUIDPath("/usr/standalone/firmware/FUD/Ap,TrustedExecutionMonitor.img4");
-		if (access(txmPath, F_OK) != 0) txmPath = NULL;
-
 		// Rerun patchfinder
-		int r = xpf_start_with_kernel_path(kernelPath, sptmPath, txmPath);
+		int r = xpf_start_with_kernel_path(kernelPath, NULL, NULL);
 		const char *error = NULL;
 		if (r == 0) {
 			char *sets[] = {
@@ -132,21 +126,13 @@ void jbupdate_update_system_info(void)
 				NULL,
 				NULL,
 				NULL,
-				NULL,
-				NULL,
 			};
 
 			uint32_t idx = 0;
 			while(sets[++idx]);
 
 			if (xpf_set_is_supported("devmode")) {
-				sets[idx++] = "devmode"; 
-			}
-			if (xpf_set_is_supported("badRecovery")) {
-				sets[idx++] = "badRecovery"; 
-			}
-			if (xpf_set_is_supported("arm64kcall")) {
-				sets[idx++] = "arm64kcall"; 
+				sets[idx++] = "devmode";
 			}
 			if (xpf_set_is_supported("perfkrw")) {
 				sets[idx++] = "perfkrw";
@@ -220,11 +206,7 @@ void jbupdate_finalize_stage2(const char *prevVersion, const char *newVersion)
 		// Set it during jbupdate if prev version is <2.1 and new version is >=2.1
 		gSystemInfo.jailbreakSettings.markAppsAsDebugged = true;
 
-		if (!host_is_arm64e()) {
-			// Initialize kcall only after we have the offsets required for it
-			arm64_kcall_init();
-		}
-	}
+}
 
 	// Update patched dyld
 	int r = basebin_generate(YES);

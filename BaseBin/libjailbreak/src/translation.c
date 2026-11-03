@@ -9,31 +9,6 @@ struct tt_level arm_tt_level[4];
 
 // Address translation physical <-> virtual
 
-uint64_t sptm_phystokv(uint64_t pa)
-{
-	uint64_t papt_table = kread_ptr(ksymbol(libsptm_papt_ranges));
-	uint64_t papt_table_n = kread32(kread64(ksymbol(libsptm_n_papt_ranges)));
-
-	struct sptm_papt_entry {
-		uint64_t paddr_start;
-		uint64_t papt_start;
-		uint64_t num_mappings;
-	} sptm_papt_table[papt_table_n];
-
-	kreadbuf(papt_table, &sptm_papt_table[0], sizeof(sptm_papt_table));
-
-	for (uint64_t i = 0; i < papt_table_n; i++) {
-		struct sptm_papt_entry *curEntry = &sptm_papt_table[i];
-
-		uint64_t len = curEntry->num_mappings * vm_real_kernel_page_size;
-		if ((pa >= curEntry->paddr_start) && (pa < (curEntry->paddr_start + len))) {
-			return pa - curEntry->paddr_start + curEntry->papt_start;
-		}
-	}
-
-	return 0;
-}
-
 #define PTOV_TABLE_SIZE 8
 uint64_t phystokv(uint64_t pa)
 {
@@ -52,9 +27,6 @@ uint64_t phystokv(uint64_t pa)
 		}
 
 		return pa - kconstant(physBase) + kconstant(virtBase);
-	}
-	else if (ksymbol(libsptm_papt_ranges)) {
-		return sptm_phystokv(pa);
 	}
 
 	return 0;
@@ -163,41 +135,6 @@ void libjailbreak_translation_init(void)
 			.offMask = ARM_16K_TT_L3_OFFMASK,
 			.shift = ARM_16K_TT_L3_SHIFT,
 			.indexMask = ARM_16K_TT_L3_INDEX_MASK,
-			.validMask = ARM_TTE_VALID,
-			.typeMask = ARM_TTE_TYPE_MASK,
-			.typeBlock = ARM_TTE_TYPE_L3BLOCK,
-		};
-	}
-	// A8: Kernel uses 4k pages
-	else if (vm_real_kernel_page_size == 0x1000) {
-		arm_tt_level[0] = (struct tt_level){
-			.offMask = ARM_4K_TT_L0_OFFMASK,
-			.shift = ARM_4K_TT_L0_SHIFT,
-			.indexMask = ARM_4K_TT_L0_INDEX_MASK,
-			.validMask = ARM_TTE_VALID,
-			.typeMask = ARM_TTE_TYPE_MASK,
-			.typeBlock = ARM_TTE_TYPE_BLOCK,
-		};
-		arm_tt_level[1] = (struct tt_level){
-			.offMask = ARM_4K_TT_L1_OFFMASK,
-			.shift = ARM_4K_TT_L1_SHIFT,
-			.indexMask = kconstant(ARM_TT_L1_INDEX_MASK),
-			.validMask = ARM_TTE_VALID,
-			.typeMask = ARM_TTE_TYPE_MASK,
-			.typeBlock = ARM_TTE_TYPE_BLOCK,
-		};
-		arm_tt_level[2] = (struct tt_level){
-			.offMask = ARM_4K_TT_L2_OFFMASK,
-			.shift = ARM_4K_TT_L2_SHIFT,
-			.indexMask = ARM_4K_TT_L2_INDEX_MASK,
-			.validMask = ARM_TTE_VALID,
-			.typeMask = ARM_TTE_TYPE_MASK,
-			.typeBlock = ARM_TTE_TYPE_BLOCK,
-		};
-		arm_tt_level[3] = (struct tt_level){
-			.offMask = ARM_4K_TT_L3_OFFMASK,
-			.shift = ARM_4K_TT_L3_SHIFT,
-			.indexMask = ARM_4K_TT_L3_INDEX_MASK,
 			.validMask = ARM_TTE_VALID,
 			.typeMask = ARM_TTE_TYPE_MASK,
 			.typeBlock = ARM_TTE_TYPE_L3BLOCK,

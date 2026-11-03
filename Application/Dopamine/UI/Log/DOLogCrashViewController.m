@@ -44,13 +44,13 @@
         [header.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [header.heightAnchor constraintEqualToConstant:70]
     ]];
-    
+
     __block DOActionMenuButton *shareButton;
     UIAction *shareAction = [UIAction actionWithTitle:DOLocalizedString(@"Button_Share") image:[UIImage systemImageNamed:@"square.and.arrow.up" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]] identifier:@"share" handler:^(__kindof UIAction * _Nonnull action) {
         [[DOUIManager sharedInstance] shareLogRecordFromView:shareButton];
     }];
     shareButton = [DOActionMenuButton buttonWithAction:shareAction chevron:NO];
-    
+
     shareButton.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:shareButton];
 
@@ -59,12 +59,9 @@
         [shareButton.heightAnchor constraintEqualToConstant:30],
         [shareButton.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-30]
     ]];
-    
-    if (@available(iOS 16.0, *)) {
+
+    {
         _logView = [UITextView textViewUsingTextLayoutManager:false];
-    }
-    else {
-        _logView = [[UITextView alloc] init];
     }
     _logView.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -97,6 +94,5 @@
 {
     [self.navigationController popViewControllerAnimated:YES];
 }
-
 
 @end

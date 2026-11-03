@@ -2,8 +2,6 @@
 #import <Foundation/Foundation.h>
 #import <libjailbreak/libjailbreak.h>
 #import <sys/mount.h>
-#import <libjailbreak/stock_fixes.h>
-
 SInt32 CFUserNotificationDisplayAlert(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle, CFStringRef alternateButtonTitle, CFStringRef otherButtonTitle, CFOptionFlags *responseFlags) API_AVAILABLE(ios(3.0));
 
 /*
@@ -185,7 +183,6 @@ JBLogDebug("jbctl startup: checking userspace panic ...");
 			free(panicMessage);
 		}
 
-
 /************************* roothide specific ***************************/
 //only bootstrap after launchdhook and systemhook available
 JBLogDebug("jbctl startup: bootstrapping launch daemons ...");
@@ -197,7 +194,6 @@ if(access(JBROOT_PATH("/.disable_auto_uicache"), F_OK) == 0) {
 	return 0;
 }
 /************************* roothide specific ***************************/
-
 
 		exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
 	}

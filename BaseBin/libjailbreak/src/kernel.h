@@ -51,7 +51,6 @@ void proc_csflags_clear(uint64_t proc, uint32_t flags);
 uint64_t ipc_entry_lookup(uint64_t space, mach_port_name_t name);
 uint64_t pa_index(uint64_t pa);
 uint64_t pai_to_pvh(uint64_t pai);
-uint64_t pa_to_sptm_frame(uint64_t pa);
 uint64_t pvh_ptd(uint64_t pvh);
 void task_set_memory_ownership_transfer(uint64_t task, bool value);
 uint64_t mac_label_get(uint64_t label, int slot);
@@ -66,6 +65,5 @@ int cs_allow_invalid(uint64_t proc, bool emulateFully);
 kern_return_t pmap_enter_options_addr(uint64_t pmap, uint64_t pa, uint64_t va);
 uint64_t pmap_remove_options(uint64_t pmap, uint64_t start, uint64_t end);
 void pmap_remove(uint64_t pmap, uint64_t start, uint64_t end);
-uint64_t vm_page_find_canonical_radix(uint64_t pai);
 
 #endif

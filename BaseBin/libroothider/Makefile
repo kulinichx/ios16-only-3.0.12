@@ -2,7 +2,7 @@ TARGET = libroothider
 
 CC = clang
 
-CFLAGS = -I../.include -isysroot $(shell xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -arch arm64e -miphoneos-version-min=15.0 -fobjc-arc -install_name @loader_path/$(TARGET).dylib
+CFLAGS = -I../.include -isysroot $(shell xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -arch arm64e -miphoneos-version-min=16.0 -fobjc-arc -install_name @loader_path/$(TARGET).dylib
 
 LDFLAGS = -dynamiclib -rpath @loader_path/present -rpath @loader_path/fallback -lc++ -lbsm -L../.build -L../_external/lib -weak-lellekit -lchoma -lxpf -ljailbreak -framework IOKit -framework IOSurface
 

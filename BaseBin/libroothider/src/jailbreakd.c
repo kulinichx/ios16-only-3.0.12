@@ -80,7 +80,7 @@ void setJailbreakdProcess(pid_t pid)
 {
 	//Reclaim the previous jailbreakd zombie process
 	const char *pidenv = getenv("JAILBREAKD_PID");
-	if (pidenv) 
+	if (pidenv)
 	{
 		pid_t oldpid = atoi(pidenv);
 		if(oldpid != pid)
@@ -121,7 +121,6 @@ int spawnJailbreakd()
 		dispatch_resume(source);
 	});
 
-
 	char* log_dir_env = NULL;
     if(getenv("JB_LOG_DIR")) {
 		asprintf(&log_dir_env, "JB_LOG_DIR=%s", getenv("JB_LOG_DIR"));
@@ -149,7 +148,7 @@ int spawnJailbreakd()
 	JBLogDebug("jailbreakd spawned, pid=%d\n", pid);
 
 	/* here we can't wait for jailbreakd to initialize since opainject will suspend all other threads */
-	
+
 	setJailbreakdProcess(pid);
 
 	return 0;
@@ -177,7 +176,7 @@ int initJailbreakd(bool firstLoad, void(^msghandler)(xpc_object_t))
 
 mach_port_t reactiveJailbreakdPort()
 {
-/* restarting jailbreakd may cause it to lose its previous internal state, 
+/* restarting jailbreakd may cause it to lose its previous internal state,
 	so we only use it during development. */
 #ifndef ENABLE_LOGS
 	//launchd_panic("jailbreakd crashed");
@@ -252,7 +251,7 @@ mach_port_t jailbreakdClientPort()
 		if(kr == KERN_SUCCESS) {
 			port = gJailbreakdPort;
 		} else {
-			JBLogError("jailbreakd port dead: %x,%s port=%x", kr, mach_error_string(kr), gJailbreakdPort);		
+			JBLogError("jailbreakd port dead: %x,%s port=%x", kr, mach_error_string(kr), gJailbreakdPort);
 			port = reactiveJailbreakdPort();
 		}
 	}
@@ -288,7 +287,7 @@ xpc_object_t jailbreakdXpcRequest(xpc_object_t xdict)
 		JBLogError("invalid jailbreakdClientPort: %x", port);
 		return NULL;
 	}
-	
+
 	xpc_object_t xreply = NULL;
 	xpc_object_t pipe = xpc_pipe_create_from_port(port, 0);
 	if (pipe) {
@@ -361,22 +360,6 @@ int jbdSpawnPatchChild(int pid, bool resume)
 {
 	xpc_object_t message = xpc_dictionary_create_empty();
 	xpc_dictionary_set_uint64(message, "id", JBD_MSG_SPAWN_PATCH_CHILD);
-	xpc_dictionary_set_int64(message, "pid", pid);
-	xpc_dictionary_set_bool(message, "resume", resume);
-	xpc_object_t reply = jailbreakdXpcRequest(message);
-	xpc_release(message);
-	int64_t result = -1;
-	if (reply) {
-		result  = xpc_dictionary_get_int64(reply, "result");
-		xpc_release(reply);
-	}
-	return result;
-}
-
-int jbdSpinlockFixOnly(int pid, bool resume)
-{
-	xpc_object_t message = xpc_dictionary_create_empty();
-	xpc_dictionary_set_uint64(message, "id", JBD_MSG_SPINLOCK_FIX_ONLY);
 	xpc_dictionary_set_int64(message, "pid", pid);
 	xpc_dictionary_set_bool(message, "resume", resume);
 	xpc_object_t reply = jailbreakdXpcRequest(message);

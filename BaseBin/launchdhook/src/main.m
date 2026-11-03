@@ -15,12 +15,8 @@
 #include <sys/param.h>
 #include <sys/mount.h>
 #include <kern_memorystatus.h>
-
-#import "hookd_provider.h"
-#import <libjailbreak/hookd.h>
 #import <litehook.h>
 #import "../systemhook/src/common/common.h"
-#import "../systemhook/src/common/hookd_external.h"
 #import "spawn_hook.h"
 #import "xpc_hook.h"
 #import "daemon_hook.h"
@@ -84,18 +80,6 @@ void free_boot_logo(void)
 int (*sysctlbyname_orig)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) = NULL;
 int sysctlbyname_hook(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
-/*********************** roothide specific ********************/
-#ifdef __arm64e__
-if (!__builtin_available(iOS 16.0, *))
-{
-	if (strcmp(name, "vm.shared_region_pivot") == 0) {
-		return 0;
-	}
-}
-#endif
-/*************************************************************/
-
-
 	int r = sysctlbyname_orig(name, oldp, oldlenp, newp, newlen);
 	if (!strcmp(name, "kern.willuserspacereboot")) {
 		draw_boot_logo(JBROOT_PATH("/basebin/bootlogo.jp2"));
@@ -171,14 +155,6 @@ roothide_launchd_preinit();
 	}
 
 	cs_allow_invalid(proc_self(), false);
-
-	if (__builtin_available(iOS 19.0, *)) {
-		// On iOS 26+, hooks have to be applied through hookd
-		hookd_provider_init();
-		litehook_hook_memory = litehook_hook_memory_hookd;
-		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
-		init_hookd_external_support();
-	}
 
 	initXPCHooks();
 	initDaemonHooks();

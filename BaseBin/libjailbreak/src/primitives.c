@@ -239,7 +239,6 @@ uint8_t physread8(uint64_t pa)
 	return v;
 }
 
-
 int physwrite64(uint64_t pa, uint64_t v)
 {
 	return physwritebuf(pa, &v, sizeof(v));
@@ -259,7 +258,6 @@ int physwrite8(uint64_t pa, uint8_t v)
 {
 	return physwritebuf(pa, &v, sizeof(v));
 }
-
 
 uint64_t kread64(uint64_t va)
 {
@@ -314,7 +312,6 @@ uint8_t kread8(uint64_t va)
 	kreadbuf(va, &v, sizeof(v));
 	return v;
 }
-
 
 int kwrite64(uint64_t va, uint64_t v)
 {
@@ -418,13 +415,6 @@ int kfree(uint64_t addr, uint64_t size)
 
 bool is_kcall_available(void)
 {
-	if (host_is_arm64e()) {
-		return jbinfo(usesPACBypass);
-	}
-	else {
-		if (__builtin_available(iOS 16.0, *)) {
-			return false;
-		}
-		return true;
-	}
+	// The retained iOS 16 exploits provide physical R/W, not a kcall primitive.
+	return false;
 }

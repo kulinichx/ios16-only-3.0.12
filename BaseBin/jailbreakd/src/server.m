@@ -29,7 +29,7 @@ void jailbreakd_received_message(mach_port_t port)
 		xpc_object_t reply = xpc_dictionary_create_reply(message);
 
 		JBD_MESSAGE_ID msgId = xpc_dictionary_get_uint64(message, "id");
-		
+
 		if (xpc_get_type(message) == XPC_TYPE_DICTIONARY) {
 			audit_token_t auditToken = {0};
 			xpc_dictionary_get_audit_token(message, &auditToken);
@@ -41,31 +41,6 @@ void jailbreakd_received_message(mach_port_t port)
 			if(desc) free(desc);
 
 			switch (msgId) {
-				case JBD_MSG_SPINLOCK_FIX_ONLY: {
-					int64_t result = 0;
-					pid_t pid = xpc_dictionary_get_int64(message, "pid");
-					bool resume = xpc_dictionary_get_bool(message, "resume");
-					pid_t ppid = proc_get_ppid(pid);
-					JBLogDebug("spinlock fix: client pid=%d, child pid=%d, child's parent pid=%d, child proc=%s", clientPid, pid, ppid, proc_get_path(pid,NULL));
-					if(ppid == clientPid) {
-						if(ppid==1 && resume==false) {
-							//`frida -f` sucks with proc_fix_spinlock on ios15
-							result = proc_patch_csflags(pid);
-						}
-						else if(proc_fix_spinlock(pid) == 0) {
-							if(resume) kill(pid, SIGCONT);
-						} else {
-							JBLogError("spinlock fix failed: %d", pid);
-							result = -1;
-						}
-					} else {
-						JBLogError("spinlock fix denied: %d", pid);
-						result = -1;
-					}
-					xpc_dictionary_set_int64(reply, "result", result);
-					break;
-				}
-
 				case JBD_MSG_SPAWN_PATCH_CHILD: {
 					int64_t result = 0;
 					pid_t pid = xpc_dictionary_get_int64(message, "pid");
@@ -74,7 +49,7 @@ void jailbreakd_received_message(mach_port_t port)
 					JBLogDebug("spawn patch: client pid=%d, child pid=%d, child's parent pid=%d, child proc=%s", clientPid, pid, ppid, proc_get_path(pid,NULL));
 					if(ppid == clientPid) {
 						if(ppid==1 && resume==false) {
-							//`frida -f` sucks with proc_patch_dyld on ios15
+							// Preserve the suspended launchd child used by frida.
 							result = proc_patch_csflags(pid);
 						}
 						else if(roothide_patch_proc(pid) == 0) {
@@ -157,9 +132,9 @@ void jailbreakd_received_message(mach_port_t port)
 
 				case JBD_MSG_TEST_CALL: {
 					int value = xpc_dictionary_get_int64(message, "value");
-					JBLogDebug("jailbreakd test call(%llu) from %d,%s", value, clientPid, proc_get_path(clientPid,NULL));	
+					JBLogDebug("jailbreakd test call(%llu) from %d,%s", value, clientPid, proc_get_path(clientPid,NULL));
 					xpc_dictionary_set_int64(reply, "result", value * 2);
-					
+
 					if(clientUid == 0) {
 						abort(); // crashreporter test
 					}
