@@ -39,7 +39,8 @@ test('iOS 16 build creates and publishes only a TIPA archive', () => {
   assert.match(makefile, /^all:\s+Dopamine\.tipa$/m);
   assert.match(makefile, /^Dopamine\.tipa:\s+build\/Build\/Products\/Debug-iphoneos\/Dopamine\.app$/m);
   assert.match(makefile, /zip -Ar Dopamine\.tipa Payload/);
-  assert.doesNotMatch(makefile, /Dopamine\.ipa/);
+  assert.doesNotMatch(makefile, /^all:\s+Dopamine\.ipa$|^Dopamine\.ipa:/m);
+  assert.doesNotMatch(makefile, /zip .*Dopamine\.ipa/);
 
   const buildStep = workflow.slice(workflow.indexOf('      - name: Build\n'));
   assert.match(buildStep, /mv \.\/Application\/Dopamine\.tipa/);

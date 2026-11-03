@@ -46,7 +46,7 @@ endif
 
 
 clean:
-	rm -rf build Payload Dopamine.tipa
+	rm -rf build Payload Dopamine.ipa Dopamine.tipa
 
 build_clean:
 	rm -rf Payload build
