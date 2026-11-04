@@ -178,6 +178,153 @@ test('ordinary spawn patching and blacklist handling remain connected', () => {
   assert.doesNotMatch(launchd, /iOS15Arm64e|choicyBlocked|spinlock_fix_only|SPINLOCK_FIX_DISABLED/);
 });
 
+const spawnCommon = read('BaseBin/systemhook/src/common/common.c');
+const spawnStart = spawnCommon.indexOf('static int spawn_exec_hook_common(');
+const spawnEnd = spawnCommon.indexOf('\nint posix_spawn_hook_shared(', spawnStart);
+const spawnHook = spawnCommon.slice(spawnStart, spawnEnd);
+const snapshotHook = read('BaseBin/roothidehooks/src/springboard.x');
+
+test('3.0.13 backport saves MB limits before patching and restores after either spawn branch', () => {
+  assert.ok(spawnStart >= 0 && spawnEnd > spawnStart);
+  assert.match(spawnHook, /int memlimitActiveOrig = -1, memlimitInactiveOrig = -1;/);
+  for (const [name, saved, offset] of [
+    ['active', 'memlimitActiveOrig', 'ACTIVE'],
+    ['inactive', 'memlimitInactiveOrig', 'INACTIVE'],
+  ]) {
+    assert.match(spawnHook, new RegExp(
+      `if \\(memlimit_${name} != -1\\) \\{\\s*${saved} = memlimit_${name};\\s*` +
+      `\\*\\(int\\*\\)\\(attrStruct \\+ POSIX_SPAWNATTR_OFF_MEMLIMIT_${offset}\\) =`,
+    ));
+    const restore = new RegExp(
+      `if \\(${saved} != -1\\) \\{\\s*` +
+      `\\*\\(int\\*\\)\\(attrStruct \\+ POSIX_SPAWNATTR_OFF_MEMLIMIT_${offset}\\) = ${saved};`,
+    ).exec(spawnHook);
+    assert.ok(restore, `missing ${name} restore`);
+    assert.ok(restore.index > spawnHook.lastIndexOf('orig(&childPid,'));
+    assert.ok(restore.index > spawnHook.indexOf('envbuf_free(envc);'));
+    assert.ok(restore.index < spawnHook.lastIndexOf('return r;'));
+  }
+  assert.match(spawnHook, /memlimit_active \+ jetsamAddend/);
+  assert.match(spawnHook, /memlimit_inactive \+ jetsamAddend/);
+  assert.match(spawnHook, /configuredAddend >= INT_MAX \? INT_MAX/);
+  assert.doesNotMatch(spawnHook, /memlimit_\w+ \* jetsamMultiplier|personaFix|__builtin_available/);
+});
+
+test('3.0.13 extracted C limit changes restore caller bytes on reuse and failure', {
+  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
+}, () => {
+  const save = spawnHook.match(/int memlimitActiveOrig = -1, memlimitInactiveOrig = -1;/)[0];
+  const patch = spawnHook.slice(spawnHook.indexOf('\tuint8_t *attrStruct'), spawnHook.indexOf('\n\tint r = -1;'));
+  const restore = spawnHook.slice(spawnHook.lastIndexOf('\n\tif (memlimitActiveOrig != -1)'), spawnHook.lastIndexOf('\n\treturn r;'));
+  const offsets = read('BaseBin/systemhook/src/common/private.h')
+    .match(/^#define POSIX_SPAWNATTR_OFF_MEMLIMIT_(?:ACTIVE|INACTIVE) .+$/gm).join('\n');
+  const harness = `
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <limits.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#define min(a, b) ((a) < (b) ? (a) : (b))
+${offsets}
+static double configured_addend;
+static double zqbb_getJetsamAddend(const char *path) {
+    (void)path;
+    return configured_addend;
+}
+static int invoke(void *attr, bool shouldInsertJBEnv, double jetsamMultiplier,
+                  int expectedActive, int expectedInactive, int result) {
+    const char *path = "/usr/bin/test";
+    ${save}
+    ${patch}
+    if (attr) {
+        assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) == expectedActive);
+        assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) == expectedInactive);
+    }
+    ${restore}
+    return result;
+}
+int main(void) {
+    const struct { int active, inactive, expectedActive, expectedInactive; } limits[] = {
+        {100, 200, 150, 250}, {-1, 200, -1, 250}, {100, -1, 150, -1},
+        {-1, -1, -1, -1}, {0, 0, 50, 50},
+        {INT_MAX - 5, INT_MAX - 7, INT_MAX, INT_MAX}
+    };
+    const double multipliers[] = {3.0, 0.0, NAN, INFINITY, 1.0};
+    for (unsigned i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
+        for (unsigned m = 0; m < sizeof(multipliers) / sizeof(multipliers[0]); m++) {
+            for (int inject = 0; inject < 2; inject++) {
+                union { int alignment; uint8_t bytes[256]; } attr;
+                memset(attr.bytes, 0xa5, sizeof(attr.bytes));
+                memcpy(attr.bytes + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE, &limits[i].active, sizeof(int));
+                memcpy(attr.bytes + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE, &limits[i].inactive, sizeof(int));
+                uint8_t original[sizeof(attr.bytes)];
+                memcpy(original, attr.bytes, sizeof(original));
+                configured_addend = 20;
+                bool adjusted = inject && multipliers[m] != 1.0;
+                int active = adjusted ? limits[i].expectedActive : limits[i].active;
+                int inactive = adjusted ? limits[i].expectedInactive : limits[i].inactive;
+                for (int result = 0; result <= 5; result += 5) {
+                    assert(invoke(attr.bytes, inject, multipliers[m], active, inactive, result) == result);
+                    assert(memcmp(original, attr.bytes, sizeof(original)) == 0);
+                    assert(invoke(attr.bytes, inject, multipliers[m], active, inactive, result) == result);
+                    assert(memcmp(original, attr.bytes, sizeof(original)) == 0);
+                }
+            }
+        }
+    }
+    configured_addend = (double)INT_MAX + 100.0;
+    union { int alignment; uint8_t bytes[256]; } attr = {0};
+    assert(invoke(attr.bytes, true, 3.0, INT_MAX, INT_MAX, 0) == 0);
+    for (unsigned i = 0; i < sizeof(attr.bytes); i++) assert(attr.bytes[i] == 0);
+    assert(invoke(NULL, true, 3.0, 0, 0, 5) == 5);
+    puts("Jetsam restore C cases passed");
+    return 0;
+}
+`;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-spawn-restore-'));
+  try {
+    const source = path.join(directory, 'test.c');
+    const executable = path.join(directory, 'test');
+    fs.writeFileSync(source, harness);
+    execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', source, '-lm', '-o', executable]);
+    assert.match(execFileSync(executable, { encoding: 'utf8' }), /Jetsam restore C cases passed/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('3.0.13 snapshot fix is in the loaded RootHide hook, not just the rootless hook', () => {
+  assert.match(read('BaseBin/systemhook/src/main.c'), /dlopen\(JBROOT_PATH\("\/basebin\/roothidehooks\.dylib"\)/);
+  assert.match(read('BaseBin/roothidehooks/src/main.x'), /extern void sbInit\(void\);[\s\S]*?sbInit\(\);/);
+  assert.match(read('BaseBin/roothidehooks/Makefile'), /roothidehooks_FILES = \$\(wildcard src\/\*\.x\)/);
+  assert.match(snapshotHook, /%hook XBApplicationSnapshotManifestImpl/);
+  assert.match(snapshotHook, /_imageAccessQueue_saveData:\(NSData \*\)data forSnapshot:\(XBApplicationSnapshot \*\)snapshot/);
+  assert.match(snapshotHook, /_configureDefaultPathWithinGroupForFormat:/);
+  assert.match(snapshotHook, /_outputFormatForSnapshot:snapshot/);
+  assert.match(snapshotHook, /createDirectoryAtPath:path\.stringByDeletingLastPathComponent/);
+  assert.match(snapshotHook, /return \[data writeToFile:path options:0 error:nil\];/);
+  assert.doesNotMatch(snapshotHook, /%hookf\(int, fcntl|F_SETPROTECTIONCLASS|va_arg/);
+});
+
+test('RootHide snapshots preserve stock Apple behavior and the Apple-internal exception', () => {
+  assert.match(snapshotHook, /!data\.length \|\| !snapshot[\s\S]*?return %orig;/);
+  assert.match(snapshotHook, /jbroot\(@"\/var\/mobile\/Library\/SplashBoard\/Snapshots"\)[\s\S]*?stringByAppendingString:@"\/"/);
+  assert.match(snapshotHook, /BOOL isStockAppleApp = \[bundleIdentifier hasPrefix:@"com\.apple\."\] &&\s*!is_apple_internal_identifier\(bundleIdentifier\.UTF8String\)/);
+  assert.match(snapshotHook, /!bundleIdentifier\.length \|\| isStockAppleApp \|\|\s*!\[ident\.snapshotContainerPath hasPrefix:snapshotRoot\][\s\S]*?return %orig;/);
+  assert.match(snapshotHook, /if \(!path\) \{\s*return NO;/);
+  assert.match(snapshotHook, /!\[path\.stringByStandardizingPath hasPrefix:snapshotRoot\][\s\S]*?return %orig;/);
+  // Snapshot directories/files may not exist yet: realpath-based checks reject those writes.
+  assert.doesNotMatch(snapshotHook, /isSubPathOf|realpath/);
+});
+
+test('RootHide app hiding and open-request hooks are unchanged by the snapshot backport', () => {
+  const tail = snapshotHook.slice(snapshotHook.indexOf('static const void *kDenyQueryTagKey'));
+  assert.equal(crypto.createHash('sha256').update(tail.replace(/\r\n/g, '\n')).digest('hex'),
+    'e2feac2cab11673f9db6510e11e93d8ab732685076a3bf0adf8b189fb8d4afe6');
+});
+
 test('RootHide identity and bootstrap migration markers remain intact', () => {
   assert.match(bootstrap, /@implementation DOBootstrapper\(roothide\)/);
   assert.match(bootstrap, /@implementation DOEnvironmentManager\(roothide\)/);

@@ -39,7 +39,7 @@
     pageBackdrop.materialScale = 0.94;
     pageBackdrop.userInteractionEnabled = NO;
     self.customGlassPageBackdrop = pageBackdrop;
-    [self.view insertSubview:pageBackdrop atIndex:0];
+    [_table insertSubview:pageBackdrop atIndex:0];
     [pageBackdrop reloadMaterial];
 
     // The shared navigation bar is hidden, so Credits needs its own return
@@ -165,8 +165,20 @@
     if (!self.customGlassPageBackdrop || CGRectIsEmpty(_table.frame))
         return;
 
-    self.customGlassPageBackdrop.frame = _table.frame;
-    [self.view sendSubviewToBack:self.customGlassPageBackdrop];
+    if (_table.numberOfSections <= 0 || [_table numberOfRowsInSection:0] <= 0) {
+        self.customGlassPageBackdrop.hidden = YES;
+        return;
+    }
+
+    CGRect sectionRect = [_table rectForSection:0];
+    if (CGRectIsEmpty(sectionRect)) {
+        self.customGlassPageBackdrop.hidden = YES;
+        return;
+    }
+
+    self.customGlassPageBackdrop.hidden = NO;
+    self.customGlassPageBackdrop.frame = sectionRect;
+    [_table sendSubviewToBack:self.customGlassPageBackdrop];
 }
 
 - (void)customGlassRefreshPageAppearance

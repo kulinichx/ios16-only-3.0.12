@@ -502,18 +502,21 @@ test('credits uses shared glass without replacing its content or collection dele
   assert.match(credits, /initWithCornerRadius:24\.0 baseTintAlpha:0\.044/);
   assert.match(credits, /pageBackdrop\.materialScale = 0\.94/);
   assert.match(credits, /pageBackdrop\.userInteractionEnabled = NO/);
-  assert.match(credits, /\[self\.view insertSubview:pageBackdrop atIndex:0\]/);
-  assert.match(credits, /self\.customGlassPageBackdrop\.frame = _table\.frame/);
-  assert.match(credits, /\[self\.view sendSubviewToBack:self\.customGlassPageBackdrop\]/);
+  assert.match(credits, /\[_table insertSubview:pageBackdrop atIndex:0\]/);
+  assert.match(credits, /rectForSection:0/);
+  assert.match(credits, /self\.customGlassPageBackdrop\.frame = sectionRect/);
+  assert.match(credits, /\[_table sendSubviewToBack:self\.customGlassPageBackdrop\]/);
   assert.match(credits, /MIN\(620\.0, availableWidth - 24\.0\)/);
   assert.doesNotMatch(credits, /customGlassSectionBackdrops|rectForHeaderInSection:|rectForRowAtIndexPath:/);
   assert.doesNotMatch(credits, /(?:_table|collectionView)\.(?:delegate|dataSource)\s*=/);
   assert.doesNotMatch(credits, /DORHSupporter|DOCustomGlassMediaStoreSave|setObject:.*forKey:/);
 });
 
-test('credits presents all sections and blank spacing on one continuous glass surface', () => {
+test('credits glass is limited to the upper action section', () => {
   assert.match(credits, /customGlassPageBackdrop/);
-  assert.match(credits, /self\.customGlassPageBackdrop\.frame = _table\.frame/);
+  assert.match(credits, /rectForSection:0/);
+  assert.match(credits, /_table\.numberOfSections <= 0 \|\| \[_table numberOfRowsInSection:0\] <= 0/);
+  assert.doesNotMatch(credits, /self\.customGlassPageBackdrop\.frame = _table\.frame/);
   assert.doesNotMatch(credits, /NSMutableDictionary<NSNumber \*, DOCustomLiquidGlassView \*>|activeSections|activeKeys/);
   const content = read(ui + 'Settings/Credits.plist');
   assert.match(content, /<string>DOCreditsCell<\/string>/);
@@ -521,6 +524,9 @@ test('credits presents all sections and blank spacing on one continuous glass su
   assert.match(content, /<string>Developers<\/string>/);
   assert.match(content, /<string>UI and Design<\/string>/);
   assert.match(content, /<string>Credits<\/string>/);
+  const creditsCell = read(ui + 'Settings/Specifiers/DOCreditsCell.m');
+  assert.match(creditsCell, /collectionView\.scrollEnabled = NO/);
+  assert.match(creditsCell, /- \(void\)layoutSubviews/);
 });
 
 test('credits refreshes reused content and theme changes with weak callbacks and observer cleanup', () => {
