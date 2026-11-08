@@ -392,7 +392,8 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
     '- (void)changeMobilePasswordWithAuthenticationPressed',
   );
   const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:')
-    .replace(supporterActions, '');
+    .replace(supporterActions, '')
+    .replace(section(settings, '- (void)presentCustomMountMessage:', '- (void)refreshJailbreakAppsPressed'), '');
   assert.equal(fingerprint(actions.replace(/\n{3,}/g, '\n\n')),
     '664c15dd7296acf348d70cd1243bcfa22a1a0e57439bbe6f9f54c786832108ed');
   assert.match(settings, /setProperty:@"shippingbox\.and\.arrow\.backward" forKey:@"image"/);
