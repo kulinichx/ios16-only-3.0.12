@@ -28,6 +28,13 @@ const creditsPlist = fs.readFileSync(
   'utf8',
 );
 
+function section(source, start, end) {
+  const a = source.indexOf(start);
+  const b = source.indexOf(end, a + start.length);
+  assert.ok(a >= 0 && b > a, `Missing section: ${start}`);
+  return source.slice(a, b);
+}
+
 function body(name) {
   const signature = new RegExp(
     String.raw`^static inline [^{;]+\b${name}\([^;]*?\)\s*\{`,
@@ -180,7 +187,7 @@ test('device diagnostics disclose persistent key creation and never expose ident
   }
 });
 
-test('glass editing checks entitlement at action time without gating jailbreak or focus mode', () => {
+test('glass editing and jailbreak entry check entitlement while focus mode stays available', () => {
   for (const signature of [
     '- (void)presentCustomGlassUsernameEditor',
     '- (void)presentCustomGlassMottoEditor',
@@ -193,7 +200,11 @@ test('glass editing checks entitlement at action time without gating jailbreak o
   assert.doesNotMatch(focusGesture, /requireCustomGlassSupporterAuthorization|DORHSupporter/);
 
   const jailbreak = objcMethod(home, '- (void)startJailbreak');
-  assert.doesNotMatch(jailbreak, /requireCustomGlassSupporterAuthorization|DORHSupporter/);
+  assert.match(jailbreak, /requireCustomGlassSupporterAuthorization/);
+  assert.match(home, /self\.jailbreakBtn\.enabled = DORHSupporterIsVerified\(\)/);
+  assert.match(home, /self\.customGlassJailbreakDisabledOverlay\.hidden = supporterVerified/);
+  const jailbreakAction = section(home, 'self.jailbreakBtn = [[DOJailbreakButton alloc]', 'self.jailbreakBtn.enabled =');
+  assert.match(jailbreakAction, /requireCustomGlassSupporterAuthorization/);
 
   const themeEntry = home.slice(
     home.indexOf('UIAction *themeAction'),

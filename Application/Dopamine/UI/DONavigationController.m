@@ -13,6 +13,7 @@
 #import "DOCustomGlassMediaStore.h"
 #import "DOSettingsController.h"
 #import "DOCreditsViewController.h"
+#import "DOSupporterLicense.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #import <AVFoundation/AVFoundation.h>
@@ -352,6 +353,10 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
                                              selector:@selector(customGlassHandleApplicationDidBecomeActive:)
                                                  name:UIApplicationDidBecomeActiveNotification
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(supporterLicenseDidChange:)
+                                                 name:DORHSupporterLicenseDidChangeNotification
+                                               object:nil];
     // Scene activation can follow viewDidAppear or the application notification.
     // Filter these notifications to our own window scene in the handlers below.
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -367,7 +372,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
     // setupBackground already resolved the user-media path (or immutable
     // theme fallback) before the first image view was created. Static wallpaper
     // uses the persisted blur value; video wallpaper intentionally bypasses it.
-    {
+    if (DORHSupporterIsVerified()) {
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
         CGFloat initialBlur = [defaults objectForKey:DOCustomGlassNavigationBackgroundBlurKey] ?
             [defaults floatForKey:DOCustomGlassNavigationBackgroundBlurKey] : 0.10;
@@ -398,10 +403,15 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 - (void)setupBackground
 {
     DOTheme *theme = [[DOThemeManager sharedInstance] enabledTheme];
+    BOOL supporterVerified = DORHSupporterIsVerified();
     BOOL usingUserWallpaper = NO;
 
-    UIImage *sourceImage = DOCustomGlassNavigationResolveBackground(theme, &usingUserWallpaper);
-    NSURL *videoURL = usingUserWallpaper ?
+    // The custom wallpaper is the supporter-gated feature boundary. Without a
+    // valid license, never resurrect media left in the shared container.
+    UIImage *sourceImage = supporterVerified
+        ? DOCustomGlassNavigationResolveBackground(theme, &usingUserWallpaper)
+        : [theme image];
+    NSURL *videoURL = (supporterVerified && usingUserWallpaper) ?
         DOCustomGlassNavigationResolveVideoURL(theme) : nil;
 
     self.customGlassUsingCustomBackground = usingUserWallpaper;
@@ -551,14 +561,31 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
     });
 }
 
+- (void)supporterLicenseDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    if (![NSThread isMainThread]) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf supporterLicenseDidChange:notification];
+        });
+        return;
+    }
+    [self customGlassRefreshSharedBackground];
+}
+
 - (void)customGlassRefreshSharedBackground
 {
     // A refresh re-resolves the user-media path directly. DOTheme remains only
     // the immutable fallback provider and never caches the selected photo.
     DOTheme *theme = [[DOThemeManager sharedInstance] enabledTheme];
+    BOOL supporterVerified = DORHSupporterIsVerified();
     BOOL usingUserWallpaper = NO;
-    UIImage *sourceImage = DOCustomGlassNavigationResolveBackground(theme, &usingUserWallpaper);
-    NSURL *videoURL = usingUserWallpaper ? DOCustomGlassNavigationResolveVideoURL(theme) : nil;
+    UIImage *sourceImage = supporterVerified
+        ? DOCustomGlassNavigationResolveBackground(theme, &usingUserWallpaper)
+        : [theme image];
+    NSURL *videoURL = (supporterVerified && usingUserWallpaper)
+        ? DOCustomGlassNavigationResolveVideoURL(theme) : nil;
 
     self.customGlassUsingCustomBackground = usingUserWallpaper;
     self.customGlassBackgroundSourceImage = sourceImage;
@@ -566,7 +593,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
     [self customGlassUpdateWallpaperScrimIfNeeded];
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    CGFloat blur = [defaults objectForKey:DOCustomGlassNavigationBackgroundBlurKey] ?
+    CGFloat blur = supporterVerified && [defaults objectForKey:DOCustomGlassNavigationBackgroundBlurKey] ?
         [defaults floatForKey:DOCustomGlassNavigationBackgroundBlurKey] : 0.10;
 
     // Assign the current source immediately. A persisted blur is rendered
@@ -586,7 +613,9 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 - (void)customGlassReplaceSharedBackgroundWithImage:(UIImage *)sourceImage
 {
     DOTheme *theme = [[DOThemeManager sharedInstance] enabledTheme];
-    if (!sourceImage || ![theme.key isEqualToString:DOCustomGlassNavigationThemeKey]) {
+    if (!DORHSupporterIsVerified() ||
+        !sourceImage ||
+        ![theme.key isEqualToString:DOCustomGlassNavigationThemeKey]) {
         [self customGlassRefreshSharedBackground];
         return;
     }
@@ -1014,15 +1043,16 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 
 - (void)setBackgroundDimmed:(BOOL)dimmed
 {
+    BOOL supporterVerified = DORHSupporterIsVerified();
 
     [UIView animateWithDuration:0.3 animations:^{
         self.backgroundImageView.alpha =
-            self.customGlassUsingCustomBackground
+            (supporterVerified && self.customGlassUsingCustomBackground)
                 ? 1.0
                 : (dimmed ? 0.4 : 1.0);
     }];
 
-    self.backgroundImageView.userInteractionEnabled = NO;
+    self.backgroundImageView.userInteractionEnabled = supporterVerified ? NO : dimmed;
     self.backAction.hidden = !dimmed;
 }
 
@@ -1042,6 +1072,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 {
     BOOL isMainView = [viewController isKindOfClass:[DOMainViewController class]];
     BOOL isCustomGlassView =
+        DORHSupporterIsVerified() &&
         [self isCustomGlassFullScreenViewController:viewController];
     [self setBackgroundDimmed:!(isMainView || isCustomGlassView)];
     [self.backAction setIgnoreFrame:[self _frameForViewController:viewController]];

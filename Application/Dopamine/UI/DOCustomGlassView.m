@@ -219,12 +219,13 @@
 - (void)reloadMaterial
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    BOOL supporterVerified = DORHSupporterIsVerified();
 
-    CGFloat blurStrength = [defaults objectForKey:DOCustomGlassBlurIntensityKey] ?
+    CGFloat blurStrength = supporterVerified && [defaults objectForKey:DOCustomGlassBlurIntensityKey] ?
         [defaults floatForKey:DOCustomGlassBlurIntensityKey] : 0.85;
-    CGFloat transparency = [defaults objectForKey:DOCustomGlassTransparencyKey] ?
+    CGFloat transparency = supporterVerified && [defaults objectForKey:DOCustomGlassTransparencyKey] ?
         [defaults floatForKey:DOCustomGlassTransparencyKey] : 0.70;
-    CGFloat highlight = [defaults objectForKey:DOCustomGlassTintAlphaKey] ?
+    CGFloat highlight = supporterVerified && [defaults objectForKey:DOCustomGlassTintAlphaKey] ?
         [defaults floatForKey:DOCustomGlassTintAlphaKey] : 0.05;
 
     blurStrength = DOCustomGlassClamp01(blurStrength);
@@ -248,7 +249,7 @@
     CGFloat opticalResponse =
         (0.12 * highlightResponse) + (0.88 * pow(highlightResponse, 1.80));
     BOOL darkAppearance = [self usesDarkAppearance];
-    BOOL darkGlassAppearance =
+    BOOL darkGlassAppearance = supporterVerified &&
         [[defaults stringForKey:DOCustomGlassAppearanceKey] isEqualToString:DOCustomGlassAppearanceDark];
 
     // Per-surface optical role controls. The global sliders still define the

@@ -35,7 +35,7 @@ test('homepage action wiring preserves the baseline except for the removed A8-on
   // The iOS 16 projection removes only the A8 CPU lookup and notice append.
   assert.equal(
     fingerprint(section(main, '- (void)startJailbreak', '-(void)setupUpdateAvailable:')),
-    '166c37f577e6bcb773da0c2a08c9c420fcba0408b9515d0dd010759c12796e89',
+    'af93af210e873720636064bcc8f1e51685810675db6d7fd0b23e31b8a1ce089a',
   );
   assert.doesNotMatch(main, /CPUFAMILY_ARM_TYPHOON|Respring_Required_Notice_A8/);
   assert.equal(
@@ -45,8 +45,10 @@ test('homepage action wiring preserves the baseline except for the removed A8-on
 });
 
 test('glass presentation keeps shared materials and does not use the retired Metal overlay', () => {
-  for (const source of [navigation, material, media, sync, project])
+  for (const source of [material, media, sync, project])
     assert.doesNotMatch(source, /DORHSupporter|DOSupporterLicense|DOCustomGlassRefractionView/);
+  assert.match(navigation, /DORHSupporterIsVerified/);
+  assert.doesNotMatch(navigation, /DOCustomGlassRefractionView/);
   assert.doesNotMatch(components, /DOCustomGlassRefractionView/);
   assert.match(settings, /DOCustomGlassThemeDidChangeNotification/);
   assert.match(main, /\[self setupCustomGlassHome\];/);

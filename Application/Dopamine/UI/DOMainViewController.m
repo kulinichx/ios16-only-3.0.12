@@ -57,6 +57,7 @@
 @property UIAlertController *customGlassMottoEditor;
 @property DOCustomLiquidGlassView *customGlassThemeCard;
 @property UILabel *customGlassSystemLabel;
+@property(nonatomic, strong) UIView *customGlassJailbreakDisabledOverlay;
 
 @property(nonatomic) BOOL hideStatusBar;
 @property(nonatomic) BOOL hideHomeIndicator;
@@ -96,6 +97,10 @@
     }
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resumeSystemInformationUpdates) name:UIApplicationDidBecomeActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(stopUptimeTimer) name:UIApplicationWillResignActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                             selector:@selector(supporterLicenseDidChange:)
+                                                 name:DORHSupporterLicenseDidChangeNotification
+                                               object:nil];
 }
 
 
@@ -129,10 +134,35 @@
 - (void)refreshCustomGlassButtonState
 {
     BOOL active = [[DOEnvironmentManager sharedManager] isJailbroken] || [[DOEnvironmentManager sharedManager] isJailbrokenWithOtherJailbreak];
-    self.jailbreakBtn.enabled = !active && [[DOEnvironmentManager sharedManager] isSupported];
+    BOOL supporterVerified = DORHSupporterIsVerified();
+    BOOL canStartJailbreak = supporterVerified &&
+        !active &&
+        [[DOEnvironmentManager sharedManager] isSupported];
+    self.jailbreakBtn.enabled = canStartJailbreak;
     self.jailbreakBtn.alpha = 1.0;
-    self.jailbreakBtn.button.alpha = self.jailbreakBtn.enabled ? 1.0 : 0.70;
+    self.jailbreakBtn.button.alpha = canStartJailbreak ? 1.0 : 0.70;
+    UIButtonConfiguration *buttonConfiguration = self.jailbreakBtn.button.configuration;
+    buttonConfiguration.baseForegroundColor = supporterVerified ?
+        UIColor.whiteColor :
+        [UIColor colorWithWhite:0.68 alpha:1.0];
+    self.jailbreakBtn.button.configuration = buttonConfiguration;
+    self.customGlassJailbreakDisabledOverlay.hidden = supporterVerified;
     self.customGlassSystemLabel.text = [NSString stringWithFormat:@"iOS %@", UIDevice.currentDevice.systemVersion];
+}
+
+- (void)supporterLicenseDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    if (![NSThread isMainThread]) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf supporterLicenseDidChange:notification];
+        });
+        return;
+    }
+
+    [self refreshCustomGlassButtonState];
+    [self applyCustomGlassHomeAppearance];
 }
 
 - (void)presentCustomGlassAvatarPicker
@@ -1094,6 +1124,9 @@
 
     self.jailbreakBtn = [[DOJailbreakButton alloc] initWithAction:[UIAction actionWithTitle:jailbreakButtonTitle image:jailbreakButtonImage identifier:@"jailbreak" handler:^(__kindof UIAction * _Nonnull action) {
 /********************************** roothide specific ************************************/
+        if (![self requireCustomGlassSupporterAuthorization])
+            return;
+
         if (otherJailbreakActived(false)) {
             UIAlertController *alertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Error") message:DOLocalizedString(@"Your device currently has another jailbreak activated, please reboot device.") preferredStyle:UIAlertControllerStyleAlert];
             UIAlertAction *closeAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Close") style:UIAlertActionStyleDefault handler:nil];
@@ -1134,7 +1167,7 @@
 
         [self startJailbreak];
     }]];
-    self.jailbreakBtn.enabled = !isJailbroken && isSupported;
+    self.jailbreakBtn.enabled = DORHSupporterIsVerified() && !isJailbroken && isSupported;
 
     // DOJailbreakButton dims its whole view to 70% when disabled. When the Glass
     // layer lives inside that view, the disabled "Jailbroken" state therefore
@@ -1162,6 +1195,22 @@
         [jailbreakMaterialGlass.trailingAnchor constraintEqualToAnchor:self.jailbreakBtn.trailingAnchor],
         [jailbreakMaterialGlass.topAnchor constraintEqualToAnchor:self.jailbreakBtn.topAnchor],
         [jailbreakMaterialGlass.bottomAnchor constraintEqualToAnchor:self.jailbreakBtn.bottomAnchor]
+    ]];
+
+    // Keep an unmistakable disabled state when the package is not authorized.
+    // The overlay is visual only; DOJailbreakButton.enabled remains the actual
+    // interaction gate and the action performs a second authorization check.
+    UIView *disabledOverlay = [[UIView alloc] init];
+    disabledOverlay.translatesAutoresizingMaskIntoConstraints = NO;
+    disabledOverlay.backgroundColor = [UIColor colorWithWhite:0.18 alpha:0.34];
+    disabledOverlay.userInteractionEnabled = NO;
+    self.customGlassJailbreakDisabledOverlay = disabledOverlay;
+    [self.jailbreakBtn addSubview:disabledOverlay];
+    [NSLayoutConstraint activateConstraints:@[
+        [disabledOverlay.leadingAnchor constraintEqualToAnchor:self.jailbreakBtn.leadingAnchor],
+        [disabledOverlay.trailingAnchor constraintEqualToAnchor:self.jailbreakBtn.trailingAnchor],
+        [disabledOverlay.topAnchor constraintEqualToAnchor:self.jailbreakBtn.topAnchor],
+        [disabledOverlay.bottomAnchor constraintEqualToAnchor:self.jailbreakBtn.bottomAnchor]
     ]];
 
     [self.view addSubview:self.jailbreakBtn];
@@ -1298,6 +1347,9 @@
 
 - (void)startJailbreak
 {
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
+
     DOJailbreaker *jailbreaker = [[DOJailbreaker alloc] init];
 
     [[DOUIManager sharedInstance] startLogCapture];
