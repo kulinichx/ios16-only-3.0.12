@@ -385,7 +385,7 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
     fingerprint(section(settings, '- (NSArray *)availableKernelExploitIdentifiers', '- (id)specifiers')),
     'd9b1e11b9aaf31b59efa0849e2b8a7014fecfcf9731f1a9d42420fe0886ae84c',
   );
-  // Ignore empty-line normalization, not executable source.
+  // Baseline excludes the removed whitelist installer and separately tested ports.
   const supporterActions = section(
     settings,
     '- (void)lowPowerSchedulePressed',
@@ -395,7 +395,7 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
     .replace(supporterActions, '')
     .replace(section(settings, '- (void)presentCustomMountMessage:', '- (void)refreshJailbreakAppsPressed'), '');
   assert.equal(fingerprint(actions.replace(/\n{3,}/g, '\n\n')),
-    '664c15dd7296acf348d70cd1243bcfa22a1a0e57439bbe6f9f54c786832108ed');
+    'c41d2b8b3706d4a2e3291ca57b8cbbca01c3487d0b4d12ebe393cf0b0bf234b8');
   assert.match(settings, /setProperty:@"shippingbox\.and\.arrow\.backward" forKey:@"image"/);
   assert.doesNotMatch(settings, /isSPTM|majorVersion==15|spinlock fix is/);
   const dyld = settings.slice(settings.indexOf('- (void)setDyldPatchEnabled:'));

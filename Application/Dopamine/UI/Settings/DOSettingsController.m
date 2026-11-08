@@ -534,17 +534,6 @@
                     [manageMountSpecifier setProperty:@"manageCustomMountsPressed" forKey:@"action"];
                     [specifiers addObject:manageMountSpecifier];
 
-                    for (NSDictionary *tool in @[
-                        @{@"title": @"Install Whitelist App", @"action": @"installWhitelistAppPressed"}
-                    ]) {
-                        PSSpecifier *toolSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
-                        [toolSpecifier setProperty:tool[@"title"] forKey:@"title"];
-                        [toolSpecifier setProperty:DOButtonCell.class forKey:@"cellClass"];
-                        [toolSpecifier setProperty:buttonHeight forKey:@"height"];
-                        [toolSpecifier setProperty:@"square.and.arrow.down" forKey:@"image"];
-                        [toolSpecifier setProperty:tool[@"action"] forKey:@"action"];
-                        [specifiers addObject:toolSpecifier];
-                    }
                     PSSpecifier *refreshAppsSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
                     [refreshAppsSpecifier setProperty:@"Button_Refresh_Jailbreak_Apps" forKey:@"title"];
                     [refreshAppsSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
@@ -897,26 +886,6 @@
 }
 
 #pragma mark - Button Actions
-
-// 打开当前 Sileo 的配套工具详情页。
-- (void)openSileoPackage:(NSString *)identifier
-{
-    DOEnvironmentManager *environment = DOEnvironmentManager.sharedManager;
-    if (!environment.isJailbroken) return;
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@://package/%@", environment.sileoURLScheme, identifier]];
-    [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
-        if (success) return;
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Error") message:DOLocalizedString(@"Sileo_Open_Failed") preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"OK") style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:alert animated:YES completion:nil];
-    }];
-}
-
-// 跳转安装白名单管理器。
-- (void)installWhitelistAppPressed
-{
-    [self openSileoPackage:@"cn.zqbb.inject.manager"];
-}
 
 - (void)presentCustomMountMessage:(NSString *)message
 {
