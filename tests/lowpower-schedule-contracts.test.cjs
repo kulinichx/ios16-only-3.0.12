@@ -88,6 +88,16 @@ test('settings exposes the schedule while jailbroken and UI never applies system
   assert.doesNotMatch(disabled, /setPowerMode/);
 });
 
+test('low-power schedule uses the same full-screen navigation frame as settings', () => {
+  const navigation = read('Application/Dopamine/UI/DONavigationController.m');
+  const fullScreen = body(navigation, '- (BOOL)isCustomGlassFullScreenViewController:');
+  assert.match(fullScreen, /DOSettingsController\.class/);
+  assert.match(fullScreen, /DOLowPowerScheduleController\.class/);
+  assert.match(controller, /tableView\.bounces = YES/);
+  assert.match(controller, /tableView\.alwaysBounceVertical = YES/);
+  assert.doesNotMatch(controller, /revealScheduleStatusIfNeeded/);
+});
+
 test('all schedule localization keys exist in the supported release locales', () => {
   const keys = new Set([...controller.matchAll(/@"(LowPowerSchedule_\w+)"/g)].map(match => match[1]));
   keys.add('LowPowerSchedule_Title');

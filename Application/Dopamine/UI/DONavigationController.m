@@ -12,6 +12,7 @@
 #import "DOThemeManager.h"
 #import "DOCustomGlassMediaStore.h"
 #import "DOSettingsController.h"
+#import "Settings/DOLowPowerScheduleController.h"
 #import "DOCreditsViewController.h"
 #import "DOSupporterLicense.h"
 #import <QuartzCore/QuartzCore.h>
@@ -333,6 +334,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 - (BOOL)isCustomGlassFullScreenViewController:(UIViewController *)viewController
 {
     return [viewController isKindOfClass:DOSettingsController.class] ||
+        [viewController isKindOfClass:DOLowPowerScheduleController.class] ||
         [viewController isKindOfClass:DOCreditsViewController.class] ||
         [NSStringFromClass(viewController.class) hasPrefix:@"DOCustomGlass"];
 }
