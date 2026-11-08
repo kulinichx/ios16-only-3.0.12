@@ -178,6 +178,111 @@ test('ordinary spawn patching and blacklist handling remain connected', () => {
   assert.doesNotMatch(launchd, /iOS15Arm64e|choicyBlocked|spinlock_fix_only|SPINLOCK_FIX_DISABLED/);
 });
 
+const systemHookMain = read('BaseBin/systemhook/src/main.c');
+const tweakPolicyStart = systemHookMain.indexOf('bool should_enable_tweaks(void)');
+const tweakPolicyEnd = systemHookMain.indexOf('\nint __posix_spawn_hook(', tweakPolicyStart);
+const tweakPolicy = systemHookMain.slice(tweakPolicyStart, tweakPolicyEnd);
+
+test('RootHide 30 excludes logd_helper only at the existing tweak-loading gate', () => {
+  assert.ok(tweakPolicyStart >= 0 && tweakPolicyEnd > tweakPolicyStart);
+  const disabled = tweakPolicy.match(/const char \*iOS16TweaksDisabledPaths\[\] = \{([\s\S]*?)\};/);
+  assert.ok(disabled, 'missing iOS 16 tweak exclusions');
+  assert.deepEqual([...disabled[1].matchAll(/"([^"]+)"/g)].map(match => match[1]), [
+    '/usr/libexec/logd',
+    '/usr/libexec/logd_helper',
+    '/usr/sbin/notifyd',
+    '/usr/libexec/usermanagerd',
+  ]);
+  assert.match(tweakPolicy, /!strcmp\(gExecutablePath, iOS16TweaksDisabledPaths\[i\]\)\) return false;/);
+  const initialization = systemHookMain.indexOf('roothide_init_with_executable(gExecutablePath);');
+  const loadingGate = systemHookMain.indexOf('if (should_enable_tweaks())');
+  assert.ok(initialization >= 0 && loadingGate > initialization);
+  assert.match(systemHookMain.slice(loadingGate),
+    /if \(should_enable_tweaks\(\)\) \{\s*const char \*tweakLoaderPath = JBROOT_PATH\("\/usr\/lib\/TweakLoader\.dylib"\);/);
+  assert.equal((systemHookMain.match(/"\/usr\/libexec\/logd_helper"/g) || []).length, 1);
+  assert.doesNotMatch(launchd, /"\/usr\/libexec\/logd_helper"/);
+});
+
+test('RootHide 30 extracted C policy preserves ordinary apps and existing safe-mode gates', {
+  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
+}, () => {
+  assert.ok(tweakPolicyStart >= 0 && tweakPolicyEnd > tweakPolicyStart);
+  const harness = `
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#define F_OK 0
+#define JBROOT_PATH(path) path
+static const char *gExecutablePath;
+static bool safeModeFile, dopamineApp;
+static const char *disableTweaks, *safeMode, *msSafeMode;
+static int mock_access(const char *path, int mode) {
+    assert(strcmp(path, "/basebin/.safe_mode") == 0 && mode == F_OK);
+    return safeModeFile ? 0 : -1;
+}
+static char *mock_getenv(const char *name) {
+    if (strcmp(name, "DISABLE_TWEAKS") == 0) return (char *)disableTweaks;
+    if (strcmp(name, "_SafeMode") == 0) return (char *)safeMode;
+    assert(strcmp(name, "_MSSafeMode") == 0);
+    return (char *)msSafeMode;
+}
+static bool jbclient_dopamine_is_jailbroken(void *out) {
+    assert(out == NULL);
+    return dopamineApp;
+}
+static bool string_has_suffix(const char *string, const char *suffix) {
+    size_t length = strlen(string), suffixLength = strlen(suffix);
+    return length >= suffixLength && strcmp(string + length - suffixLength, suffix) == 0;
+}
+#define access mock_access
+#define getenv mock_getenv
+${tweakPolicy}
+int main(void) {
+    const char *disabled[] = {
+        "/usr/libexec/logd", "/usr/libexec/logd_helper",
+        "/usr/sbin/notifyd", "/usr/libexec/usermanagerd",
+        "/usr/libexec/xpcproxy", "/private/root/usr/libexec/xpcproxy"
+    };
+    for (size_t i = 0; i < sizeof(disabled) / sizeof(disabled[0]); i++) {
+        gExecutablePath = disabled[i];
+        assert(!should_enable_tweaks());
+    }
+    const char *allowed[] = {
+        "/Applications/Example.app/Example", "/usr/bin/example",
+        "/usr/libexec/logd_helper_extra", "/opt/bin/logd_helper",
+        "/usr/libexec/logd_helper/child"
+    };
+    for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+        gExecutablePath = allowed[i];
+        assert(should_enable_tweaks());
+        safeModeFile = true; assert(!should_enable_tweaks()); safeModeFile = false;
+        dopamineApp = true; assert(!should_enable_tweaks()); dopamineApp = false;
+        disableTweaks = "1"; assert(!should_enable_tweaks()); disableTweaks = NULL;
+        safeMode = "1"; assert(!should_enable_tweaks()); safeMode = NULL;
+        msSafeMode = "1"; assert(!should_enable_tweaks()); msSafeMode = NULL;
+        disableTweaks = safeMode = msSafeMode = "0";
+        assert(should_enable_tweaks());
+        disableTweaks = safeMode = msSafeMode = NULL;
+        assert(should_enable_tweaks());
+    }
+    puts("Tweak loading policy C cases passed");
+    return 0;
+}
+`;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-tweak-policy-'));
+  try {
+    const source = path.join(directory, 'test.c');
+    const executable = path.join(directory, 'test');
+    fs.writeFileSync(source, harness);
+    execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', source, '-o', executable]);
+    assert.match(execFileSync(executable, { encoding: 'utf8' }), /Tweak loading policy C cases passed/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const spawnCommon = read('BaseBin/systemhook/src/common/common.c');
 const spawnStart = spawnCommon.indexOf('static int spawn_exec_hook_common(');
 const spawnEnd = spawnCommon.indexOf('\nint posix_spawn_hook_shared(', spawnStart);

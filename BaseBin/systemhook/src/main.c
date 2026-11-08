@@ -241,6 +241,7 @@ if (msSafeModeValue) {
 		// These seem to be problematic on iOS 16+ (dyld gets stuck in a weird way when opening TweakLoader)
 		const char *iOS16TweaksDisabledPaths[] = {
 			"/usr/libexec/logd",
+			"/usr/libexec/logd_helper", // Avoid the iOS 16 logd/TweakLoader deadlock.
 			"/usr/sbin/notifyd",
 			"/usr/libexec/usermanagerd",
 		};
