@@ -283,6 +283,50 @@ int main(void) {
   }
 });
 
+const utilitySource = read('BaseBin/libjailbreak/src/util.c');
+const killallFunction = utilitySource.match(/void killall\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
+
+test('killall separates argument capacity from process-list bytes and bounds path matching', () => {
+  assert.ok(killallFunction, 'missing killall implementation');
+  assert.match(killallFunction, /if \(!executablePath \|\| !\*executablePath\) return;/);
+  assert.doesNotMatch(killallFunction, /static int maxArgumentSize/);
+  assert.match(killallFunction, /argumentSizeLength != sizeof\(maxArgumentSize\)/);
+  assert.match(killallFunction, /maxArgumentSize <= \(int\)sizeof\(int\)/);
+  assert.match(killallFunction, /char \*buffer = malloc\(\(size_t\)maxArgumentSize\);/);
+  assert.doesNotMatch(killallFunction, /buffer\s*=\s*(?:\(char\s*\*\))?malloc\(length\)/);
+  assert.match(killallFunction, /length > infoCapacity/);
+  assert.match(killallFunction, /if \(pid <= 0\) continue;/);
+  assert.match(killallFunction, /size <= sizeof\(int\) \|\| size > \(size_t\)maxArgumentSize/);
+  assert.match(killallFunction, /memchr\(path, '\\0', size - sizeof\(int\)\) && strcmp\(path, executablePath\) == 0/);
+  for (const [file, executable, signal] of [
+    ['BaseBin/launchdhook/src/main.m', '/usr/libexec/backboardd', 'SIGTERM'],
+    ['BaseBin/launchdhook/src/jbserver/jbdomain_systemwide.c', '/System/Library/TextInput/kbd', 'SIGKILL'],
+    ['BaseBin/jbctl/src/main.m', '/usr/libexec/backboardd', 'SIGTERM'],
+  ]) assert.ok(read(file).includes(`killall("${executable}", ${signal});`), file);
+});
+
+test('killall extracted C handles capacities, malformed paths, failures and cleanup', {
+  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
+}, () => {
+  assert.ok(killallFunction, 'missing killall implementation');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-killall-'));
+  try {
+    const source = path.join(directory, 'test.c');
+    const executable = path.join(directory, 'test');
+    fs.writeFileSync(path.join(directory, 'killall-under-test.inc'), killallFunction);
+    fs.copyFileSync(path.join(root, 'tests/helpers/killall-harness.c'), source);
+    execFileSync('cc', [
+      '-std=c11', '-Wall', '-Wextra', '-Werror',
+      '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+      source, '-o', executable,
+    ]);
+    assert.match(execFileSync(executable, { encoding: 'utf8' }),
+      /killall capacity, path matching and cleanup C cases passed/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const spawnCommon = read('BaseBin/systemhook/src/common/common.c');
 const spawnStart = spawnCommon.indexOf('static int spawn_exec_hook_common(');
 const spawnEnd = spawnCommon.indexOf('\nint posix_spawn_hook_shared(', spawnStart);
