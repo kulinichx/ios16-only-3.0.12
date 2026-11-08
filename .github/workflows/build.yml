@@ -167,14 +167,17 @@ jobs:
           plutil -insert items.4 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>BUILDER</string></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
           plutil -insert items.5 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>headerCellClass</key><string>DOCreditsCell</string><key>names</key><array><dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict></array></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
-          VERSION="("$(cat ./BaseBin/_external/basebin/.version)-$(cat ./BaseBin/_external/basebin/.version-roothide)-$(git rev-parse --short HEAD)")"-$(TZ=UTC git show -s --date=format-local:'%Y.%m.%d-%Z-%H.%M.%S' --format='%cd' HEAD)
-          mv ./Application/Dopamine.tipa "./Application/roothide-Dopamine-${VERSION}.tipa"
+          VERSION="$(cat ./BaseBin/_external/basebin/.version)-$(cat ./BaseBin/_external/basebin/.version-roothide)"
+          PACKAGE_NAME="Dopamine-rh-rc9-$(git rev-parse --short HEAD).tipa"
+          mv ./Application/Dopamine.tipa "./Application/${PACKAGE_NAME}"
           echo "version=${VERSION}" >> $GITHUB_ENV
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_ENV
+          echo "package_name=${PACKAGE_NAME}" >> build-provenance.txt
 
       - name: Verify TIPA
         run: |
           set -euo pipefail
-          tipa="Application/roothide-Dopamine-${{ env.version }}.tipa"
+          tipa="Application/${{ env.package_name }}"
           unzip -tq "$tipa"
           unzip -Z1 "$tipa" > package-files.txt
           grep -Fx 'Payload/Dopamine.app/Dopamine.roothide' package-files.txt
@@ -221,7 +224,7 @@ jobs:
           name: RootHide_iOS16_TIPA
           if-no-files-found: error
           path: |
-            ${{ github.workspace }}/Application/roothide-Dopamine-${{ env.version }}.tipa
+            ${{ github.workspace }}/Application/${{ env.package_name }}
             build-provenance.txt
             package-contents.txt
             basebin-files.txt

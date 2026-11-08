@@ -62,6 +62,8 @@
 @property(nonatomic) BOOL hideStatusBar;
 @property(nonatomic) BOOL hideHomeIndicator;
 
+- (void)refreshCustomGlassSystemLabel;
+
 @end
 
 @implementation DOMainViewController
@@ -147,7 +149,19 @@
         [UIColor colorWithWhite:0.68 alpha:1.0];
     self.jailbreakBtn.button.configuration = buttonConfiguration;
     self.customGlassJailbreakDisabledOverlay.hidden = supporterVerified;
-    self.customGlassSystemLabel.text = [NSString stringWithFormat:@"iOS %@", UIDevice.currentDevice.systemVersion];
+    [self refreshCustomGlassSystemLabel];
+}
+
+- (void)refreshCustomGlassSystemLabel
+{
+    DOEnvironmentManager *environment = [DOEnvironmentManager sharedManager];
+    NSString *systemVersion = [NSString stringWithFormat:@"iOS %@", UIDevice.currentDevice.systemVersion];
+    if (environment.isJailbroken) {
+        self.customGlassSystemLabel.text =
+            [NSString stringWithFormat:@"%@ | %@", systemVersion, [environment injectionModeDescription]];
+    } else {
+        self.customGlassSystemLabel.text = systemVersion;
+    }
 }
 
 - (void)supporterLicenseDidChange:(NSNotification *)notification
@@ -1297,6 +1311,7 @@
 - (void)resumeSystemInformationUpdates
 {
     if (!self.informationVisible) return;
+    [self refreshCustomGlassSystemLabel];
     [self refreshSystemUptime];
     if (self.uptimeTimer || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
     __weak typeof(self) weakSelf = self;

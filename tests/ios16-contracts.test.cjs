@@ -56,7 +56,10 @@ test('iOS 16 build creates and publishes only a TIPA archive', () => {
   assert.match(buildStep, /- name: Verify TIPA/);
   assert.match(buildStep, /unzip -tq "\$tipa"/);
   assert.match(buildStep, /name: RootHide_iOS16_TIPA/);
-  assert.match(buildStep, /roothide-Dopamine-\$\{\{ env\.version \}\}\.tipa/);
+  assert.match(buildStep, /PACKAGE_NAME="Dopamine-rh-rc9-\$\(git rev-parse --short HEAD\)\.tipa"/);
+  assert.match(buildStep, /tipa="Application\/\$\{\{ env\.package_name \}\}"/);
+  assert.match(buildStep, /Application\/\$\{\{ env\.package_name \}\}/);
+  assert.doesNotMatch(buildStep, /roothide-Dopamine-\$\{\{ env\.version \}\}/);
   assert.doesNotMatch(buildStep, /\.ipa|RootHide_iOS16_IPA/);
 });
 

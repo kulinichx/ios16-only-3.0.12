@@ -830,7 +830,7 @@ extern char **environ;
 {
     if (!self.isJailbroken) return DOLocalizedString(@"Injection_Mode_Waiting");
     BOOL whitelist = access(JBROOT_PATH("/var/mobile/Library/RootHide/cn.zqbb.inject.plist"), F_OK) == 0;
-    return DOLocalizedString(whitelist ? @"Injection_Mode_Whitelist" : @"Injection_Mode_Blacklist");
+    return whitelist ? @"Whitelist" : @"Blacklist";
 }
 
 // 读取当前 Sileo 的 URL scheme，兼容 RootHide 重写。

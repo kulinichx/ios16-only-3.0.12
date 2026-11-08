@@ -16,6 +16,7 @@ const components = read(ui + 'DOCustomGlassView.m');
 const material = read(ui + 'DOCustomGlassView.h');
 const media = read(ui + 'DOCustomGlassMediaStore.h');
 const sync = read(ui + 'DOCustomGlassThemeSync.h');
+const environment = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
 const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
 const startup = read('Application/Dopamine/main.m');
 
@@ -177,6 +178,21 @@ test('profile editing and focus mode are retained', () => {
   ]) assert.ok(main.includes(selector), selector);
   assert.match(main, /DOCustomGlassMediaStoreSaveAvatar/);
   assert.match(material, /DOCustomGlassTheme\.ProfileFocusEnabled/);
+});
+
+test('profile system line displays the live injection mode only while jailbroken', () => {
+  const mode = section(environment, '- (NSString *)injectionModeDescription', '// 读取当前 Sileo');
+  assert.match(mode, /cn\.zqbb\.inject\.plist/);
+  assert.match(mode, /whitelist \? @"Whitelist" : @"Blacklist"/);
+
+  const refresh = section(main, '- (void)refreshCustomGlassSystemLabel', '- (void)supporterLicenseDidChange:');
+  assert.match(refresh, /iOS %@/);
+  assert.match(refresh, /environment\.isJailbroken/);
+  assert.match(refresh, /%@ \| %@/);
+  assert.match(refresh, /injectionModeDescription/);
+  assert.match(refresh, /else \{[\s\S]*self\.customGlassSystemLabel\.text = systemVersion/);
+  const resume = section(main, '- (void)resumeSystemInformationUpdates', '- (void)stopUptimeTimer');
+  assert.match(resume, /refreshCustomGlassSystemLabel/);
 });
 
 test('username and motto editors use saved user input rather than treating placeholders as entered data', () => {
