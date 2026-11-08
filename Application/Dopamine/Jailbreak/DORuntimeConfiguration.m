@@ -1,4 +1,6 @@
 #import "DORuntimeConfiguration.h"
+#import "DOEnvironmentManager.h"
+#import "DOUIManager.h"
 #import <libjailbreak/libjailbreak.h>
 #import <sys/stat.h>
 
@@ -54,6 +56,20 @@
         if (![NSFileManager.defaultManager setAttributes:attributes ofItemAtPath:path error:&error]) return error;
     }
     return nil;
+}
+
++ (void)restoreCustomMounts
+{
+    DOEnvironmentManager *environment = DOEnvironmentManager.sharedManager;
+    for (NSString *path in environment.customMountPaths) {
+        if (![path isKindOfClass:NSString.class]) continue;
+        int result = [environment mountCustomDirectory:path];
+        if (result != 0) {
+            [[DOUIManager sharedInstance] sendLog:
+                [NSString stringWithFormat:@"Custom mount skipped for %@ (error %d)", path, result]
+                debug:YES];
+        }
+    }
 }
 
 @end

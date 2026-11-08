@@ -123,10 +123,34 @@ test('the iOS 16 bootstrap remains and non-16 packages are removed', () => {
   assert.doesNotMatch(project, /badRecovery|multicast_bytecopy|(?:path|name) = weightBufs;/);
 });
 
-test('custom mount entry and automatic restore are absent', () => {
-  const header = read('Application/Dopamine/Jailbreak/DORuntimeConfiguration.h');
-  for (const source of [settings, runtime, header, jailbreaker]) {
-    assert.doesNotMatch(source, /HelloMnt|restoreCustomMounts|installMountAppPressed|cn\.zqbb\.hello\.mnt|\.zqbbJailbreak/);
+test('ZQBB custom mounts are user-managed, validated and restored without the external mount daemon', () => {
+  const manager = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
+  const managerHeader = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.h');
+  const jbctl = read('BaseBin/jbctl/src/internal.m');
+  assert.match(settings, /CustomMount_Add/);
+  assert.match(settings, /CustomMount_Manage/);
+  assert.match(settings, /mountCustomDirectory:/);
+  assert.match(settings, /unmountCustomDirectory:/);
+  assert.match(settings, /CustomMount_View/);
+  assert.match(settings, /CustomMount_Forget/);
+  assert.match(settings, /removeCustomMountCopyAtPath:/);
+  assert.match(managerHeader, /saveCustomMountPaths:/);
+  assert.match(managerHeader, /removeCustomMountCopyAtPath:/);
+  assert.match(manager, /NSDataWritingAtomic/);
+  assert.match(runtime, /restoreCustomMounts/);
+  assert.match(jailbreaker, /DORuntimeConfiguration restoreCustomMounts/);
+  assert.match(jbctl, /custom_mount_path_is_valid/);
+  assert.match(jbctl, /private\/preboot/);
+  assert.match(jbctl, /JBROOT_PATH\(@\"\/mnt\"\)/);
+  assert.match(jbctl, /stringByAppendingString:\@\"_tmp\"/);
+  assert.match(settings, /removeCustomMountCopyAtPath:path/);
+  assert.ok(
+    jailbreaker.indexOf('ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"))') <
+      jailbreaker.indexOf('[DORuntimeConfiguration restoreCustomMounts]'),
+    'custom mounts are restored only after dyld trustcache initialization'
+  );
+  for (const source of [settings, runtime, manager, managerHeader, jailbreaker]) {
+    assert.doesNotMatch(source, /HelloMnt|installMountAppPressed|cn\.zqbb\.hello\.mnt|\.zqbbJailbreak/);
   }
   assert.match(runtime, /cn\.zqbb\.inject\.system\.plist/);
   assert.match(runtime, /cn\.zqbb\.jetsam\.addend\.plist/);

@@ -825,6 +825,117 @@ extern char **environ;
     }
 }
 
+- (NSString *)customMountListPath
+{
+    return JBROOT_PATH(@"/mnt/newFakePath.plist");
+}
+
+- (NSArray<NSString *> *)customMountPaths
+{
+    __block NSArray<NSString *> *paths = @[];
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            NSDictionary *configuration =
+                [NSDictionary dictionaryWithContentsOfFile:[self customMountListPath]];
+            id storedPaths = configuration[@"path"];
+            if ([storedPaths isKindOfClass:NSArray.class])
+                paths = [storedPaths copy];
+        }];
+    }];
+    return paths;
+}
+
+- (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths
+{
+    if (![paths isKindOfClass:NSArray.class]) return NO;
+    NSString *mountRootPath = JBROOT_PATH(@"/mnt");
+    for (id value in paths) {
+        if (![value isKindOfClass:NSString.class]) return NO;
+        NSString *path = value;
+        if (![path hasPrefix:@"/"] || ![path isEqualToString:path.stringByStandardizingPath] ||
+            [path isEqualToString:@"/"] || [path isEqualToString:@"/System"] ||
+            [path isEqualToString:@"/private"] || [path isEqualToString:@"/var"] ||
+            [path isEqualToString:@"/Applications"] || [path isEqualToString:@"/Library"] ||
+            [path isEqualToString:@"/private/preboot"] || [path hasPrefix:@"/private/preboot/"] ||
+            [path isEqualToString:@"/usr"] || [path hasPrefix:@"/usr/"] ||
+            [path isEqualToString:mountRootPath] ||
+            [path hasPrefix:[mountRootPath stringByAppendingString:@"/"]])
+            return NO;
+    }
+    __block BOOL saved = NO;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            NSString *mountRoot = JBROOT_PATH(@"/mnt");
+            NSError *error = nil;
+            if (![[NSFileManager defaultManager] createDirectoryAtPath:mountRoot
+                                          withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:&error]) return;
+            NSDictionary *configuration = @{@"path": paths};
+            NSData *data = [NSPropertyListSerialization dataWithPropertyList:configuration
+                                                                       format:NSPropertyListXMLFormat_v1_0
+                                                                      options:0
+                                                                        error:&error];
+            saved = data && [data writeToFile:[self customMountListPath]
+                                      options:NSDataWritingAtomic
+                                        error:&error];
+        }];
+    }];
+    return saved;
+}
+
+- (int)mountCustomDirectory:(NSString *)path
+{
+    if (!self.isJailbroken || ![path isKindOfClass:NSString.class]) return -1;
+    __block int result = -1;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            result = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "mount",
+                              path.fileSystemRepresentation, NULL);
+        }];
+    }];
+    return result;
+}
+
+- (int)unmountCustomDirectory:(NSString *)path
+{
+    if (!self.isJailbroken || ![path isKindOfClass:NSString.class]) return -1;
+    __block int result = -1;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            result = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "unmount",
+                              path.fileSystemRepresentation, NULL);
+        }];
+    }];
+    return result;
+}
+
+- (BOOL)removeCustomMountCopyAtPath:(NSString *)path
+{
+    if (![path isKindOfClass:NSString.class] ||
+        ![path hasPrefix:@"/"] ||
+        ![path isEqualToString:path.stringByStandardizingPath] ||
+        [path isEqualToString:@"/"]) return NO;
+
+    NSString *mountRoot = JBROOT_PATH(@"/mnt");
+    NSString *copyPath = [mountRoot stringByAppendingString:path];
+    if (![copyPath hasPrefix:[mountRoot stringByAppendingString:@"/"]]) return NO;
+
+    __block BOOL removed = NO;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            NSFileManager *manager = [NSFileManager defaultManager];
+            if (![manager fileExistsAtPath:copyPath]) {
+                removed = YES;
+                return;
+            }
+            NSError *error = nil;
+            removed = [manager removeItemAtPath:copyPath error:&error];
+        }];
+    }];
+    return removed;
+}
+
 // 根据注入配置是否存在返回模式简称，供系统版本后的括号显示。
 - (NSString *)injectionModeDescription
 {

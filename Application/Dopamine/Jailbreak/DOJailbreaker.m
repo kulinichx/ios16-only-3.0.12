@@ -666,6 +666,8 @@ if (ret != 0) {
     return;
 }
 
+[DORuntimeConfiguration restoreCustomMounts];
+
 exec_set_patch(true); /* launchdhook injected and dyld patched,
 now we can enable dyld patching for new process */
 

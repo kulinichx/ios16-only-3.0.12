@@ -518,6 +518,22 @@
                     [lowPowerSchedule setProperty:@"lowPowerSchedulePressed" forKey:@"action"];
                     [specifiers addObject:lowPowerSchedule];
 
+                    PSSpecifier *mountSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                    [mountSpecifier setProperty:@"CustomMount_Add" forKey:@"title"];
+                    [mountSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [mountSpecifier setProperty:buttonHeight forKey:@"height"];
+                    [mountSpecifier setProperty:@"folder.badge.plus" forKey:@"image"];
+                    [mountSpecifier setProperty:@"mountCustomDirectoryPressed" forKey:@"action"];
+                    [specifiers addObject:mountSpecifier];
+
+                    PSSpecifier *manageMountSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                    [manageMountSpecifier setProperty:@"CustomMount_Manage" forKey:@"title"];
+                    [manageMountSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [manageMountSpecifier setProperty:buttonHeight forKey:@"height"];
+                    [manageMountSpecifier setProperty:@"folder.badge.gearshape" forKey:@"image"];
+                    [manageMountSpecifier setProperty:@"manageCustomMountsPressed" forKey:@"action"];
+                    [specifiers addObject:manageMountSpecifier];
+
                     for (NSDictionary *tool in @[
                         @{@"title": @"Install Whitelist App", @"action": @"installWhitelistAppPressed"}
                     ]) {
@@ -900,6 +916,172 @@
 - (void)installWhitelistAppPressed
 {
     [self openSileoPackage:@"cn.zqbb.inject.manager"];
+}
+
+- (void)presentCustomMountMessage:(NSString *)message
+{
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:DOLocalizedString(@"CustomMount_Title")
+                         message:message
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"OK")
+                                              style:UIAlertActionStyleDefault
+                                            handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)mountCustomDirectoryPressed
+{
+    DOEnvironmentManager *environment = DOEnvironmentManager.sharedManager;
+    if (!environment.isJailbroken) return;
+
+    UIAlertController *input = [UIAlertController
+        alertControllerWithTitle:DOLocalizedString(@"CustomMount_Add")
+                         message:DOLocalizedString(@"CustomMount_Path_Prompt")
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [input addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = @"/System/Library/Fonts";
+        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+        field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    [input addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel")
+                                               style:UIAlertActionStyleCancel
+                                             handler:nil]];
+    [input addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Add")
+                                               style:UIAlertActionStyleDefault
+                                             handler:^(__unused UIAlertAction *action) {
+        NSString *enteredPath = [input.textFields.firstObject.text
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSString *path = enteredPath.stringByStandardizingPath;
+        if (![enteredPath hasPrefix:@"/"] || ![path isEqualToString:enteredPath]) {
+            [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_InvalidPath")];
+            return;
+        }
+
+        NSArray<NSString *> *existingPaths = environment.customMountPaths;
+        if ([existingPaths containsObject:path]) {
+            [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_AlreadyExists")];
+            return;
+        }
+
+        int result = [environment mountCustomDirectory:path];
+        if (result != 0) {
+            [self presentCustomMountMessage:
+                [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
+            return;
+        }
+
+        NSArray<NSString *> *updatedPaths = [existingPaths arrayByAddingObject:path];
+        if (![environment saveCustomMountPaths:updatedPaths]) {
+            int rollbackResult = [environment unmountCustomDirectory:path];
+            BOOL copyRemoved = rollbackResult == 0 && [environment removeCustomMountCopyAtPath:path];
+            NSString *message = copyRemoved ?
+                DOLocalizedString(@"CustomMount_SaveFailedRolledBack") :
+                DOLocalizedString(@"CustomMount_SaveFailedRollbackFailed");
+            [self presentCustomMountMessage:message];
+            return;
+        }
+        [self reloadSpecifiers];
+    }]];
+    [self presentViewController:input animated:YES completion:nil];
+}
+
+- (void)manageCustomMountsPressed
+{
+    DOEnvironmentManager *environment = DOEnvironmentManager.sharedManager;
+    if (!environment.isJailbroken) return;
+
+    NSArray<NSString *> *paths = environment.customMountPaths;
+    if (paths.count == 0) {
+        [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_Empty")];
+        return;
+    }
+
+    UIAlertController *list = [UIAlertController
+        alertControllerWithTitle:DOLocalizedString(@"CustomMount_Manage")
+                         message:nil
+                  preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *path in paths) {
+        if (![path isKindOfClass:NSString.class]) continue;
+        [list addAction:[UIAlertAction actionWithTitle:path
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(__unused UIAlertAction *action) {
+            NSString *targetMountPath = [JBROOT_PATH(@"/mnt") stringByAppendingString:path];
+            UIAlertController *confirm = [UIAlertController
+                alertControllerWithTitle:path
+                                 message:DOLocalizedString(@"CustomMount_ManagePrompt")
+                          preferredStyle:UIAlertControllerStyleAlert];
+            [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel")
+                                                        style:UIAlertActionStyleCancel
+                                                      handler:nil]];
+            [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_View")
+                                                        style:UIAlertActionStyleDefault
+                                                      handler:^(__unused UIAlertAction *viewAction) {
+                NSString *encodedPath = [targetMountPath
+                    stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
+                NSURL *url = [NSURL URLWithString:[@"filza://view" stringByAppendingString:encodedPath ?: targetMountPath]];
+                [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:^(BOOL success) {
+                    if (!success) {
+                        NSString *fallbackPath = [@"fffff://view" stringByAppendingString:encodedPath ?: targetMountPath];
+                        NSURL *fallbackURL = [NSURL URLWithString:fallbackPath];
+                        [[UIApplication sharedApplication] openURL:fallbackURL options:@{} completionHandler:^(BOOL fallbackSuccess) {
+                            if (!fallbackSuccess) {
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_ViewUnavailable")];
+                                });
+                            }
+                        }];
+                    }
+                }];
+            }]];
+            [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Forget")
+                                                        style:UIAlertActionStyleDestructive
+                                                      handler:^(__unused UIAlertAction *forgetAction) {
+                NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
+                [updatedPaths removeObject:path];
+                if (![environment saveCustomMountPaths:updatedPaths]) {
+                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_SaveFailed")];
+                    return;
+                }
+                [self reloadSpecifiers];
+            }]];
+            [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Unmount")
+                                                        style:UIAlertActionStyleDestructive
+                                                      handler:^(__unused UIAlertAction *confirmAction) {
+                int result = [environment unmountCustomDirectory:path];
+                if (result != 0) {
+                    [self presentCustomMountMessage:
+                        [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
+                    return;
+                }
+
+                if (![environment removeCustomMountCopyAtPath:path]) {
+                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_CleanupFailed")];
+                    return;
+                }
+
+                NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
+                [updatedPaths removeObject:path];
+                if (![environment saveCustomMountPaths:updatedPaths]) {
+                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_UnmountedSaveFailed")];
+                    return;
+                }
+                [self reloadSpecifiers];
+            }]];
+            [self presentViewController:confirm animated:YES completion:nil];
+        }]];
+    }
+    [list addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel")
+                                             style:UIAlertActionStyleCancel
+                                           handler:nil]];
+    UIPopoverPresentationController *popover = list.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = self.view;
+        popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
+                                        CGRectGetMidY(self.view.bounds), 1, 1);
+    }
+    [self presentViewController:list animated:YES completion:nil];
 }
 
 - (void)refreshJailbreakAppsPressed

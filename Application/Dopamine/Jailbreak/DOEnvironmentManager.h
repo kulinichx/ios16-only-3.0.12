@@ -79,6 +79,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)deleteBootstrap;
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
+- (NSArray<NSString *> *)customMountPaths;
+- (int)mountCustomDirectory:(NSString *)path;
+- (int)unmountCustomDirectory:(NSString *)path;
+- (BOOL)removeCustomMountCopyAtPath:(NSString *)path;
+- (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths;
 - (NSDictionary *)lowPowerScheduleConfiguration;
 - (NSDictionary *)lowPowerScheduleStatus;
 - (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)startMinute

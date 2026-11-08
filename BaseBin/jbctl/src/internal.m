@@ -2,95 +2,107 @@
 #import <Foundation/Foundation.h>
 #import <libjailbreak/libjailbreak.h>
 #import <sys/mount.h>
+#import <sys/stat.h>
+#import <string.h>
+#import <limits.h>
+#import <errno.h>
 SInt32 CFUserNotificationDisplayAlert(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle, CFStringRef alternateButtonTitle, CFStringRef otherButtonTitle, CFOptionFlags *responseFlags) API_AVAILABLE(ios(3.0));
 
-/*
-void execute_unsandboxed(void (^block)(void))
+static int mount_unsandboxed(const char *type, const char *dir, int flags, void *data)
 {
 	uint64_t credBackup = 0;
-	jbclient_root_steal_ucred(0, &credBackup);
-	block();
+	int result = jbclient_root_steal_ucred(0, &credBackup);
+	if (result != 0) return result;
+	result = mount(type, dir, flags, data);
 	jbclient_root_steal_ucred(credBackup, NULL);
+	return result;
 }
 
-int mount_unsandboxed(const char *type, const char *dir, int flags, void *data)
+static int unmount_unsandboxed(const char *dir, int flags)
 {
-	__block int r = 0;
-	execute_unsandboxed(^{
-		r = mount(type, dir, flags, data);
-	});
-	return r;
+	uint64_t credBackup = 0;
+	int result = jbclient_root_steal_ucred(0, &credBackup);
+	if (result != 0) return result;
+	result = unmount(dir, flags);
+	jbclient_root_steal_ucred(credBackup, NULL);
+	return result;
 }
 
-int unmount_unsandboxed(const char *dir, int flags)
+static bool custom_mount_path_is_valid(const char *rawPath)
 {
-	__block int r = 0;
-	execute_unsandboxed(^{
-		r = unmount(dir, flags);
-	});
-	return r;
+	if (!rawPath || rawPath[0] != '/' || strnlen(rawPath, PATH_MAX) >= PATH_MAX) return false;
+	NSString *path = [NSString stringWithUTF8String:rawPath];
+	if (!path || ![path isEqualToString:path.stringByStandardizingPath] ||
+		[path isEqualToString:@"/"] ||
+		[path isEqualToString:@"/System"] ||
+		[path isEqualToString:@"/private"] ||
+		[path isEqualToString:@"/var"] ||
+		[path isEqualToString:@"/Applications"] ||
+		[path isEqualToString:@"/Library"] ||
+		[path isEqualToString:@"/private/preboot"] ||
+		[path hasPrefix:@"/private/preboot/"] ||
+		[path isEqualToString:@"/usr"] ||
+		[path hasPrefix:@"/usr/"] ||
+		[path isEqualToString:JBROOT_PATH(@"/mnt")] ||
+		[path hasPrefix:[JBROOT_PATH(@"/mnt") stringByAppendingString:@"/"]])
+		return false;
+
+	struct stat info;
+	if (lstat(rawPath, &info) != 0 || !S_ISDIR(info.st_mode) || S_ISLNK(info.st_mode)) return false;
+	return true;
 }
 
-bool is_protected(const char *path)
+static bool fake_path_is_mounted(const char *path)
 {
-	struct statfs sb;
-	statfs(path, &sb);
-	return strcmp(path, sb.f_mntonname) == 0;
+	struct statfs fs;
+	return statfs(path, &fs) == 0 && strcmp(fs.f_mntonname, path) == 0;
 }
 
-int ensure_protected(const char *path)
+static int prepare_mount_copy(const char *rawPath)
 {
-	if (!is_protected(path)) {
-		return mount_unsandboxed("bindfs", path, 0, (void *)path);
+	NSString *path = [NSString stringWithUTF8String:rawPath];
+	NSString *mountPath = [JBROOT_PATH(@"/mnt") stringByAppendingString:path];
+	NSFileManager *manager = [NSFileManager defaultManager];
+	BOOL isDirectory = NO;
+	if (![manager fileExistsAtPath:path isDirectory:&isDirectory] || !isDirectory) return -1;
+
+	NSString *parent = [mountPath stringByDeletingLastPathComponent];
+	NSError *error = nil;
+	if (![manager createDirectoryAtPath:parent withIntermediateDirectories:YES attributes:nil error:&error])
+		return -1;
+
+	if ([manager fileExistsAtPath:mountPath isDirectory:&isDirectory]) {
+		if (!isDirectory) return EEXIST;
+		NSArray *contents = [manager contentsOfDirectoryAtPath:mountPath error:&error];
+		if (!contents) return EIO;
+		if (contents.count > 0) return 0;
+		if (![manager removeItemAtPath:mountPath error:&error]) return EIO;
+	}
+
+	NSString *temporaryPath = [mountPath stringByAppendingString:@"_tmp"];
+	if ([manager fileExistsAtPath:temporaryPath] &&
+		![manager removeItemAtPath:temporaryPath error:&error]) return EIO;
+	if (![manager copyItemAtPath:path toPath:temporaryPath error:&error]) return EIO;
+	if (![manager moveItemAtPath:temporaryPath toPath:mountPath error:&error]) {
+		[manager removeItemAtPath:temporaryPath error:nil];
+		return EIO;
 	}
 	return 0;
 }
 
-int ensure_unprotected(const char *path)
+static int fake_path_mount(bool mount, const char *path)
 {
-	if (is_protected(path)) {
-		return unmount_unsandboxed(path, MNT_FORCE);
+	if (!custom_mount_path_is_valid(path)) return EINVAL;
+	if (mount == fake_path_is_mounted(path)) return 0;
+	if (mount) {
+		int result = prepare_mount_copy(path);
+		if (result != 0) return result;
+		NSString *source = [JBROOT_PATH(@"/mnt") stringByAppendingString:
+			[NSString stringWithUTF8String:path]];
+		return mount_unsandboxed("bindfs", path, MNT_RDONLY, (void *)source.fileSystemRepresentation);
 	}
-	return 0;
+	return unmount_unsandboxed(path, MNT_FORCE);
 }
-
-int protection_set_active(bool active)
-{
-	int r = 0;
-	if (active) {
-		// Protect /private/preboot/UUID/<System, usr> from being modified by bind mounting them on top of themselves
-		// This protects dumb users from accidentally deleting these, which would induce a recovery loop after rebooting
-		r |= ensure_protected(prebootUUIDPath("/System"));
-		r |= ensure_protected(prebootUUIDPath("/usr"));
-	}
-	else {
-		r |= ensure_unprotected(prebootUUIDPath("/System"));
-		r |= ensure_unprotected(prebootUUIDPath("/usr"));
-	}
-	return r;
-}
-
-bool fakelib_is_mounted(void)
-{
-	struct statfs fsb;
-    if (statfs("/usr/lib", &fsb) != 0) return NO;
-    return strcmp(fsb.f_mntonname, "/usr/lib") == 0;
-}
-
-int fakelib_set_mounted(bool mounted)
-{
-	int r = 0;
-	if (mounted != fakelib_is_mounted()) {
-		if (mounted) {
-			r = mount_unsandboxed("bindfs", "/usr/lib", MNT_RDONLY, (void *)JBROOT_PATH("/basebin/.fakelib"));
-		}
-		else {
-			r = unmount_unsandboxed("/usr/lib", MNT_FORCE);
-		}
-	}
-	return r;
-}
-*/
 
 int jbctl_handle_internal(const char *command, int argc, char* argv[])
 {
@@ -196,6 +208,11 @@ if(access(JBROOT_PATH("/.disable_auto_uicache"), F_OK) == 0) {
 /************************* roothide specific ***************************/
 
 		exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+	}
+	else if (!strcmp(command, "mount") || !strcmp(command, "unmount")) {
+		if (argc < 2 || !custom_mount_path_is_valid(argv[1])) return EINVAL;
+		bool shouldMount = !strcmp(command, "mount");
+		return fake_path_mount(shouldMount, argv[1]);
 	}
 	else if (!strcmp(command, "install_pkg")) {
 		if (argc > 1) {

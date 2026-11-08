@@ -110,6 +110,37 @@ test('all schedule localization keys exist in the supported release locales', ()
   }
 });
 
+test('custom mount controls have complete English and Simplified Chinese copy', () => {
+  const keys = [
+    'CustomMount_Title',
+    'CustomMount_Add',
+    'CustomMount_Manage',
+    'CustomMount_Path_Prompt',
+    'CustomMount_InvalidPath',
+    'CustomMount_AlreadyExists',
+    'CustomMount_Failed',
+    'CustomMount_SaveFailedRolledBack',
+    'CustomMount_SaveFailedRollbackFailed',
+    'CustomMount_Empty',
+    'CustomMount_ManagePrompt',
+    'CustomMount_UnmountTitle',
+    'CustomMount_Unmount',
+    'CustomMount_View',
+    'CustomMount_Forget',
+    'CustomMount_ViewUnavailable',
+    'CustomMount_CleanupFailed',
+    'CustomMount_SaveFailed',
+    'CustomMount_UnmountedSaveFailed',
+  ];
+  for (const locale of ['en', 'zh-CN', 'zh-Hans']) {
+    const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
+    for (const key of keys) {
+      assert.equal([...strings.matchAll(new RegExp(`^"${key}"\\s*=`, 'gm'))].length, 1,
+        `${locale} must define ${key} exactly once`);
+    }
+  }
+});
+
 test('controller is included in the Xcode app target and SpringBoard hook source glob', () => {
   const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
   assert.equal(project.match(/DOLowPowerScheduleController\.m in Sources/g)?.length, 2);
