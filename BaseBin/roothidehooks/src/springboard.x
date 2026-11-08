@@ -132,4 +132,6 @@ void sbInit(void)
 {
 	NSLog(@"sbInit...");
 	%init();
+	extern void rcLowPowerScheduleStart(void);
+	rcLowPowerScheduleStart();
 }

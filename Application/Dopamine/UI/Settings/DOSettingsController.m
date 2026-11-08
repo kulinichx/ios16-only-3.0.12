@@ -14,11 +14,14 @@
 #import "DOHeaderCell.h"
 #import "DOEnvironmentManager.h"
 #import "DOExploitManager.h"
+#import "DOSceneDelegate.h"
 #import "DOPSListItemsController.h"
 #import "DOPSExploitListItemsController.h"
 #import "DOPSJetsamListItemsController.h"
 #import "DOButtonCell.h"
 #import "DOCustomGlassView.h"
+#import "../DOSupporterLicenseUI.h"
+#import "DOLowPowerScheduleController.h"
 
 @interface DOSettingsController ()
 
@@ -486,6 +489,14 @@
             [jetsamSpecifier setProperty:@"jetsamOptionTitles" forKey:@"titlesDataSource"];
             [specifiers addObject:jetsamSpecifier];
 
+            PSSpecifier *supporterSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
+            [supporterSpecifier setProperty:@"Supporter_Title" forKey:@"title"];
+            [supporterSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+            [supporterSpecifier setProperty:buttonHeight forKey:@"height"];
+            [supporterSpecifier setProperty:@"checkmark.seal" forKey:@"image"];
+            [supporterSpecifier setProperty:@"supporterLicensePressed" forKey:@"action"];
+            [specifiers addObject:supporterSpecifier];
+
             if (!envManager.isJailbroken && !envManager.isInstalledThroughTrollStore) {
                 PSSpecifier *removeJailbreakSwitchSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Button_Remove_Jailbreak") target:self set:@selector(setRemoveJailbreakEnabled:specifier:) get:defGetter detail:nil cell:PSSwitchCell edit:nil];
                 [removeJailbreakSwitchSpecifier setProperty:@YES forKey:@"enabled"];
@@ -499,6 +510,14 @@
                 [specifiers addObject:actionsGroupSpecifier];
 
                 if (envManager.isJailbroken) {
+                    PSSpecifier *lowPowerSchedule = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                    [lowPowerSchedule setProperty:@"LowPowerSchedule_Title" forKey:@"title"];
+                    [lowPowerSchedule setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [lowPowerSchedule setProperty:buttonHeight forKey:@"height"];
+                    [lowPowerSchedule setProperty:@"calendar.badge.clock" forKey:@"image"];
+                    [lowPowerSchedule setProperty:@"lowPowerSchedulePressed" forKey:@"action"];
+                    [specifiers addObject:lowPowerSchedule];
+
                     for (NSDictionary *tool in @[
                         @{@"title": @"Install Whitelist App", @"action": @"installWhitelistAppPressed"}
                     ]) {
@@ -888,9 +907,19 @@
     [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
 }
 
+- (void)lowPowerSchedulePressed
+{
+    [self.navigationController pushViewController:[DOLowPowerScheduleController new] animated:YES];
+}
+
 - (void)reinstallPackageManagersPressed
 {
     [self.navigationController pushViewController:[[DOPkgManagerPickerViewController alloc] init] animated:YES];
+}
+
+- (void)supporterLicensePressed
+{
+    DORHPresentSupporterLicense(self);
 }
 
 - (void)changeMobilePasswordWithAuthenticationPressed

@@ -79,6 +79,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)deleteBootstrap;
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
+- (NSDictionary *)lowPowerScheduleConfiguration;
+- (NSDictionary *)lowPowerScheduleStatus;
+- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)startMinute
+                         endMinute:(NSInteger)endMinute error:(NSError **)error;
 @end
 
 NS_ASSUME_NONNULL_END

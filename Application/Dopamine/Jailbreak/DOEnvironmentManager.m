@@ -7,6 +7,7 @@
 
 #import "DOEnvironmentManager.h"
 #import "UIImage+JPEG2000.h"
+#import "../../../BaseBin/roothidehooks/src/RCLowPowerSchedule.h"
 
 #import <sys/sysctl.h>
 #import <sys/mount.h>
@@ -28,6 +29,7 @@
 #import "DOPreferenceManager.h"
 #import "NSData+Hex.h"
 #import <LocalAuthentication/LocalAuthentication.h>
+#include <notify.h>
 
 int reboot3(uint64_t flags, ...);
 CFPropertyListRef MGCopyAnswer(CFStringRef);
@@ -863,6 +865,63 @@ extern char **environ;
         }
     }
     return @"sileo";
+}
+
+- (NSDictionary *)lowPowerScheduleConfiguration
+{
+    __block NSDictionary *configuration;
+    [self runUnsandboxed:^{
+        configuration = rcLowPowerReadDictionary(
+            rcLowPowerConfigurationPath(JBROOT_PATH(@"/")));
+    }];
+    return configuration ?: rcLowPowerDefaultConfiguration();
+}
+
+- (NSDictionary *)lowPowerScheduleStatus
+{
+    __block NSDictionary *status;
+    [self runUnsandboxed:^{
+        status = rcLowPowerReadDictionary(
+            rcLowPowerStatusPath(JBROOT_PATH(@"/")));
+    }];
+    return status ?: @{};
+}
+
+- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled
+                        startMinute:(NSInteger)startMinute
+                          endMinute:(NSInteger)endMinute
+                              error:(NSError **)error
+{
+    NSDictionary *configuration = @{
+        @"Version": @1,
+        @"Enabled": @(enabled),
+        @"StartMinute": @(startMinute),
+        @"EndMinute": @(endMinute),
+        @"Revision": NSUUID.UUID.UUIDString
+    };
+    if (!self.isJailbroken || !rcLowPowerConfigurationValid(configuration)) {
+        if (error) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
+                                         code:self.isJailbroken ? EINVAL : EPERM
+                                     userInfo:nil];
+        }
+        return NO;
+    }
+
+    __block BOOL success = NO;
+    __block NSError *writeError = nil;
+    [self runUnsandboxed:^{
+        success = rcLowPowerWriteDictionary(
+            configuration,
+            rcLowPowerConfigurationPath(JBROOT_PATH(@"/")),
+            &writeError);
+    }];
+    if (success) {
+        notify_post(RC_LOW_POWER_CHANGED);
+    } else if (error) {
+        *error = writeError;
+    }
+    return success;
 }
 
 @end

@@ -44,10 +44,11 @@ test('homepage action wiring preserves the baseline except for the removed A8-on
   );
 });
 
-test('glass presentation does not import licensing or the retired Metal overlay', () => {
-  for (const source of [main, navigation, settings, components, material, media, sync, project]) {
+test('glass presentation keeps shared materials and does not use the retired Metal overlay', () => {
+  for (const source of [navigation, material, media, sync, project])
     assert.doesNotMatch(source, /DORHSupporter|DOSupporterLicense|DOCustomGlassRefractionView/);
-  }
+  assert.doesNotMatch(components, /DOCustomGlassRefractionView/);
+  assert.match(settings, /DOCustomGlassThemeDidChangeNotification/);
   assert.match(main, /\[self setupCustomGlassHome\];/);
   assert.match(components, /@implementation DOCustomLiquidGlassView/);
   assert.match(components, /UIVisualEffectView/);
@@ -367,9 +368,15 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
     'd9b1e11b9aaf31b59efa0849e2b8a7014fecfcf9731f1a9d42420fe0886ae84c',
   );
   // Ignore empty-line normalization, not executable source.
-  const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:');
+  const supporterActions = section(
+    settings,
+    '- (void)lowPowerSchedulePressed',
+    '- (void)changeMobilePasswordWithAuthenticationPressed',
+  );
+  const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:')
+    .replace(supporterActions, '');
   assert.equal(fingerprint(actions.replace(/\n{3,}/g, '\n\n')),
-    '5dfccf9e11149a8c176dfe51a39cf9382ffe6f0c71f0f4e81a9aa09bd9c3e3a4');
+    '664c15dd7296acf348d70cd1243bcfa22a1a0e57439bbe6f9f54c786832108ed');
   assert.match(settings, /setProperty:@"shippingbox\.and\.arrow\.backward" forKey:@"image"/);
   assert.doesNotMatch(settings, /isSPTM|majorVersion==15|spinlock fix is/);
   const dyld = settings.slice(settings.indexOf('- (void)setDyldPatchEnabled:'));
@@ -485,12 +492,30 @@ test('credits has an accessible fixed back button and an edge return independent
 test('credits content and license-to-credits return remain intact', () => {
   assert.equal(
     fingerprint(credits.slice(credits.indexOf('- (id)specifiers'))),
-    '98ca746c282da993c08bdaff16d45eca7affb0051f9457b8044f64f32930a781',
+    'a8e0f3c5eee7734881d3a16bbe5f0f1d673ec047861f96c966dc308559122100',
   );
   const license = read(ui + 'Settings/DOLicenseViewController.m');
   assert.match(license, /makeHeader:DOLocalizedString\(@"Credits_Button_License"\) withTarget:self/);
   assert.match(license, /- \(void\)dismiss[\s\S]*?popViewControllerAnimated:YES/);
   assert.match(credits, /pushViewController:\[\[DOLicenseViewController alloc\] init\]/);
+});
+
+test('supporter license entry uses the audited core and reports persistent removal failure', () => {
+  const settings = read(ui + 'Settings/DOSettingsController.m');
+  const licenseUI = read(ui + 'DOSupporterLicenseUI.h');
+  assert.match(settings, /^#import "\.\.\/DOSupporterLicenseUI\.h"$/m);
+  assert.match(settings, /Supporter_Title/);
+  assert.match(settings, /supporterLicensePressed/);
+  assert.match(licenseUI, /if \(!DORHSupporterRemoveLicense\(\)\)/);
+  assert.match(licenseUI, /Supporter_Remove_Failed/);
+  assert.match(licenseUI, /DORHPresentSupporterDiagnostics/);
+  assert.match(read(ui + 'Settings/DOCreditsViewController.m'), /DORHPresentSupporterLicense\(self\)/);
+  assert.match(read(ui + 'Settings/Credits.plist'), /Supporter_Title[\s\S]*?supporterLicensePressed/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
+    const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
+    assert.match(strings, /"Supporter_Title"\s*=/);
+    assert.match(strings, /"Supporter_Remove_Failed_Message"\s*=/);
+  }
 });
 
 test('credits uses shared glass without replacing its content or collection delegates', () => {

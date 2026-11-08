@@ -468,10 +468,11 @@ test('RootHide snapshots preserve stock Apple behavior and the Apple-internal ex
   assert.doesNotMatch(snapshotHook, /isSubPathOf|realpath/);
 });
 
-test('RootHide app hiding and open-request hooks are unchanged by the snapshot backport', () => {
-  const tail = snapshotHook.slice(snapshotHook.indexOf('static const void *kDenyQueryTagKey'));
+test('RootHide app hiding and open-request hooks remain unchanged with the schedule startup isolated', () => {
+  const tail = snapshotHook.slice(snapshotHook.indexOf('static const void *kDenyQueryTagKey'),
+    snapshotHook.indexOf('void sbInit(void)'));
   assert.equal(crypto.createHash('sha256').update(tail.replace(/\r\n/g, '\n')).digest('hex'),
-    'e2feac2cab11673f9db6510e11e93d8ab732685076a3bf0adf8b189fb8d4afe6');
+    '89f9433ec5364d59fc644d0edc519e050ede59124f76239a065e72c2235719c2');
 });
 
 test('RootHide identity and bootstrap migration markers remain intact', () => {

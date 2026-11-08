@@ -2,6 +2,8 @@
 #import "DOCustomGlassMediaStore.h"
 #import "DOGlobalAppearance.h"
 #import "DOUIManager.h"
+#import "DOSupporterLicense.h"
+#import "Settings/DOSettingsController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
@@ -557,6 +559,8 @@ static UIButton *DOCustomGlassBackButton(UIViewController *controller)
 @interface DOCustomGlassThemeSettingsViewController () <PHPickerViewControllerDelegate>
 
 @property UIImageView *customGlassBackgroundImageView;
+@property(nonatomic, assign) BOOL supporterAuthorizationKnown;
+@property(nonatomic, assign) BOOL supporterAuthorizationVerified;
 @property DOCustomWallpaperBlurView *backgroundBlurView;
 @property DOCustomLiquidGlassView *previewGlassView;
 
@@ -579,6 +583,39 @@ static UIButton *DOCustomGlassBackButton(UIViewController *controller)
 @end
 
 @implementation DOCustomGlassThemeSettingsViewController
+
+- (void)supporterLicenseDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    self.supporterAuthorizationKnown = NO;
+}
+
+- (BOOL)requireCustomGlassSupporterAuthorization
+{
+    if (!self.supporterAuthorizationKnown) {
+        self.supporterAuthorizationVerified = DORHSupporterIsVerified();
+        self.supporterAuthorizationKnown = YES;
+    }
+
+    if (self.supporterAuthorizationVerified)
+        return YES;
+
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:DOLocalizedString(@"Supporter_Required_Title")
+                         message:DOLocalizedString(@"Supporter_Required_Message")
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_OK")
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_Manage")
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__kindof UIAlertAction * _Nonnull action) {
+        [self.navigationController pushViewController:[[DOSettingsController alloc] init] animated:YES];
+    }]];
+    if (!self.presentedViewController)
+        [self presentViewController:alert animated:YES completion:nil];
+    return NO;
+}
 
 - (DOCustomLiquidGlassView *)themeGlassViewWithCornerRadius:(CGFloat)cornerRadius tintAlpha:(CGFloat)tintAlpha
 {
@@ -991,6 +1028,9 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)presentCustomGlassBackgroundPicker
 {
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
+
     PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
     configuration.filter = [PHPickerFilter anyFilterMatchingSubfilters:@[
         [PHPickerFilter imagesFilter],
@@ -1010,7 +1050,7 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
     [picker dismissViewControllerAnimated:YES completion:nil];
 
     PHPickerResult *result = results.firstObject;
-    if (!result)
+    if (!result || !DORHSupporterIsVerified())
         return;
 
     NSItemProvider *provider = result.itemProvider;
@@ -1044,6 +1084,11 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
                 return;
             }
 
+            if (!DORHSupporterIsVerified()) {
+                finishWallpaperImport(NO);
+                return;
+            }
+
             BOOL saved = DOCustomGlassMediaStoreSaveWallpaper((UIImage *)object, NULL);
             finishWallpaperImport(saved);
         }];
@@ -1069,6 +1114,11 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
                     return;
                 }
 
+                if (!DORHSupporterIsVerified()) {
+                    finishWallpaperImport(NO);
+                    return;
+                }
+
                 BOOL saved = DOCustomGlassMediaStoreSaveWallpaperVideo(videoURL, poster, NULL);
                 if (!saved)
                     NSLog(@"[CustomGlass][LivePhoto] MediaStore commit failed");
@@ -1088,6 +1138,11 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
             // PHPicker's representation URL is temporary. Generate the poster
             // and copy the movie into MediaStore before this callback returns.
+            if (!DORHSupporterIsVerified()) {
+                finishWallpaperImport(NO);
+                return;
+            }
+
             UIImage *poster = DOCustomGlassCreateVideoPosterImage(fileURL);
             BOOL saved = poster ?
                 DOCustomGlassMediaStoreSaveWallpaperVideo(fileURL, poster, NULL) : NO;
@@ -1126,6 +1181,11 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(supporterLicenseDidChange:)
+                                                 name:DORHSupporterLicenseDidChangeNotification
+                                               object:nil];
 
     self.title = @"主题设置";
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
@@ -1486,6 +1546,8 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
+    self.supporterAuthorizationVerified = DORHSupporterIsVerified();
+    self.supporterAuthorizationKnown = YES;
     [self refreshThemePageFromPersistedState];
 
     // One deferred local-material pass is enough after the transition attaches
@@ -1505,6 +1567,11 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)glassAppearanceChanged:(UISegmentedControl *)control
 {
+    if (![self requireCustomGlassSupporterAuthorization]) {
+        [self syncAppearanceControlsFromDefaults];
+        return;
+    }
+
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSString *appearance = control.selectedSegmentIndex == 1 ?
         DOCustomGlassAppearanceDark : DOCustomGlassAppearanceLight;
@@ -1521,17 +1588,32 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)appearanceSliderChanged:(UISlider *)slider
 {
+    if (![self requireCustomGlassSupporterAuthorization]) {
+        [self syncAppearanceControlsFromDefaults];
+        return;
+    }
+
     [self applyAppearancePreviewAndPersist:YES];
 }
 
 - (void)wallpaperPlaybackRateChanged:(UISegmentedControl *)control
 {
+    if (![self requireCustomGlassSupporterAuthorization]) {
+        [self syncAppearanceControlsFromDefaults];
+        return;
+    }
+
     CGFloat playbackRate = DOCustomGlassPlaybackRateForSegmentIndex(control.selectedSegmentIndex);
     [self.navigationController customGlassSetWallpaperPlaybackRate:playbackRate];
 }
 
 - (void)applyAppearancePreviewAndPersist:(BOOL)persist
 {
+    if (persist && ![self requireCustomGlassSupporterAuthorization]) {
+        [self syncAppearanceControlsFromDefaults];
+        return;
+    }
+
     CGFloat backgroundBlur = self.backgroundBlurSlider.value;
     CGFloat glassBlur = self.glassBlurSlider.value;
     CGFloat transparency = self.glassTransparencySlider.value;
@@ -1568,6 +1650,9 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)restoreRecommendedAppearanceValues
 {
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
+
     self.glassAppearanceControl.selectedSegmentIndex = 0;
     self.backgroundBlurSlider.value = 0.10;
     self.glassBlurSlider.value = 0.85;
@@ -1596,6 +1681,9 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:DORHSupporterLicenseDidChangeNotification
+                                                  object:nil];
 }
 
 @end

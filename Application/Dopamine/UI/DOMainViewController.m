@@ -16,6 +16,8 @@
 #import "DOCustomGlassView.h"
 #import "DOCustomGlassMediaStore.h"
 #import "DONavigationController.h"
+#import "DOSupporterLicense.h"
+#import "Settings/DOSettingsController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <math.h>
 #import <pthread.h>
@@ -62,6 +64,27 @@
 @end
 
 @implementation DOMainViewController
+
+- (BOOL)requireCustomGlassSupporterAuthorization
+{
+    if (DORHSupporterIsVerified())
+        return YES;
+
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:DOLocalizedString(@"Supporter_Required_Title")
+                         message:DOLocalizedString(@"Supporter_Required_Message")
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_OK")
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_Manage")
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__kindof UIAlertAction * _Nonnull action) {
+        [self.navigationController pushViewController:[[DOSettingsController alloc] init] animated:YES];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+    return NO;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -128,7 +151,7 @@
     [picker dismissViewControllerAnimated:YES completion:nil];
 
     PHPickerResult *result = results.firstObject;
-    if (!result)
+    if (!result || !DORHSupporterIsVerified())
         return;
 
     NSItemProvider *provider = result.itemProvider;
@@ -142,6 +165,11 @@
             return;
 
         UIImage *image = (UIImage *)object;
+        if (!DORHSupporterIsVerified()) {
+            weakSelf.customGlassUsernameEditor = nil;
+            return;
+        }
+
         UIImage *persistedAvatar = nil;
         BOOL saved = DOCustomGlassMediaStoreSaveAvatar(image, &persistedAvatar);
 
@@ -161,6 +189,9 @@
 
 - (void)presentCustomGlassUsernameEditor
 {
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
+
     NSString *currentUsername = [NSUserDefaults.standardUserDefaults stringForKey:DOCustomGlassUsernameKey] ?: @"";
 
     UIAlertController *alert =
@@ -190,6 +221,11 @@
         if (username.length > DOCustomGlassUsernameCharacterLimit)
             username = [username substringToIndex:DOCustomGlassUsernameCharacterLimit];
 
+        if (!DORHSupporterIsVerified()) {
+            weakSelf.customGlassUsernameEditor = nil;
+            return;
+        }
+
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
         [defaults setObject:username forKey:DOCustomGlassUsernameKey];
         weakSelf.customGlassUsernameLabel.text = username.length > 0 ? username : @"RootHide User";
@@ -216,6 +252,9 @@
 
 - (void)presentCustomGlassMottoEditor
 {
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
+
     NSString *currentMotto = [NSUserDefaults.standardUserDefaults stringForKey:DOCustomGlassMottoKey] ?: @"";
 
     UIAlertController *alert =
@@ -244,6 +283,11 @@
         NSString *motto = alert.textFields.firstObject.text ?: @"";
         if (motto.length > DOCustomGlassMottoCharacterLimit)
             motto = [motto substringToIndex:DOCustomGlassMottoCharacterLimit];
+
+        if (!DORHSupporterIsVerified()) {
+            weakSelf.customGlassMottoEditor = nil;
+            return;
+        }
 
         [[NSUserDefaults standardUserDefaults] setObject:motto forKey:DOCustomGlassMottoKey];
         weakSelf.customGlassMottoLabel.text = motto.length > 0 ? motto : @"motto";
@@ -545,6 +589,9 @@
                                         persist:YES];
         return;
     }
+
+    if (![self requireCustomGlassSupporterAuthorization])
+        return;
 
     [self presentCustomGlassAvatarPicker];
 }
@@ -958,6 +1005,8 @@
     [leftColumn addArrangedSubview:creditsCard];
 
     UIAction *themeAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+        if (![self requireCustomGlassSupporterAuthorization])
+            return;
 
         DOCustomGlassThemeSettingsViewController *themeSettingsController =
             [[DOCustomGlassThemeSettingsViewController alloc] init];
