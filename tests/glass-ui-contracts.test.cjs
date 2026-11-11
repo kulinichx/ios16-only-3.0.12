@@ -376,7 +376,7 @@ test('native Foundation media transactions preserve old files on write failure a
     const theme = sync.replace(
       /static NSString \* const DOCustomGlassThemeSyncDirectory =\s*@"[^"]+";/,
       'static NSString *DOCustomGlassThemeSyncDirectory;',
-    ).replaceAll('NSUserDefaults', 'TestDefaults');
+    ).replace(/\bNSUserDefaults\b/g, 'TestDefaults').replace(/^#pragma once$/gm, '');
     const store = (media.slice(0, media.indexOf('static inline id DOCustomGlassMediaStoreCallObjectGetter')) +
       `static inline NSURL *DOCustomGlassMediaStoreDirectoryURL(void) {
         NSURL *url = [NSURL fileURLWithPath:[testRoot stringByAppendingPathComponent:@"media"]];
@@ -385,17 +385,17 @@ test('native Foundation media transactions preserve old files on write failure a
       }\n` + media.slice(media.indexOf('static inline BOOL DOCustomGlassMediaStoreIsSafeFilename')))
       .replace('#import <UIKit/UIKit.h>', '')
       .replace('#import "DOCustomGlassThemeSync.h"', '')
-      .replaceAll('NSUserDefaults', 'TestDefaults');
+      .replace(/\bNSUserDefaults\b/g, 'TestDefaults').replace(/^#pragma once$/gm, '');
     const source = `#import <Foundation/Foundation.h>
 static NSString *testRoot;
 static NSString *suite;
 @interface TestDefaults : NSUserDefaults
 @end
 @implementation TestDefaults
-+ (NSUserDefaults *)standardUserDefaults {
-  static NSUserDefaults *defaults; static dispatch_once_t once;
++ (TestDefaults *)standardUserDefaults {
+  static TestDefaults *defaults; static dispatch_once_t once;
   dispatch_once(&once, ^{ suite = [@"rh-media-test-" stringByAppendingString:NSUUID.UUID.UUIDString];
-    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite]; });
+    defaults = [[TestDefaults alloc] initWithSuiteName:suite]; });
   return defaults;
 }
 @end
