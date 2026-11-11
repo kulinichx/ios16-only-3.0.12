@@ -172,3 +172,21 @@ compilation. The new removal test incorrectly switched directly from a saved
 child to its parent between independent scenarios; the protection correctly
 rejected it. The fixture now asserts that rejection and clears its temporary
 list before starting the next scenario. No production protection was relaxed.
+
+## Final native validation
+
+Recorded 2026-11-12, America/Denver (client date).
+
+- Built commit: `b5cd3398cf77cf74b5800d920ac2f9010d80db81` on `rc9-ios16-next`.
+- Linux source run `43062221404`: 122 total, 116 passed, 0 failed,
+  6 macOS-only skips. Includes extracted C respring/signaling fault cases.
+- macOS build run `43062365812`: success, build job 8 minutes 15 seconds.
+- macOS native tests: 122 total, 122 passed, 0 failed, 0 skipped.
+- Actual app compilation, Verify TIPA, resource checks and artifact upload passed.
+- Package: `Dopamine-rh-rc9-b5cd339.tipa`.
+- Artifact: `RootHide_iOS16_TIPA`, ID `13873949078`.
+- No new package was downloaded locally by this repair pass.
+
+This verifies compilation and the bounded fault-injection scenarios, not real
+bindfs behavior, UIKit device error presentation, or physical Secure Enclave
+binding. Old RH1 policy and the existing issuer data remain unchanged.
