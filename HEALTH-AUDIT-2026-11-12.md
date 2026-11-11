@@ -166,3 +166,9 @@ or deleted; no broad cleanup or device migration is performed.
 Local verification after repairs: 122 tests, 113 passed, 0 failed, 9 Windows
 platform skips. The added Foundation test requires a native macOS run before
 its result can be claimed. Native compilation/build results remain pending.
+
+First macOS run `43061739569` passed 121/122 tests and stopped before app
+compilation. The new removal test incorrectly switched directly from a saved
+child to its parent between independent scenarios; the protection correctly
+rejected it. The fixture now asserts that rejection and clears its temporary
+list before starting the next scenario. No production protection was relaxed.

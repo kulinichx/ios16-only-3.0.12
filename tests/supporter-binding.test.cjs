@@ -357,6 +357,8 @@ int main(int argc, char **argv) { @autoreleasepool {
   CHECK(![env saveCustomMountPaths:@[parent, child]]);
   CHECK([env saveCustomMountPaths:@[child]]);
   CHECK(![env saveCustomMountPaths:@[child, parent]]);
+  CHECK(![env saveCustomMountPaths:@[parent]]);
+  CHECK([env saveCustomMountPaths:@[]]);
   NSString *font = makeCopy(parent);
   CHECK([env saveCustomMountPaths:@[parent]]);
   env.failSave = YES;
