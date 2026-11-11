@@ -962,6 +962,12 @@
             [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_AlreadyExists")];
             return;
         }
+        NSString *conflict = [environment conflictingCustomMountPathForPath:path];
+        if (conflict) {
+            [self presentCustomMountMessage:
+                [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Overlap"), conflict]];
+            return;
+        }
 
         // Match ZQBB's save-before-mount order; a save failure owns no copy to delete.
         NSArray<NSString *> *updatedPaths = [existingPaths arrayByAddingObject:path];
@@ -1038,6 +1044,12 @@
             [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Forget")
                                                         style:UIAlertActionStyleDestructive
                                                       handler:^(__unused UIAlertAction *forgetAction) {
+                NSString *blocker = [environment customMountRemovalBlockerForPath:path];
+                if (blocker) {
+                    [self presentCustomMountMessage:
+                        [NSString stringWithFormat:DOLocalizedString(@"CustomMount_RemoveParentFirst"), blocker]];
+                    return;
+                }
                 NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
                 [updatedPaths removeObject:path];
                 if (![environment saveCustomMountPaths:updatedPaths]) {
@@ -1049,6 +1061,12 @@
             [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Unmount")
                                                         style:UIAlertActionStyleDestructive
                                                       handler:^(__unused UIAlertAction *confirmAction) {
+                NSString *blocker = [environment customMountRemovalBlockerForPath:path];
+                if (blocker) {
+                    [self presentCustomMountMessage:
+                        [NSString stringWithFormat:DOLocalizedString(@"CustomMount_RemoveParentFirst"), blocker]];
+                    return;
+                }
                 self.customMountBusy = YES;
                 [environment unmountCustomDirectory:path completion:^(int result) {
                     self.customMountBusy = NO;
@@ -1057,17 +1075,20 @@
                             [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
                         return;
                     }
-                    if (![environment removeCustomMountCopyAtPath:path]) {
-                        [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_CleanupFailed")];
-                        return;
-                    }
-                    NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
-                    [updatedPaths removeObject:path];
-                    if (![environment saveCustomMountPaths:updatedPaths]) {
-                        [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_UnmountedSaveFailed")];
-                        return;
-                    }
+                    DOCustomMountRemovalResult removal = [environment finishCustomMountRemovalAtPath:path];
                     [self reloadSpecifiers];
+                    NSString *messageKey = nil;
+                    if (removal == DOCustomMountRemovalSaveFailed)
+                        messageKey = @"CustomMount_UnmountedSaveFailed";
+                    else if (removal == DOCustomMountRemovalCopyPreserved)
+                        messageKey = @"CustomMount_SharedCopyPreserved";
+                    else if (removal == DOCustomMountRemovalCleanupFailed)
+                        messageKey = @"CustomMount_CleanupFailed";
+                    if (messageKey) {
+                        NSString *message = [NSString stringWithFormat:@"%@\n%@",
+                            DOLocalizedString(messageKey), targetMountPath];
+                        [self presentCustomMountMessage:message];
+                    }
                 }];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];

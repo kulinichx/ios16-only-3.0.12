@@ -23,6 +23,7 @@
 #import <libjailbreak/display.h>
 #import <libjailbreak/machine_info.h>
 #import <libjailbreak/carboncopy.h>
+#import <libjailbreak/custom_mount.h>
 
 #import <IOKit/IOKitLib.h>
 #import "DOUIManager.h"
@@ -878,6 +879,9 @@ extern char **environ;
     __block BOOL saved = NO;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
+            NSArray *previous = self.customMountPaths;
+            if (DOCustomMountIntroducesOverlap(paths, previous) ||
+                DOCustomMountDropsChildBeforeParent(paths, previous)) return;
             NSString *mountRoot = JBROOT_PATH(@"/mnt");
             NSError *error = nil;
             if (![[NSFileManager defaultManager] createDirectoryAtPath:mountRoot
@@ -895,6 +899,16 @@ extern char **environ;
         }];
     }];
     return saved;
+}
+
+- (NSString *)conflictingCustomMountPathForPath:(NSString *)path
+{
+    return DOCustomMountConflictingPath(path, self.customMountPaths);
+}
+
+- (NSString *)customMountRemovalBlockerForPath:(NSString *)path
+{
+    return DOCustomMountRetainedAncestor(path, self.customMountPaths);
 }
 
 - (int)mountCustomDirectory:(NSString *)path
@@ -979,6 +993,9 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             NSFileManager *manager = [NSFileManager defaultManager];
+            NSArray *retainedPaths = self.customMountPaths;
+            if ([retainedPaths containsObject:path] ||
+                DOCustomMountConflictingPath(path, retainedPaths)) return;
             if (![manager fileExistsAtPath:copyPath]) {
                 removed = YES;
                 return;
@@ -988,6 +1005,20 @@ extern char **environ;
         }];
     }];
     return removed;
+}
+
+- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:(NSString *)path
+{
+    NSMutableArray *updatedPaths = [self.customMountPaths mutableCopy];
+    [updatedPaths removeObject:path];
+    if (![self saveCustomMountPaths:updatedPaths])
+        return DOCustomMountRemovalSaveFailed;
+    // Saving first prevents reboot restoration from recreating a deleted copy.
+    if ([self conflictingCustomMountPathForPath:path])
+        return DOCustomMountRemovalCopyPreserved;
+    if (![self removeCustomMountCopyAtPath:path])
+        return DOCustomMountRemovalCleanupFailed;
+    return DOCustomMountRemovalCompleted;
 }
 
 // 根据注入配置是否存在返回模式简称，供系统版本后的括号显示。

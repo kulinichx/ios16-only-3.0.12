@@ -61,6 +61,7 @@ uint64_t vm_page_for_pai(uint64_t pai);
 uint64_t vm_page_for_pa(uint64_t pa);
 
 void killall(const char *executablePath, int signal);
+int killall_with_result(const char *executablePath, int signal);
 int libarchive_unarchive(const char *fileToExtract, const char *extractionPath);
 
 void thread_caffeinate_start(void);

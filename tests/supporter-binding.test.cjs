@@ -244,6 +244,7 @@ test('native Foundation executes the production mount-copy routine without mount
 #import <stdlib.h>
 #import <errno.h>
 #import <string.h>
+${read('BaseBin/libjailbreak/src/custom_mount.h')}
 static NSString *root;
 #define JBROOT_PATH(p) [root stringByAppendingString:p]
 ${body(read('BaseBin/jbctl/src/internal.m'), 'prepare_mount_copy')}
@@ -265,6 +266,22 @@ int main(int argc, char **argv) { @autoreleasepool {
   if (prepare_mount_copy(src.fileSystemRepresentation) != 0) return 4;
   if (![[NSString stringWithContentsOfFile:[copy stringByAppendingPathComponent:@"font"] encoding:NSUTF8StringEncoding error:nil] isEqual:@"edited"]) return 5;
   if ([fm contentsOfDirectoryAtPath:JBROOT_PATH(@"/var/tmp") error:nil].count != 0) return 6;
+  NSString *child = [src stringByAppendingPathComponent:@"child"];
+  [fm createDirectoryAtPath:child withIntermediateDirectories:YES attributes:nil error:nil];
+  [@"source-child" writeToFile:[child stringByAppendingPathComponent:@"font"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  NSString *childCopy = [copy stringByAppendingPathComponent:@"child"];
+  [fm createDirectoryAtPath:childCopy withIntermediateDirectories:YES attributes:nil error:nil];
+  NSString *custom = [childCopy stringByAppendingPathComponent:@"font"];
+  [@"custom-child" writeToFile:custom atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  if (![@{@"path": @[child, src]} writeToFile:JBROOT_PATH(@"/mnt/newFakePath.plist") atomically:YES]) return 7;
+  if (prepare_mount_copy(src.fileSystemRepresentation) != EBUSY) return 8;
+  if (![[NSString stringWithContentsOfFile:custom encoding:NSUTF8StringEncoding error:nil] isEqual:@"custom-child"]) return 9;
+  if (prepare_mount_copy(child.fileSystemRepresentation) != 0) return 10;
+  if (DOCustomMountIntroducesOverlap(@[src, child], @[src]) != YES ||
+      DOCustomMountIntroducesOverlap(@[child, src], @[child]) != YES ||
+      DOCustomMountIntroducesOverlap(@[child], @[src, child]) != NO ||
+      DOCustomMountIntroducesOverlap(@[src, child], @[src, child]) != NO ||
+      DOCustomMountPathsOverlap(src, [src stringByAppendingString:@"_tmp"]) != NO) return 11;
   return 0;
 } }
 `;
@@ -274,4 +291,114 @@ int main(int argc, char **argv) { @autoreleasepool {
     execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
     execFileSync(binary, [directory]);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('mount removal persists the list before cleanup and guards both shared-tree directions', () => {
+  const manager = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
+  const finish = manager.slice(manager.indexOf('- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:'),
+    manager.indexOf('// 根据注入配置'));
+  assert.ok(finish.indexOf('saveCustomMountPaths:updatedPaths') < finish.indexOf('removeCustomMountCopyAtPath:path'));
+  assert.match(finish, /if \(!\[self saveCustomMountPaths:updatedPaths\]\)\s*return DOCustomMountRemovalSaveFailed/);
+  assert.match(finish, /conflictingCustomMountPathForPath:path/);
+  const remove = manager.slice(manager.indexOf('- (BOOL)removeCustomMountCopyAtPath:'),
+    manager.indexOf('- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:'));
+  assert.ok(remove.indexOf('DOCustomMountConflictingPath(path, retainedPaths)') < remove.indexOf('removeItemAtPath:copyPath'));
+  const prepare = body(read('BaseBin/jbctl/src/internal.m'), 'prepare_mount_copy');
+  assert.ok(prepare.indexOf('DOCustomMountHasSavedDescendant(path, paths)') < prepare.indexOf('contents.count > 0'));
+  assert.match(manager, /DOCustomMountIntroducesOverlap\(paths, previous\)/);
+  assert.match(manager, /DOCustomMountDropsChildBeforeParent\(paths, previous\)/);
+  const settings = read('Application/Dopamine/UI/Settings/DOSettingsController.m');
+  assert.match(settings, /conflictingCustomMountPathForPath:path/);
+  assert.match(settings, /finishCustomMountRemovalAtPath:path/);
+});
+
+test('native Foundation mount removal preserves copies on save failure and keeps legacy overlapping entries editable', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; no mounts or privilege changes are performed.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-mount-removal-'));
+  try {
+    const manager = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
+    const method = (start, end) => manager.slice(manager.indexOf(start), manager.indexOf(end));
+    const source = `#import <Foundation/Foundation.h>
+${read('BaseBin/libjailbreak/src/custom_mount.h')}
+static NSString *root;
+#define JBROOT_PATH(p) [root stringByAppendingString:p]
+typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
+  DOCustomMountRemovalCompleted, DOCustomMountRemovalSaveFailed,
+  DOCustomMountRemovalCopyPreserved, DOCustomMountRemovalCleanupFailed
+};
+@interface TestEnvironment : NSObject
+@property BOOL failSave, failCleanup;
+@property NSUInteger cleanupCalls;
+@end
+@implementation TestEnvironment
+- (void)runAsRoot:(void (^)(void))block { block(); }
+- (void)runUnsandboxed:(void (^)(void))block { block(); }
+- (NSString *)customMountListPath { return JBROOT_PATH(@"/mnt/newFakePath.plist"); }
+- (NSArray *)customMountPaths { return [NSDictionary dictionaryWithContentsOfFile:self.customMountListPath][@"path"] ?: @[]; }
+${method('- (BOOL)saveCustomMountPaths:', '- (int)mountCustomDirectory:').replace(
+  'if (![paths isKindOfClass:NSArray.class])', 'if (self.failSave || ![paths isKindOfClass:NSArray.class])')}
+${method('- (BOOL)removeCustomMountCopyAtPath:', '// 根据注入配置').replace(
+  'NSString *mountRoot =', 'self.cleanupCalls++; if (self.failCleanup) return NO;\n    NSString *mountRoot =')}
+@end
+#define CHECK(...) do { if (!(__VA_ARGS__)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+static NSString *makeCopy(NSString *path) {
+  NSString *copy = [JBROOT_PATH(@"/mnt") stringByAppendingString:path];
+  [NSFileManager.defaultManager createDirectoryAtPath:copy withIntermediateDirectories:YES attributes:nil error:nil];
+  NSString *font = [copy stringByAppendingPathComponent:@"user-font"];
+  [@"custom" writeToFile:font atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  return font;
+}
+int main(int argc, char **argv) { @autoreleasepool {
+  root = [NSString stringWithUTF8String:argv[1]];
+  TestEnvironment *env = [TestEnvironment new];
+  NSString *parent = @"/System/Library/Fonts", *child = @"/System/Library/Fonts/Cache";
+  CHECK([env saveCustomMountPaths:@[parent]]);
+  CHECK(![env saveCustomMountPaths:@[parent, child]]);
+  CHECK([env saveCustomMountPaths:@[child]]);
+  CHECK(![env saveCustomMountPaths:@[child, parent]]);
+  NSString *font = makeCopy(parent);
+  CHECK([env saveCustomMountPaths:@[parent]]);
+  env.failSave = YES;
+  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalSaveFailed);
+  CHECK(env.cleanupCalls == 0 && [env.customMountPaths containsObject:parent]);
+  CHECK([NSFileManager.defaultManager fileExistsAtPath:font]);
+  env.failSave = NO;
+  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCompleted);
+  CHECK(env.customMountPaths.count == 0 && ![NSFileManager.defaultManager fileExistsAtPath:font]);
+  // Simulate an old on-disk overlapping list, in both insertion orders.
+  for (NSArray *legacy in @[@[child, parent], @[parent, child]]) {
+    CHECK([@{@"path": legacy} writeToFile:env.customMountListPath atomically:YES]);
+    NSString *childFont = makeCopy(child);
+    CHECK(![env removeCustomMountCopyAtPath:parent]);
+    CHECK([env saveCustomMountPaths:legacy]);
+    CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCopyPreserved);
+    CHECK([env.customMountPaths isEqual:@[child]] && [NSFileManager.defaultManager fileExistsAtPath:childFont]);
+    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalCompleted);
+    CHECK([@{@"path": legacy} writeToFile:env.customMountListPath atomically:YES]);
+    childFont = makeCopy(child);
+    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalSaveFailed);
+    CHECK([env.customMountPaths isEqual:legacy] && [NSFileManager.defaultManager fileExistsAtPath:childFont]);
+    CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCopyPreserved);
+    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalCompleted);
+  }
+  font = makeCopy(parent);
+  CHECK([env saveCustomMountPaths:@[parent]]);
+  env.failCleanup = YES;
+  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCleanupFailed);
+  CHECK(env.customMountPaths.count == 0 && [NSFileManager.defaultManager fileExistsAtPath:font]);
+  env.failCleanup = NO;
+  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCompleted);
+  CHECK(![NSFileManager.defaultManager fileExistsAtPath:font]);
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'removal.m');
+    const binary = path.join(directory, 'removal-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    execFileSync(binary, [directory]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

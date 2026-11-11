@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
 	else if (!strcmp(cmd, "respring")) {
 		const char *sbreloadPath = JBROOT_PATH("/usr/bin/sbreload");
 		if (execve(sbreloadPath, (char *[]){ (char *)sbreloadPath, NULL }, environ) != 0) {
-			killall("/usr/libexec/backboardd", SIGTERM);
+			return killall_with_result("/usr/libexec/backboardd", SIGTERM);
 		}
 	}
 	else if (!strcmp(cmd, "rebuild_icon_cache")) {

@@ -1,6 +1,7 @@
 #import "internal.h"
 #import <Foundation/Foundation.h>
 #import <libjailbreak/libjailbreak.h>
+#import <libjailbreak/custom_mount.h>
 #import <sys/mount.h>
 #import <sys/stat.h>
 #import <string.h>
@@ -62,6 +63,10 @@ static bool fake_path_is_mounted(const char *path)
 static int prepare_mount_copy(const char *rawPath)
 {
 	NSString *path = [NSString stringWithUTF8String:rawPath];
+	NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:JBROOT_PATH(@"/mnt/newFakePath.plist")];
+	NSArray *paths = [configuration[@"path"] isKindOfClass:NSArray.class] ? configuration[@"path"] : @[];
+	// A child's intermediate directories are not a complete parent copy.
+	if (DOCustomMountHasSavedDescendant(path, paths)) return EBUSY;
 	NSString *mountPath = [JBROOT_PATH(@"/mnt") stringByAppendingString:path];
 	NSFileManager *manager = [NSFileManager defaultManager];
 	BOOL isDirectory = NO;

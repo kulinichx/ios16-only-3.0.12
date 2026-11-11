@@ -950,9 +950,9 @@ uint64_t vm_page_for_pa(uint64_t pa)
 	return vm_page_for_pnum(atop(pa));
 }
 
-void killall(const char *executablePath, int signal)
+int killall_with_result(const char *executablePath, int signal)
 {
-	if (!executablePath || !*executablePath) return;
+	if (!executablePath || !*executablePath) return EINVAL;
 	int maxArgumentSize = 0;
 	size_t argumentSizeLength = sizeof(maxArgumentSize);
 	if (sysctl((int[]){ CTL_KERN, KERN_ARGMAX }, 2, &maxArgumentSize, &argumentSizeLength, NULL, 0) != 0 ||
@@ -962,21 +962,28 @@ void killall(const char *executablePath, int signal)
 
 	int mib[3] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
 	size_t length = 0;
-	if (sysctl(mib, 3, NULL, &length, NULL, 0) < 0 || length == 0) return;
+	if (sysctl(mib, 3, NULL, &length, NULL, 0) < 0) return errno ? errno : EIO;
+	if (length == 0) return ESRCH;
 	size_t infoCapacity = length;
 	struct kinfo_proc *info = malloc(infoCapacity);
-	if (!info) return;
-	if (sysctl(mib, 3, info, &length, NULL, 0) < 0 || length > infoCapacity) {
+	if (!info) return ENOMEM;
+	if (sysctl(mib, 3, info, &length, NULL, 0) < 0) {
+		int error = errno ? errno : EIO;
 		free(info);
-		return;
+		return error;
+	}
+	if (length > infoCapacity) {
+		free(info);
+		return EIO;
 	}
 
 	// KERN_PROCARGS2 needs argument capacity, not the process-list length.
 	char *buffer = malloc((size_t)maxArgumentSize);
 	if (!buffer) {
 		free(info);
-		return;
+		return ENOMEM;
 	}
+	int result = ESRCH;
 	for (size_t i = 0; i < length / sizeof(*info); i++) {
 		pid_t pid = info[i].kp_proc.p_pid;
 		if (pid <= 0) continue;
@@ -985,11 +992,20 @@ void killall(const char *executablePath, int signal)
 			size <= sizeof(int) || size > (size_t)maxArgumentSize) continue;
 		char *path = buffer + sizeof(int);
 		if (memchr(path, '\0', size - sizeof(int)) && strcmp(path, executablePath) == 0) {
-			kill(pid, signal);
+			if (kill(pid, signal) == 0)
+				result = 0;
+			else if (result != 0)
+				result = errno ? errno : EIO;
 		}
 	}
 	free(buffer);
 	free(info);
+	return result;
+}
+
+void killall(const char *executablePath, int signal)
+{
+	(void)killall_with_result(executablePath, signal);
 }
 
 static int

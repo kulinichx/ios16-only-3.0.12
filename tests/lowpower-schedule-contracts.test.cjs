@@ -131,6 +131,9 @@ test('custom mount controls have complete English and Simplified Chinese copy', 
     'CustomMount_CleanupFailed',
     'CustomMount_SaveFailed',
     'CustomMount_UnmountedSaveFailed',
+    'CustomMount_Overlap',
+    'CustomMount_RemoveParentFirst',
+    'CustomMount_SharedCopyPreserved',
   ];
   for (const locale of ['en', 'zh-CN', 'zh-Hans']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);

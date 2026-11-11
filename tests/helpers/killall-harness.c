@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <errno.h>
 
 enum { CTL_KERN = 1, KERN_ARGMAX, KERN_PROC, KERN_PROC_ALL, KERN_PROCARGS2 };
 struct kinfo_proc { struct { pid_t p_pid; } kp_proc; };
@@ -20,6 +21,7 @@ static struct {
     int failAllocation, allocationAttempts, allocationCount, freeCount;
     struct allocation allocations[4];
     int argmaxReads, listQueries, argumentReads, kills, killResult;
+    int failKillIndex;
     pid_t killed[16];
     int signals[16];
 } state;
@@ -145,7 +147,8 @@ static int mock_kill(pid_t pid, int signal)
     assert(pid > 0 && state.kills < 16);
     state.killed[state.kills] = pid;
     state.signals[state.kills++] = signal;
-    return state.killResult;
+    errno = EPERM;
+    return state.failKillIndex == state.kills ? -1 : state.killResult;
 }
 
 #define malloc mock_malloc
@@ -157,6 +160,19 @@ static int mock_kill(pid_t pid, int signal)
 #undef free
 #undef sysctl
 #undef kill
+
+static int mock_execve(const char *path, char *const argv[], char *const env[])
+{
+    assert(strcmp(path, "/usr/bin/sbreload") == 0 && argv[0] == path && !argv[1] && !env);
+    errno = ENOENT;
+    return -1;
+}
+#define JBROOT_PATH(p) p
+#define SIGTERM 15
+#define execve mock_execve
+static char **environ;
+#include "respring-under-test.inc"
+#undef execve
 
 static void ordinary_paths(void)
 {
@@ -255,12 +271,61 @@ static void failure_cleanup(void)
     }
 }
 
+static void result_propagation(void)
+{
+    reset();
+    assert(killall_with_result(NULL, 15) == EINVAL);
+    assert(killall_with_result("", 15) == EINVAL);
+    assert(respring_under_test() == ESRCH);
+    assert_clean();
+
+    reset();
+    add(701, "/usr/libexec/backboardd", NORMAL);
+    state.killResult = -1;
+    assert(respring_under_test() == EPERM);
+    assert_clean();
+
+    reset();
+    add(701, "/usr/libexec/backboardd", NORMAL);
+    assert(respring_under_test() == 0);
+    assert_clean();
+
+    reset();
+    add(701, "/usr/libexec/backboardd", NORMAL);
+    add(702, "/usr/libexec/backboardd", NORMAL);
+    state.failKillIndex = 1;
+    assert(killall_with_result("/usr/libexec/backboardd", 15) == 0);
+    assert(state.kills == 2);
+    assert_clean();
+
+    reset();
+    add(701, "/usr/libexec/backboardd", NORMAL);
+    add(702, "/usr/libexec/backboardd", NORMAL);
+    state.failKillIndex = 2;
+    assert(killall_with_result("/usr/libexec/backboardd", 15) == 0);
+    assert(state.kills == 2);
+    assert_clean();
+
+    for (int scenario = 0; scenario < 4; scenario++) {
+        reset();
+        add(701, "/usr/libexec/backboardd", NORMAL);
+        if (scenario == 0) state.queryFails = true;
+        if (scenario == 1) state.listFails = true;
+        if (scenario == 2) state.listOversized = true;
+        if (scenario == 3) state.failAllocation = 2;
+        errno = EIO;
+        assert(respring_under_test() != 0);
+        assert_clean();
+    }
+}
+
 int main(void)
 {
     ordinary_paths();
     malformed_replies();
     invalid_capacity();
     failure_cleanup();
+    result_propagation();
     puts("killall capacity, path matching and cleanup C cases passed");
     return 0;
 }

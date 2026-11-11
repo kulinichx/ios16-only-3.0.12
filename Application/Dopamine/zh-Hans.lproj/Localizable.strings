@@ -232,9 +232,12 @@
 "CustomMount_View" = "在文件管理器中查看";
 "CustomMount_Forget" = "仅从列表移除";
 "CustomMount_ViewUnavailable" = "未找到可以打开此路径的文件管理器。";
-"CustomMount_CleanupFailed" = "挂载已卸载，但挂载副本未能删除。该路径仍保留在列表中以便恢复处理。";
+"CustomMount_CleanupFailed" = "目录已卸载并从列表移除，但副本未能删除。残留副本位于：";
 "CustomMount_SaveFailed" = "无法更新已保存的挂载列表。";
 "CustomMount_ListRestoreFailed" = "无法恢复原挂载列表，该条目仍已保存，请在管理挂载中检查。原有副本已保留。";
-"CustomMount_UnmountedSaveFailed" = "目录已卸载，但挂载列表更新失败；下次越狱时可能会再次挂载。";
+"CustomMount_UnmountedSaveFailed" = "目录已卸载，但挂载列表更新失败。副本已保留，可以重新尝试；下次越狱时可能会再次挂载。副本位置：";
+"CustomMount_Overlap" = "此目录与已保存的挂载 %@ 存在父子关系。为保护文件，同一目录树请保留一个挂载。";
+"CustomMount_RemoveParentFirst" = "请先移除存在冲突的父目录挂载 %@，避免移除子条目后，下次越狱恢复不完整的父目录副本。";
+"CustomMount_SharedCopyPreserved" = "目录已卸载并从列表移除。另一个挂载仍使用同一目录树，因此保留共享副本。副本位置：";
 "Maintenance_Failed" = "系统操作失败（错误 %d），可以重新尝试。";
 "CustomMount_Working" = "正在处理挂载";

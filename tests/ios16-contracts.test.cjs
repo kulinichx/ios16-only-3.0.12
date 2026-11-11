@@ -133,7 +133,7 @@ test('ZQBB custom mounts are user-managed, validated and restored without the ex
   assert.match(settings, /unmountCustomDirectory:/);
   assert.match(settings, /CustomMount_View/);
   assert.match(settings, /CustomMount_Forget/);
-  assert.match(settings, /removeCustomMountCopyAtPath:/);
+  assert.match(settings, /finishCustomMountRemovalAtPath:/);
   assert.match(managerHeader, /saveCustomMountPaths:/);
   assert.match(managerHeader, /removeCustomMountCopyAtPath:/);
   assert.match(manager, /NSDataWritingAtomic/);
@@ -144,7 +144,7 @@ test('ZQBB custom mounts are user-managed, validated and restored without the ex
   assert.match(jbctl, /JBROOT_PATH\(@\"\/mnt\"\)/);
   assert.doesNotMatch(jbctl, /stringByAppendingString:\@\"_tmp\"/);
   assert.match(jbctl, /mkdtemp\(template\)/);
-  assert.match(settings, /removeCustomMountCopyAtPath:path/);
+  assert.match(manager, /removeCustomMountCopyAtPath:path/);
   assert.ok(
     jailbreaker.indexOf('ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"))') <
       jailbreaker.indexOf('[DORuntimeConfiguration restoreCustomMounts]'),
@@ -312,11 +312,13 @@ int main(void) {
 });
 
 const utilitySource = read('BaseBin/libjailbreak/src/util.c');
-const killallFunction = utilitySource.match(/void killall\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
+const killallFunction = utilitySource.match(/int killall_with_result\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
+const killallWrapper = utilitySource.match(/void killall\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
 
 test('killall separates argument capacity from process-list bytes and bounds path matching', () => {
   assert.ok(killallFunction, 'missing killall implementation');
-  assert.match(killallFunction, /if \(!executablePath \|\| !\*executablePath\) return;/);
+  assert.match(killallFunction, /if \(!executablePath \|\| !\*executablePath\) return EINVAL;/);
+  assert.match(killallWrapper, /\(void\)killall_with_result\(executablePath, signal\)/);
   assert.doesNotMatch(killallFunction, /static int maxArgumentSize/);
   assert.match(killallFunction, /argumentSizeLength != sizeof\(maxArgumentSize\)/);
   assert.match(killallFunction, /maxArgumentSize <= \(int\)sizeof\(int\)/);
@@ -329,8 +331,9 @@ test('killall separates argument capacity from process-list bytes and bounds pat
   for (const [file, executable, signal] of [
     ['BaseBin/launchdhook/src/main.m', '/usr/libexec/backboardd', 'SIGTERM'],
     ['BaseBin/launchdhook/src/jbserver/jbdomain_systemwide.c', '/System/Library/TextInput/kbd', 'SIGKILL'],
-    ['BaseBin/jbctl/src/main.m', '/usr/libexec/backboardd', 'SIGTERM'],
   ]) assert.ok(read(file).includes(`killall("${executable}", ${signal});`), file);
+  assert.match(read('BaseBin/jbctl/src/main.m'),
+    /return killall_with_result\("\/usr\/libexec\/backboardd", SIGTERM\);/);
 });
 
 test('killall extracted C handles capacities, malformed paths, failures and cleanup', {
@@ -341,7 +344,10 @@ test('killall extracted C handles capacities, malformed paths, failures and clea
   try {
     const source = path.join(directory, 'test.c');
     const executable = path.join(directory, 'test');
-    fs.writeFileSync(path.join(directory, 'killall-under-test.inc'), killallFunction);
+    fs.writeFileSync(path.join(directory, 'killall-under-test.inc'), `${killallFunction}\n${killallWrapper}`);
+    const jbctl = read('BaseBin/jbctl/src/main.m');
+    fs.writeFileSync(path.join(directory, 'respring-under-test.inc'),
+      `static int respring_under_test(void) {\n${jbctl.slice(jbctl.indexOf('\t\tconst char *sbreloadPath'), jbctl.indexOf('\n\telse if (!strcmp(cmd, "rebuild_icon_cache"))')).replace(/\n\t\}$/, '')}\nreturn 0;\n}\n`);
     fs.copyFileSync(path.join(root, 'tests/helpers/killall-harness.c'), source);
     execFileSync('cc', [
       '-std=c11', '-Wall', '-Wextra', '-Werror',

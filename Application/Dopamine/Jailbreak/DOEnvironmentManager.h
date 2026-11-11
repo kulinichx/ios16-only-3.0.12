@@ -10,6 +10,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
+    DOCustomMountRemovalCompleted,
+    DOCustomMountRemovalSaveFailed,
+    DOCustomMountRemovalCopyPreserved,
+    DOCustomMountRemovalCleanupFailed,
+};
+
 @interface DOEnvironmentManager : NSObject
 {
     DOBootstrapper *_bootstrapper;
@@ -80,11 +87,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
 - (NSArray<NSString *> *)customMountPaths;
+- (nullable NSString *)conflictingCustomMountPathForPath:(NSString *)path;
+- (nullable NSString *)customMountRemovalBlockerForPath:(NSString *)path;
 // Startup restoration must finish before the jailbreak continues.
 - (int)mountCustomDirectory:(NSString *)path;
 - (void)mountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (void)unmountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (BOOL)removeCustomMountCopyAtPath:(NSString *)path;
+- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:(NSString *)path;
 - (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths;
 - (NSDictionary *)lowPowerScheduleConfiguration;
 - (NSDictionary *)lowPowerScheduleStatus;

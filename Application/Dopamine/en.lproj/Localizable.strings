@@ -238,9 +238,12 @@
 "CustomMount_View" = "View in File Manager";
 "CustomMount_Forget" = "Remove from List Only";
 "CustomMount_ViewUnavailable" = "No supported file manager could open this path.";
-"CustomMount_CleanupFailed" = "The mount was removed, but its stored copy could not be deleted. The path remains in the list for recovery.";
+"CustomMount_CleanupFailed" = "The directory was unmounted and removed from the list, but its copy could not be deleted. The leftover copy is at:";
 "CustomMount_SaveFailed" = "Could not update the saved mount list.";
 "CustomMount_ListRestoreFailed" = "Could not restore the previous mount list. The entry remains saved; inspect it in Manage Mounts. Existing copies were preserved.";
-"CustomMount_UnmountedSaveFailed" = "The directory was unmounted, but the mount list could not be updated. It may be mounted again on the next jailbreak.";
+"CustomMount_UnmountedSaveFailed" = "The directory was unmounted, but the mount list could not be updated. Its copy was preserved so you can retry. It may be mounted again on the next jailbreak. Copy:";
+"CustomMount_Overlap" = "This directory overlaps the saved mount %@. Keep one mount for this directory tree to protect its files.";
+"CustomMount_RemoveParentFirst" = "Remove the overlapping parent mount %@ first. Its incomplete copy must not be restored without this child entry.";
+"CustomMount_SharedCopyPreserved" = "The directory was unmounted and removed from the list. Its copy was preserved because another saved mount uses the same directory tree. Copy:";
 "Maintenance_Failed" = "The system operation failed (error %d). You can try again.";
 "CustomMount_Working" = "Updating mount";
