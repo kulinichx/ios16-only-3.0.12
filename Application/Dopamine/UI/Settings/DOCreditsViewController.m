@@ -10,7 +10,6 @@
 #import "DOUIManager.h"
 #import "DOEnvironmentManager.h"
 #import "DOCustomGlassView.h"
-#import "../DOSupporterLicenseUI.h"
 #import <Preferences/PSSpecifier.h>
 
 @interface DOCreditsViewController ()
@@ -269,11 +268,6 @@
 - (void)openLicense
 {
     [self.navigationController pushViewController:[[DOLicenseViewController alloc] init] animated:YES];
-}
-
-- (void)supporterLicensePressed
-{
-    DORHPresentSupporterLicense(self);
 }
 
 @end

@@ -508,10 +508,10 @@ test('credits has an accessible fixed back button and an edge return independent
   assert.match(layout, /bringSubviewToFront:self\.backButton/);
 });
 
-test('credits content and license-to-credits return remain intact', () => {
+test('credits content except the removed authorization action and license-to-credits return remain intact', () => {
   assert.equal(
     fingerprint(credits.slice(credits.indexOf('- (id)specifiers'))),
-    'a8e0f3c5eee7734881d3a16bbe5f0f1d673ec047861f96c966dc308559122100',
+    '98ca746c282da993c08bdaff16d45eca7affb0051f9457b8044f64f32930a781',
   );
   const license = read(ui + 'Settings/DOLicenseViewController.m');
   assert.match(license, /makeHeader:DOLocalizedString\(@"Credits_Button_License"\) withTarget:self/);
@@ -528,13 +528,22 @@ test('supporter license entry uses the audited core and reports persistent remov
   assert.match(licenseUI, /if \(!DORHSupporterRemoveLicense\(\)\)/);
   assert.match(licenseUI, /Supporter_Remove_Failed/);
   assert.match(licenseUI, /DORHPresentSupporterDiagnostics/);
-  assert.match(read(ui + 'Settings/DOCreditsViewController.m'), /DORHPresentSupporterLicense\(self\)/);
-  assert.match(read(ui + 'Settings/Credits.plist'), /Supporter_Title[\s\S]*?supporterLicensePressed/);
+  assert.doesNotMatch(credits, /DOSupporterLicenseUI|DORHPresentSupporterLicense|supporterLicensePressed/);
+  assert.doesNotMatch(read(ui + 'Settings/Credits.plist'), /Supporter_Title|supporterLicensePressed/);
   for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
     assert.match(strings, /"Supporter_Title"\s*=/);
     assert.match(strings, /"Supporter_Remove_Failed_Message"\s*=/);
   }
+});
+
+test('Credits has no builder attribution and the build verifies the packaged menu', () => {
+  const workflow = read('.github/workflows/build.yml');
+  assert.doesNotMatch(read(ui + 'Settings/Credits.plist'), /kulinichx|<string>BUILDER<\/string>/i);
+  assert.doesNotMatch(workflow, /plutil -insert items\.|github\.actor/);
+  assert.match(workflow, /unzip -p "\$tipa" Payload\/Dopamine\.app\/Credits\.plist/);
+  assert.match(workflow, /plutil -lint "\$RUNNER_TEMP\/RootHide-Credits\.plist"/);
+  assert.match(workflow, /Removed authorization entry or builder attribution found in packaged Credits/);
 });
 
 test('credits uses shared glass without replacing its content or collection delegates', () => {

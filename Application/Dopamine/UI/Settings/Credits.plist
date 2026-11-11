@@ -60,22 +60,6 @@
 		</dict>
 		<dict>
 			<key>cell</key>
-			<string>PSStaticTextCell</string>
-			<key>cellClass</key>
-			<string>DOButtonCell</string>
-			<key>title</key>
-			<string>Supporter_Title</string>
-			<key>buttonHeight</key>
-			<integer>44</integer>
-			<key>key</key>
-			<string>supporter</string>
-			<key>image</key>
-			<string>checkmark.seal</string>
-			<key>action</key>
-			<string>supporterLicensePressed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
 			<string>Developers</string>

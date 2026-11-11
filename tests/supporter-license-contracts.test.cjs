@@ -150,10 +150,10 @@ test('application source contains no issuer private-key material', () => {
   assert.match(source, /static NSString \* const publicKeyBase64/);
 });
 
-test('settings and Credits use one shared supporter-license flow', () => {
+test('settings retains the supporter-license flow while Credits has no authorization entry', () => {
   assert.match(settings, /DORHPresentSupporterLicense\(self\)/);
-  assert.match(credits, /DORHPresentSupporterLicense\(self\)/);
-  assert.match(creditsPlist, /<string>supporterLicensePressed<\/string>/);
+  assert.doesNotMatch(credits, /DOSupporterLicenseUI|DORHPresentSupporterLicense|supporterLicensePressed/);
+  assert.doesNotMatch(creditsPlist, /Supporter_Title|supporterLicensePressed|<string>supporter<\/string>/);
   assert.match(licenseUI, /DORHSupporterStoreLicenseCode/);
   assert.match(licenseUI, /DORHSupporterRemoveLicense/);
 });

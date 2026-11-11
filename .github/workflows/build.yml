@@ -74,6 +74,7 @@ jobs:
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
           plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
           plutil -lint Application/Dopamine/UI/Themes/Themes.plist
+          plutil -lint Application/Dopamine/UI/Settings/Credits.plist
           plutil -lint Application/Dopamine/en.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-Hans.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-CN.lproj/Localizable.strings
@@ -164,8 +165,6 @@ jobs:
       - name: Build
         run: |
           set -x
-          plutil -insert items.4 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>BUILDER</string></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
-          plutil -insert items.5 -xml "<dict><key>cell</key><string>PSGroupCell</string><key>headerCellClass</key><string>DOCreditsCell</string><key>names</key><array><dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict></array></dict>" ./Application/Dopamine/UI/Settings/Credits.plist
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
           VERSION="$(cat ./BaseBin/_external/basebin/.version)-$(cat ./BaseBin/_external/basebin/.version-roothide)"
           PACKAGE_NAME="Dopamine-rh-rc9-$(git rev-parse --short HEAD).tipa"
@@ -212,6 +211,13 @@ jobs:
           unzip -p "$tipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
           test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
+          unzip -p "$tipa" Payload/Dopamine.app/Credits.plist > "$RUNNER_TEMP/RootHide-Credits.plist"
+          plutil -lint "$RUNNER_TEMP/RootHide-Credits.plist"
+          plutil -convert xml1 -o "$RUNNER_TEMP/RootHide-Credits.xml" "$RUNNER_TEMP/RootHide-Credits.plist"
+          if grep -Ei 'Supporter_Title|supporterLicensePressed|<string>supporter</string>|<string>BUILDER</string>|kulinichx' "$RUNNER_TEMP/RootHide-Credits.xml"; then
+            echo "::error::Removed authorization entry or builder attribution found in packaged Credits."
+            exit 1
+          fi
           unzip -lv "$tipa" > package-contents.txt
           shasum -a 256 "$tipa" >> build-provenance.txt
           wc -c "$tipa" >> build-provenance.txt
