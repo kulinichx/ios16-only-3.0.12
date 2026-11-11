@@ -91,6 +91,9 @@ static inline void DORHPresentSupporterLicense(UIViewController *presenter)
     NSString *status = supporterID.length > 0
         ? DOLocalizedString(@"Supporter_Status_Verified")
         : DOLocalizedString(@"Supporter_Status_Not_Activated");
+    if (supporterID.length > 0)
+        status = DOLocalizedString([info[@"binding_status"] isEqualToString:@"bound"]
+            ? @"Supporter_Status_Bound" : @"Supporter_Status_Legacy");
     NSString *deviceCode = DORHSupporterDeviceCode();
     NSString *message = [NSString stringWithFormat:
         DOLocalizedString(@"Supporter_Status_Message_Format"),
@@ -140,7 +143,7 @@ static inline void DORHPresentSupporterLicense(UIViewController *presenter)
                                              style:UIAlertActionStyleDefault
                                            handler:^(__kindof UIAlertAction *action) {
         NSError *error = nil;
-        if (DORHSupporterStoreLicenseCode(UIPasteboard.generalPasteboard.string ?: @"", &error)) {
+        if (DORHSupporterStoreActivationText(UIPasteboard.generalPasteboard.string ?: @"", &error)) {
             DORHShowSupporterLicenseChange(weakPresenter,
                 DOLocalizedString(@"Supporter_Activated"),
                 DOLocalizedString(@"Supporter_Activated_Message"));

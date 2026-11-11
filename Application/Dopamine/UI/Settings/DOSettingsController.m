@@ -934,20 +934,19 @@
             return;
         }
 
-        int result = [environment mountCustomDirectory:path];
-        if (result != 0) {
-            [self presentCustomMountMessage:
-                [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
-            return;
-        }
-
+        // Match ZQBB's save-before-mount order; a save failure owns no copy to delete.
         NSArray<NSString *> *updatedPaths = [existingPaths arrayByAddingObject:path];
         if (![environment saveCustomMountPaths:updatedPaths]) {
-            int rollbackResult = [environment unmountCustomDirectory:path];
-            BOOL copyRemoved = rollbackResult == 0 && [environment removeCustomMountCopyAtPath:path];
-            NSString *message = copyRemoved ?
-                DOLocalizedString(@"CustomMount_SaveFailedRolledBack") :
-                DOLocalizedString(@"CustomMount_SaveFailedRollbackFailed");
+            [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_SaveFailed")];
+            return;
+        }
+        int result = [environment mountCustomDirectory:path];
+        if (result != 0) {
+            BOOL restored = [environment saveCustomMountPaths:existingPaths];
+            NSString *message = [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result];
+            if (!restored)
+                message = [message stringByAppendingFormat:@"\n%@", DOLocalizedString(@"CustomMount_ListRestoreFailed")];
+            [self reloadSpecifiers];
             [self presentCustomMountMessage:message];
             return;
         }

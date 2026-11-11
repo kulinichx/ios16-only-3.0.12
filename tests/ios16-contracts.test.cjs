@@ -142,7 +142,8 @@ test('ZQBB custom mounts are user-managed, validated and restored without the ex
   assert.match(jbctl, /custom_mount_path_is_valid/);
   assert.match(jbctl, /private\/preboot/);
   assert.match(jbctl, /JBROOT_PATH\(@\"\/mnt\"\)/);
-  assert.match(jbctl, /stringByAppendingString:\@\"_tmp\"/);
+  assert.doesNotMatch(jbctl, /stringByAppendingString:\@\"_tmp\"/);
+  assert.match(jbctl, /mkdtemp\(template\)/);
   assert.match(settings, /removeCustomMountCopyAtPath:path/);
   assert.ok(
     jailbreaker.indexOf('ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"))') <

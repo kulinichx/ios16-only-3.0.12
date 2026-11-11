@@ -21,3 +21,11 @@ Exploits/kfd/kfd.framework/kfd
 .sign
 /worker
 /docs
+
+# Offline issuer data and generated activation bundles must never be published.
+DopamineRH-supporter-private.pem
+supporters.json
+supporters.backup.json
+supporter-device-proof-bindings.json
+supporter-device-proof-challenges.json
+supporter-*-bound.txt

@@ -6,6 +6,7 @@
 #import <string.h>
 #import <limits.h>
 #import <errno.h>
+#import <stdlib.h>
 SInt32 CFUserNotificationDisplayAlert(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle, CFStringRef alternateButtonTitle, CFStringRef otherButtonTitle, CFOptionFlags *responseFlags) API_AVAILABLE(ios(3.0));
 
 static int mount_unsandboxed(const char *type, const char *dir, int flags, void *data)
@@ -79,15 +80,21 @@ static int prepare_mount_copy(const char *rawPath)
 		if (![manager removeItemAtPath:mountPath error:&error]) return EIO;
 	}
 
-	NSString *temporaryPath = [mountPath stringByAppendingString:@"_tmp"];
-	if ([manager fileExistsAtPath:temporaryPath] &&
-		![manager removeItemAtPath:temporaryPath error:&error]) return EIO;
-	if (![manager copyItemAtPath:path toPath:temporaryPath error:&error]) return EIO;
-	if (![manager moveItemAtPath:temporaryPath toPath:mountPath error:&error]) {
-		[manager removeItemAtPath:temporaryPath error:nil];
+	// A_tmp can itself be a live user copy. Stage outside the /mnt namespace.
+	NSString *stagingRoot = JBROOT_PATH(@"/var/tmp");
+	if (![manager createDirectoryAtPath:stagingRoot withIntermediateDirectories:YES attributes:nil error:&error])
 		return EIO;
-	}
-	return 0;
+	char *template = strdup([[stagingRoot stringByAppendingPathComponent:@"dopamine-mount.XXXXXX"] fileSystemRepresentation]);
+	if (!template) return ENOMEM;
+	char *created = mkdtemp(template);
+	NSString *stagingPath = created ? [manager stringWithFileSystemRepresentation:created length:strlen(created)] : nil;
+	free(template);
+	if (!stagingPath) return EIO;
+	NSString *temporaryPath = [stagingPath stringByAppendingPathComponent:@"payload"];
+	BOOL copied = [manager copyItemAtPath:path toPath:temporaryPath error:&error];
+	BOOL moved = copied && [manager moveItemAtPath:temporaryPath toPath:mountPath error:&error];
+	[manager removeItemAtPath:stagingPath error:nil];
+	return moved ? 0 : EIO;
 }
 
 static int fake_path_mount(bool mount, const char *path)

@@ -161,6 +161,8 @@
 
 "Supporter_Title" = "Supporter License";
 "Supporter_Status_Verified" = "Verified";
+"Supporter_Status_Bound" = "Verified - Device Bound";
+"Supporter_Status_Legacy" = "Verified - Legacy License, Binding Pending";
 "Supporter_Status_Not_Activated" = "Not Activated";
 "Supporter_Status_Message_Format" = "%@\n\nDevice Code\n%@";
 "Supporter_Unavailable" = "Unavailable";
@@ -238,4 +240,5 @@
 "CustomMount_ViewUnavailable" = "No supported file manager could open this path.";
 "CustomMount_CleanupFailed" = "The mount was removed, but its stored copy could not be deleted. The path remains in the list for recovery.";
 "CustomMount_SaveFailed" = "Could not update the saved mount list.";
+"CustomMount_ListRestoreFailed" = "Could not restore the previous mount list. The entry remains saved; inspect it in Manage Mounts. Existing copies were preserved.";
 "CustomMount_UnmountedSaveFailed" = "The directory was unmounted, but the mount list could not be updated. It may be mounted again on the next jailbreak.";

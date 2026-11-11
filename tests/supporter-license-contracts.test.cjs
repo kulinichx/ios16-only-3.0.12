@@ -154,7 +154,7 @@ test('settings retains the supporter-license flow while Credits has no authoriza
   assert.match(settings, /DORHPresentSupporterLicense\(self\)/);
   assert.doesNotMatch(credits, /DOSupporterLicenseUI|DORHPresentSupporterLicense|supporterLicensePressed/);
   assert.doesNotMatch(creditsPlist, /Supporter_Title|supporterLicensePressed|<string>supporter<\/string>/);
-  assert.match(licenseUI, /DORHSupporterStoreLicenseCode/);
+  assert.match(licenseUI, /DORHSupporterStoreActivationText/);
   assert.match(licenseUI, /DORHSupporterRemoveLicense/);
 });
 

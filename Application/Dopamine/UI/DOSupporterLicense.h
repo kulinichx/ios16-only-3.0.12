@@ -1381,8 +1381,13 @@ static inline NSString *DORHSupporterPersistentString(NSString *key)
 
 static inline BOOL DORHSupporterSetPersistentString(NSString *key, NSString *value)
 {
+    @synchronized (NSUserDefaults.class) {
     NSMutableDictionary<NSString *, id> *state =
         DORHSupporterReadPersistentState();
+
+    if ((value.length != 0 && [state[key] isEqual:value]) ||
+        (value.length == 0 && state[key] == nil))
+        return YES;
 
     if (value.length != 0)
         state[key] = value;
@@ -1390,6 +1395,7 @@ static inline BOOL DORHSupporterSetPersistentString(NSString *key, NSString *val
         [state removeObjectForKey:key];
 
     return DORHSupporterWritePersistentState(state);
+    }
 }
 
 static inline BOOL DORHSupporterLicenseTombstoned(void)
@@ -1640,17 +1646,31 @@ static inline NSDictionary<NSString *, id> *DORHSupporterVerifyLicenseCodeForDev
     return info;
 }
 
+#import "DOSupporterBinding.h"
+
 static inline NSDictionary<NSString *, id> *DORHSupporterVerifyLicenseCode(NSString *licenseCode,
                                                                            NSError **error)
 {
-    return DORHSupporterVerifyLicenseCodeForDevice(
+    NSString *certificate = DORHSupporterPersistentString(DORHSupporterBindingCertificateKey);
+    if (certificate.length != 0)
+        return DORHSupporterVerifyBoundLicense(licenseCode, certificate, error);
+    if (DORHSupporterBindingIsRequired()) {
+        if (error) *error = DORHSupporterLicenseError(26, @"A signed device binding certificate is required");
+        return nil;
+    }
+    NSDictionary *info = DORHSupporterVerifyLicenseCodeForDevice(
         licenseCode,
         DORHSupporterDeviceCode(),
         error);
+    if (!info) return nil;
+    NSMutableDictionary *legacyInfo = [info mutableCopy];
+    legacyInfo[@"binding_status"] = @"legacy";
+    return legacyInfo;
 }
 
 static inline NSDictionary<NSString *, id> *DORHSupporterCurrentLicenseInfo(void)
 {
+    @synchronized (NSUserDefaults.class) {
     // A removal (made in either jailbreak state) wins over any stale copy.
     if (DORHSupporterLicenseTombstoned()) {
         DORHSupporterPurgeDefaultsLicense();
@@ -1690,16 +1710,16 @@ static inline NSDictionary<NSString *, id> *DORHSupporterCurrentLicenseInfo(void
             DORHSupporterPersistentLicenseCodeKey,
             license);
 
-        [NSUserDefaults.standardUserDefaults
-            setObject:license
-               forKey:DORHSupporterLicenseDefaultsKey];
-
-        [NSUserDefaults.standardUserDefaults synchronize];
+        if (![legacyLicense isEqualToString:license]) {
+            [NSUserDefaults.standardUserDefaults setObject:license forKey:DORHSupporterLicenseDefaultsKey];
+            [NSUserDefaults.standardUserDefaults synchronize];
+        }
 
         return info;
     }
 
     return nil;
+    }
 }
 
 static inline BOOL DORHSupporterIsVerified(void)
@@ -1715,13 +1735,11 @@ static inline NSString *DORHSupporterCurrentID(void)
 
 static inline BOOL DORHSupporterStoreLicenseCode(NSString *licenseCode, NSError **error)
 {
-    NSDictionary *info = DORHSupporterVerifyLicenseCode(licenseCode, error);
+    @synchronized (NSUserDefaults.class) {
+    NSString *trimmed = [licenseCode stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSDictionary *info = DORHSupporterVerifyLicenseCode(trimmed, error);
     if (!info)
         return NO;
-
-    NSString *trimmed =
-        [licenseCode stringByTrimmingCharactersInSet:
-            NSCharacterSet.whitespaceAndNewlineCharacterSet];
 
     NSMutableDictionary<NSString *, id> *state = DORHSupporterReadPersistentState();
     state[DORHSupporterPersistentLicenseCodeKey] = trimmed;
@@ -1750,15 +1768,66 @@ static inline BOOL DORHSupporterStoreLicenseCode(NSString *licenseCode, NSError 
                       object:nil];
 
     return YES;
+    }
+}
+
+static inline BOOL DORHSupporterStoreActivationText(NSString *text, NSError **error)
+{
+    @synchronized (NSUserDefaults.class) {
+        if (error) *error = nil;
+        if (![text isKindOfClass:NSString.class] || text.length > 8192) return NO;
+        NSArray *tokens = [[text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+            filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+        if (tokens.count == 1 && [tokens[0] hasPrefix:@"RH1."])
+            return DORHSupporterStoreLicenseCode(tokens[0], error);
+        NSString *license = nil;
+        NSString *certificate = nil;
+        if (tokens.count == 2 && [tokens[0] hasPrefix:@"RH1."] && [tokens[1] hasPrefix:@"RHB1."]) {
+            license = tokens[0];
+            certificate = tokens[1];
+        } else if (tokens.count == 1 && [tokens[0] hasPrefix:@"RHB1."]) {
+            certificate = tokens[0];
+            NSDictionary *binding = DORHSupporterBindingCertificateInfo(certificate, error);
+            if (!binding) return NO;
+            NSString *stored = DORHSupporterPersistentString(DORHSupporterPersistentLicenseCodeKey);
+            NSString *defaults = [NSUserDefaults.standardUserDefaults stringForKey:DORHSupporterLicenseDefaultsKey];
+            for (NSString *candidate in @[stored ?: @"", defaults ?: @""]) {
+                if ([DORHSupporterSHA256([candidate dataUsingEncoding:NSUTF8StringEncoding]) isEqualToString:binding[@"license_sha256"]]) {
+                    license = candidate;
+                    break;
+                }
+            }
+        }
+        if (!license || !certificate || !DORHSupporterVerifyBoundLicense(license, certificate, error)) {
+            if (error && !*error) *error = DORHSupporterLicenseError(27, @"Paste the matching license and binding certificate together");
+            return NO;
+        }
+        NSMutableDictionary *state = DORHSupporterReadPersistentState();
+        state[DORHSupporterPersistentLicenseCodeKey] = license;
+        state[DORHSupporterBindingCertificateKey] = certificate;
+        state[DORHSupporterBindingRequiredKey] = @YES;
+        state[DORHSupporterPersistentDeviceCodeKey] = DORHSupporterEmbeddedDeviceCode(license);
+        [state removeObjectForKey:DORHSupporterPersistentLicenseRemovedKey];
+        if (!DORHSupporterWritePersistentState(state)) {
+            if (error) *error = DORHSupporterLicenseError(28, @"Unable to persist device binding");
+            return NO;
+        }
+        [NSUserDefaults.standardUserDefaults setObject:license forKey:DORHSupporterLicenseDefaultsKey];
+        [NSUserDefaults.standardUserDefaults synchronize];
+        [[NSNotificationCenter defaultCenter] postNotificationName:DORHSupporterLicenseDidChangeNotification object:nil];
+        return YES;
+    }
 }
 
 static inline BOOL DORHSupporterRemoveLicense(void)
 {
+    @synchronized (NSUserDefaults.class) {
     // Deliberately keep the stable DeviceCode: removing entitlement must not
     // turn the same physical device into a new licensing identity.
     // Write the tombstone in the same atomic write that drops the license.
     NSMutableDictionary<NSString *, id> *removedState = DORHSupporterReadPersistentState();
     [removedState removeObjectForKey:DORHSupporterPersistentLicenseCodeKey];
+    [removedState removeObjectForKey:DORHSupporterBindingCertificateKey];
     removedState[DORHSupporterPersistentLicenseRemovedKey] = @YES;
     if (!DORHSupporterWritePersistentState(removedState) ||
         !DORHSupporterLicenseTombstoned()) {
@@ -1781,4 +1850,5 @@ static inline BOOL DORHSupporterRemoveLicense(void)
             DORHSupporterLicenseDidChangeNotification
                       object:nil];
     return YES;
+    }
 }
