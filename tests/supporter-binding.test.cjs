@@ -137,7 +137,7 @@ test('native Security verifies production binding parser and device-possession c
 }, () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-native-'));
   try {
-    const helperNames = ['DORHSupporterLicenseError', 'DORHSupporterDecodeBase64URL',
+    const helperNames = ['DORHSupporterLicenseError', 'DORHSupporterBase64URLToBase64', 'DORHSupporterDecodeBase64URL',
       'DORHSupporterIsUppercaseHexString', 'DORHSupporterCopyDevicePublicKeyData',
       'DORHSupporterDeviceKeyFingerprint', 'DORHSupporterSignWithDeviceKey',
       'DORHSupporterVerifyDeviceKeySignature', 'DORHSupporterVerifyLicenseCodeForDevice'];
