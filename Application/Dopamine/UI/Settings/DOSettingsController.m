@@ -27,6 +27,8 @@
 
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, DOCustomLiquidGlassView *> *customGlassSectionBackdrops;
 @property(nonatomic, strong) UIButton *customGlassBackButton;
+@property(nonatomic, strong) UIActivityIndicatorView *customMountActivity;
+@property(nonatomic) BOOL customMountBusy;
 
 @end
 
@@ -83,6 +85,8 @@
 
 - (void)customGlassBackPressed
 {
+    if (self.customMountBusy)
+        return;
     if (self.navigationController.topViewController == self)
         [self.navigationController popViewControllerAnimated:YES];
 }
@@ -887,6 +891,31 @@
 
 #pragma mark - Button Actions
 
+- (void)setCustomMountBusy:(BOOL)busy
+{
+    _customMountBusy = busy;
+    self.view.userInteractionEnabled = !busy;
+    if (busy) {
+        if (!self.customMountActivity) {
+            UIActivityIndicatorView *activity = [[UIActivityIndicatorView alloc]
+                initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+            activity.translatesAutoresizingMaskIntoConstraints = NO;
+            activity.color = UIColor.whiteColor;
+            activity.accessibilityLabel = DOLocalizedString(@"CustomMount_Working");
+            [self.view addSubview:activity];
+            [NSLayoutConstraint activateConstraints:@[
+                [activity.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+                [activity.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor]
+            ]];
+            self.customMountActivity = activity;
+        }
+        [self.view bringSubviewToFront:self.customMountActivity];
+        [self.customMountActivity startAnimating];
+    } else {
+        [self.customMountActivity stopAnimating];
+    }
+}
+
 - (void)presentCustomMountMessage:(NSString *)message
 {
     UIAlertController *alert = [UIAlertController
@@ -940,17 +969,20 @@
             [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_SaveFailed")];
             return;
         }
-        int result = [environment mountCustomDirectory:path];
-        if (result != 0) {
-            BOOL restored = [environment saveCustomMountPaths:existingPaths];
-            NSString *message = [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result];
-            if (!restored)
-                message = [message stringByAppendingFormat:@"\n%@", DOLocalizedString(@"CustomMount_ListRestoreFailed")];
+        self.customMountBusy = YES;
+        [environment mountCustomDirectory:path completion:^(int result) {
+            self.customMountBusy = NO;
+            if (result != 0) {
+                BOOL restored = [environment saveCustomMountPaths:existingPaths];
+                NSString *message = [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result];
+                if (!restored)
+                    message = [message stringByAppendingFormat:@"\n%@", DOLocalizedString(@"CustomMount_ListRestoreFailed")];
+                [self reloadSpecifiers];
+                [self presentCustomMountMessage:message];
+                return;
+            }
             [self reloadSpecifiers];
-            [self presentCustomMountMessage:message];
-            return;
-        }
-        [self reloadSpecifiers];
+        }];
     }]];
     [self presentViewController:input animated:YES completion:nil];
 }
@@ -1017,25 +1049,26 @@
             [confirm addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"CustomMount_Unmount")
                                                         style:UIAlertActionStyleDestructive
                                                       handler:^(__unused UIAlertAction *confirmAction) {
-                int result = [environment unmountCustomDirectory:path];
-                if (result != 0) {
-                    [self presentCustomMountMessage:
-                        [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
-                    return;
-                }
-
-                if (![environment removeCustomMountCopyAtPath:path]) {
-                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_CleanupFailed")];
-                    return;
-                }
-
-                NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
-                [updatedPaths removeObject:path];
-                if (![environment saveCustomMountPaths:updatedPaths]) {
-                    [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_UnmountedSaveFailed")];
-                    return;
-                }
-                [self reloadSpecifiers];
+                self.customMountBusy = YES;
+                [environment unmountCustomDirectory:path completion:^(int result) {
+                    self.customMountBusy = NO;
+                    if (result != 0) {
+                        [self presentCustomMountMessage:
+                            [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
+                        return;
+                    }
+                    if (![environment removeCustomMountCopyAtPath:path]) {
+                        [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_CleanupFailed")];
+                        return;
+                    }
+                    NSMutableArray<NSString *> *updatedPaths = [paths mutableCopy];
+                    [updatedPaths removeObject:path];
+                    if (![environment saveCustomMountPaths:updatedPaths]) {
+                        [self presentCustomMountMessage:DOLocalizedString(@"CustomMount_UnmountedSaveFailed")];
+                        return;
+                    }
+                    [self reloadSpecifiers];
+                }];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
         }]];

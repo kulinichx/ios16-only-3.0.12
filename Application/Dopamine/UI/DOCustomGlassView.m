@@ -559,6 +559,7 @@ static UIButton *DOCustomGlassBackButton(UIViewController *controller)
 
 @interface DOCustomGlassThemeSettingsViewController () <PHPickerViewControllerDelegate>
 
+@property(nonatomic, strong) NSProgress *wallpaperImport;
 @property UIImageView *customGlassBackgroundImageView;
 @property(nonatomic, assign) BOOL supporterAuthorizationKnown;
 @property(nonatomic, assign) BOOL supporterAuthorizationVerified;
@@ -1054,12 +1055,17 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
     if (!result || !DORHSupporterIsVerified())
         return;
 
+    NSProgress *request = [NSProgress progressWithTotalUnitCount:1];
+    @synchronized(NSUserDefaults.class) {
+        [self.wallpaperImport cancel];
+        self.wallpaperImport = request;
+    }
     NSItemProvider *provider = result.itemProvider;
     __weak typeof(self) weakSelf = self;
 
     void (^finishWallpaperImport)(BOOL) = ^(BOOL saved) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!saved)
+            if (!saved || request.cancelled)
                 return;
 
             [[UIApplication sharedApplication] ignoreSnapshotOnNextApplicationLaunch];
@@ -1075,11 +1081,13 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
     };
 
     void (^importStaticImage)(void) = ^{
-        if (![provider canLoadObjectOfClass:UIImage.class])
+        if (request.cancelled || !weakSelf || ![provider canLoadObjectOfClass:UIImage.class])
             return;
 
         [provider loadObjectOfClass:UIImage.class
                   completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+            if (request.cancelled || !weakSelf)
+                return;
             if (error || ![object isKindOfClass:UIImage.class]) {
                 NSLog(@"[CustomGlass][Wallpaper] image provider failed: %@", error);
                 return;
@@ -1090,7 +1098,7 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
                 return;
             }
 
-            BOOL saved = DOCustomGlassMediaStoreSaveWallpaper((UIImage *)object, NULL);
+            BOOL saved = DOCustomGlassMediaStoreSaveWallpaper((UIImage *)object, request, NULL);
             finishWallpaperImport(saved);
         }];
     };
@@ -1101,6 +1109,8 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
     if ([provider canLoadObjectOfClass:PHLivePhoto.class]) {
         [provider loadObjectOfClass:PHLivePhoto.class
                   completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+            if (request.cancelled || !weakSelf)
+                return;
             if (error || ![object isKindOfClass:PHLivePhoto.class]) {
                 NSLog(@"[CustomGlass][LivePhoto] provider failed: %@", error);
                 importStaticImage();
@@ -1109,6 +1119,8 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
             DOCustomGlassExportLivePhoto((PHLivePhoto *)object,
                                          ^(NSURL *videoURL, UIImage *poster, NSError *exportError) {
+                if (request.cancelled || !weakSelf)
+                    return;
                 if (exportError || !videoURL || !poster) {
                     NSLog(@"[CustomGlass][LivePhoto] export failed: %@", exportError);
                     importStaticImage();
@@ -1120,7 +1132,7 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
                     return;
                 }
 
-                BOOL saved = DOCustomGlassMediaStoreSaveWallpaperVideo(videoURL, poster, NULL);
+                BOOL saved = DOCustomGlassMediaStoreSaveWallpaperVideo(videoURL, poster, request, NULL);
                 if (!saved)
                     NSLog(@"[CustomGlass][LivePhoto] MediaStore commit failed");
                 finishWallpaperImport(saved);
@@ -1132,6 +1144,8 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
     if ([provider hasItemConformingToTypeIdentifier:@"public.movie"]) {
         [provider loadFileRepresentationForTypeIdentifier:@"public.movie"
                                          completionHandler:^(NSURL *fileURL, NSError *error) {
+            if (request.cancelled || !weakSelf)
+                return;
             if (error || !fileURL) {
                 NSLog(@"[CustomGlass][VideoWallpaper] provider failed: %@", error);
                 return;
@@ -1146,7 +1160,7 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
             UIImage *poster = DOCustomGlassCreateVideoPosterImage(fileURL);
             BOOL saved = poster ?
-                DOCustomGlassMediaStoreSaveWallpaperVideo(fileURL, poster, NULL) : NO;
+                DOCustomGlassMediaStoreSaveWallpaperVideo(fileURL, poster, request, NULL) : NO;
             finishWallpaperImport(saved);
         }];
         return;
@@ -1682,9 +1696,22 @@ static void DOCustomGlassExportLivePhoto(PHLivePhoto *livePhoto,
 
 - (void)dealloc
 {
+    @synchronized(NSUserDefaults.class) {
+        [_wallpaperImport cancel];
+    }
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:DORHSupporterLicenseDidChangeNotification
                                                   object:nil];
+}
+
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [super viewWillDisappear:animated];
+    if (self.isMovingFromParentViewController || self.isBeingDismissed) {
+        @synchronized(NSUserDefaults.class) {
+            [self.wallpaperImport cancel];
+        }
+    }
 }
 
 @end

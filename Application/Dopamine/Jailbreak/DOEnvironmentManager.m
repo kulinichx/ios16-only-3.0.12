@@ -13,6 +13,7 @@
 #import <sys/mount.h>
 #import <sys/utsname.h>
 #import <sys/stat.h>
+#import <sys/wait.h>
 #import <unistd.h>
 #import <mach-o/dyld.h>
 #import <libgrabkernel2/libgrabkernel2.h>
@@ -30,10 +31,15 @@
 #import "NSData+Hex.h"
 #import <LocalAuthentication/LocalAuthentication.h>
 #include <notify.h>
+#include <errno.h>
 
 int reboot3(uint64_t flags, ...);
 CFPropertyListRef MGCopyAnswer(CFStringRef);
 extern char **environ;
+
+@interface DOEnvironmentManager ()
+@property(nonatomic) BOOL customMountTaskRunning;
+@end
 
 @implementation DOEnvironmentManager
 
@@ -354,6 +360,10 @@ extern char **environ;
         needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
     }
 
+    int waitPipe[2] = {-1, -1};
+    if (!needsLegacySolution && pipe(waitPipe) != 0)
+        return errno;
+
     char **argBuf = malloc((args.count + 4) * sizeof(char *));
     argBuf[0] = strdup(JBROOT_PATH("/basebin/jbctl"));
     int i = 1;
@@ -372,10 +382,7 @@ extern char **environ;
     posix_spawnattr_t attr = NULL;
     posix_spawnattr_init(&attr);
 
-    int waitPipe[2];
-
     if (!needsLegacySolution) {
-        pipe(waitPipe);
         posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
     }
     else {
@@ -388,7 +395,7 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
-            if (needsLegacySolution) {
+            if (needsLegacySolution && r == 0 && pid > 0) {
                 // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
                 // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
                 kill(pid, SIGCONT);
@@ -415,6 +422,8 @@ extern char **environ;
         close(waitPipe[1]);
     }
 
+    if (r != 0 || pid <= 0)
+        return r != 0 ? r : -1;
     return cmd_wait_for_exit(pid);
 }
 
@@ -428,14 +437,16 @@ extern char **environ;
     return exec_cmd_root(selfPath, "trollstore", action.UTF8String, NULL);
 }
 
-- (void)respring
+- (int)respring
 {
-    [self spawnJbctlAsRootWithArgs:@[@"respring"]];
+    if (!self.isJailbroken) return EPERM;
+    return [self spawnJbctlAsRootWithArgs:@[@"respring"]];
 }
 
-- (void)rebootUserspace
+- (int)rebootUserspace
 {
-    [self spawnJbctlAsRootWithArgs:@[@"reboot_userspace"]];
+    if (!self.isJailbroken) return EPERM;
+    return [self spawnJbctlAsRootWithArgs:@[@"reboot_userspace"]];
 }
 
 - (void)rebuildIconCache
@@ -467,13 +478,15 @@ extern char **environ;
     }];
 }
 
-- (void)reboot
+- (int)reboot
 {
+    __block int result = -1;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
-            reboot3(0x8000000000000000, 0);
+            result = reboot3(0x8000000000000000, 0);
         }];
     }];
+    return result;
 }
 
 - (void)changeMobilePassword:(NSString *)newPassword
@@ -884,30 +897,58 @@ extern char **environ;
     return saved;
 }
 
-- (int)mountCustomDirectory:(NSString *)path
+- (void)runCustomMountCommand:(NSString *)command path:(NSString *)path
+                  completion:(void (^)(int result))completion
 {
-    if (!self.isJailbroken || ![path isKindOfClass:NSString.class]) return -1;
-    __block int result = -1;
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self runCustomMountCommand:command path:path completion:completion];
+        });
+        return;
+    }
+    if (!self.isJailbroken || ![path isKindOfClass:NSString.class] ||
+        self.customMountTaskRunning) {
+        int result = self.customMountTaskRunning ? EBUSY : EINVAL;
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(result); });
+        return;
+    }
+    self.customMountTaskRunning = YES;
+    __block int spawnResult = -1;
+    __block pid_t child = 0;
+    // Only spawn inside the existing privilege scope. The child owns the copy
+    // and mount; its wait happens after this process has restored its identity.
     [self runAsRoot:^{
         [self runUnsandboxed:^{
-            result = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "mount",
-                              path.fileSystemRepresentation, NULL);
+            spawnResult = exec_cmd_nowait(&child, JBROOT_PATH("/basebin/jbctl"),
+                                         "internal", command.UTF8String,
+                                         path.fileSystemRepresentation, NULL);
         }];
     }];
-    return result;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        int result = spawnResult;
+        if (result == 0 && child > 0) {
+            int status = 0;
+            pid_t waited;
+            do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+            result = waited == child ? status : -1;
+        } else if (result == 0) {
+            result = -1;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.customMountTaskRunning = NO;
+            completion(result);
+        });
+    });
 }
 
-- (int)unmountCustomDirectory:(NSString *)path
+- (void)mountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion
 {
-    if (!self.isJailbroken || ![path isKindOfClass:NSString.class]) return -1;
-    __block int result = -1;
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            result = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "unmount",
-                              path.fileSystemRepresentation, NULL);
-        }];
-    }];
-    return result;
+    [self runCustomMountCommand:@"mount" path:path completion:completion];
+}
+
+- (void)unmountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion
+{
+    [self runCustomMountCommand:@"unmount" path:path completion:completion];
 }
 
 - (BOOL)removeCustomMountCopyAtPath:(NSString *)path

@@ -47,13 +47,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)runUnsandboxed:(void (^)(void))unsandboxBlock;
 - (void)runAsRoot:(void (^)(void))rootBlock;
 
-- (void)respring;
-- (void)rebootUserspace;
+- (int)respring;
+- (int)rebootUserspace;
 - (void)rebuildIconCache;
 - (void)refreshJailbreakApps;
 - (NSString *)injectionModeDescription;
 - (NSString *)sileoURLScheme;
-- (void)reboot;
+- (int)reboot;
 - (void)changeMobilePassword:(NSString *)newPassword;
 - (NSError*)updateEnvironment;
 - (void)updateJailbreakFromTIPA:(NSString *)tipaPath;
@@ -80,8 +80,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
 - (NSArray<NSString *> *)customMountPaths;
-- (int)mountCustomDirectory:(NSString *)path;
-- (int)unmountCustomDirectory:(NSString *)path;
+- (void)mountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
+- (void)unmountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (BOOL)removeCustomMountCopyAtPath:(NSString *)path;
 - (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths;
 - (NSDictionary *)lowPowerScheduleConfiguration;

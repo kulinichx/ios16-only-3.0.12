@@ -64,18 +64,51 @@ static inline BOOL DOCustomGlassThemeSyncWrite(NSDictionary<NSString *, id> *sta
 static BOOL gDOCustomGlassThemeSyncApplying = NO;
 static BOOL gDOCustomGlassThemeSyncPending = NO;
 
+// Media references become authoritative before local defaults or old files change.
+// The class lock is shared by every translation unit including these helpers.
+static inline BOOL DOCustomGlassThemeSyncCommitChanges(NSDictionary<NSString *, id> *changes)
+{
+    @synchronized(NSUserDefaults.class) {
+        NSMutableDictionary *snapshot = [DOCustomGlassThemeSyncLocalSnapshot() mutableCopy];
+        for (NSString *key in changes) {
+            if (![key hasPrefix:DOCustomGlassThemeSyncPrefix])
+                return NO;
+            id value = changes[key];
+            if (value == NSNull.null)
+                [snapshot removeObjectForKey:key];
+            else
+                snapshot[key] = value;
+        }
+        if (!DOCustomGlassThemeSyncWrite(snapshot))
+            return NO;
+
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        for (NSString *key in changes) {
+            id value = changes[key];
+            if (value == NSNull.null)
+                [defaults removeObjectForKey:key];
+            else
+                [defaults setObject:value forKey:key];
+        }
+        [defaults synchronize];
+        return YES;
+    }
+}
+
 static inline void DOCustomGlassThemeSyncFlush(void)
 {
-    gDOCustomGlassThemeSyncPending = NO;
-    NSDictionary *snapshot = DOCustomGlassThemeSyncLocalSnapshot();
-    NSDictionary *external = [NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()];
-    if ([external isKindOfClass:NSDictionary.class]) {
-        NSMutableDictionary *themeOnly = [external mutableCopy];
-        [themeOnly removeObjectForKey:DOCustomGlassThemeSyncVersionKey];
-        if (external[DOCustomGlassThemeSyncVersionKey] && [themeOnly isEqualToDictionary:snapshot])
-            return;
+    @synchronized(NSUserDefaults.class) {
+        gDOCustomGlassThemeSyncPending = NO;
+        NSDictionary *snapshot = DOCustomGlassThemeSyncLocalSnapshot();
+        NSDictionary *external = [NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()];
+        if ([external isKindOfClass:NSDictionary.class]) {
+            NSMutableDictionary *themeOnly = [external mutableCopy];
+            [themeOnly removeObjectForKey:DOCustomGlassThemeSyncVersionKey];
+            if (external[DOCustomGlassThemeSyncVersionKey] && [themeOnly isEqualToDictionary:snapshot])
+                return;
+        }
+        DOCustomGlassThemeSyncWrite(snapshot);
     }
-    DOCustomGlassThemeSyncWrite(snapshot);
 }
 
 // Call once from main() before UIApplicationMain.

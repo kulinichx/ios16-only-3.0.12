@@ -58,9 +58,11 @@
 @property DOCustomLiquidGlassView *customGlassThemeCard;
 @property UILabel *customGlassSystemLabel;
 @property(nonatomic, strong) UIView *customGlassJailbreakDisabledOverlay;
+@property(nonatomic, strong) NSProgress *customGlassAvatarImport;
 
 @property(nonatomic) BOOL hideStatusBar;
 @property(nonatomic) BOOL hideHomeIndicator;
+@property(nonatomic) BOOL didFade;
 
 - (void)refreshCustomGlassSystemLabel;
 
@@ -198,6 +200,11 @@
     if (!result || !DORHSupporterIsVerified())
         return;
 
+    NSProgress *request = [NSProgress progressWithTotalUnitCount:1];
+    @synchronized(NSUserDefaults.class) {
+        [self.customGlassAvatarImport cancel];
+        self.customGlassAvatarImport = request;
+    }
     NSItemProvider *provider = result.itemProvider;
     if (![provider canLoadObjectOfClass:UIImage.class])
         return;
@@ -205,20 +212,19 @@
     __weak typeof(self) weakSelf = self;
     [provider loadObjectOfClass:UIImage.class
               completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
-        if (error || ![object isKindOfClass:UIImage.class])
+        if (error || ![object isKindOfClass:UIImage.class] || request.cancelled || !weakSelf)
             return;
 
         UIImage *image = (UIImage *)object;
         if (!DORHSupporterIsVerified()) {
-            weakSelf.customGlassUsernameEditor = nil;
             return;
         }
 
         UIImage *persistedAvatar = nil;
-        BOOL saved = DOCustomGlassMediaStoreSaveAvatar(image, &persistedAvatar);
+        BOOL saved = DOCustomGlassMediaStoreSaveAvatar(image, request, &persistedAvatar);
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!saved)
+            if (!saved || request.cancelled)
                 return;
 
             // Show the exact object decoded back from the committed media file.
@@ -1086,25 +1092,25 @@
         [restartStack.bottomAnchor constraintEqualToAnchor:restartContainer.contentView.bottomAnchor constant:-restartPadding]
     ]];
 
-    BOOL isJailbroken = [[DOEnvironmentManager sharedManager] isJailbroken] || [[DOEnvironmentManager sharedManager] isJailbrokenWithOtherJailbreak];
+    BOOL isJailbroken = [[DOEnvironmentManager sharedManager] isJailbroken];
     BOOL isSupported = [[DOEnvironmentManager sharedManager] isSupported];
 
     UIAction *respringAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
-        [self fadeToBlack:^{
-            [[DOEnvironmentManager sharedManager] respring];
+        [self performCustomGlassMaintenance:^int(void) {
+            return [[DOEnvironmentManager sharedManager] respring];
         }];
     }];
     UIAction *userspaceAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
-        [self fadeToBlack:^{
-            [[DOEnvironmentManager sharedManager] rebootUserspace];
+        [self performCustomGlassMaintenance:^int(void) {
+            return [[DOEnvironmentManager sharedManager] rebootUserspace];
         }];
     }];
     UIAction *rebootAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
         UIAlertController *confirmation = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Menu_Reboot_Device_Title") message:DOLocalizedString(@"Alert_Reboot_Device_Body") preferredStyle:UIAlertControllerStyleAlert];
         [confirmation addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:nil]];
         [confirmation addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Reboot") style:UIAlertActionStyleDestructive handler:^(__kindof UIAlertAction * _Nonnull alertAction) {
-            [self fadeToBlack:^{
-                [[DOEnvironmentManager sharedManager] reboot];
+            [self performCustomGlassMaintenance:^int(void) {
+                return [[DOEnvironmentManager sharedManager] reboot];
             }];
         }]];
         [self presentViewController:confirmation animated:YES completion:nil];
@@ -1356,6 +1362,9 @@
 // 释放定时器及通知观察，避免页面退出后继续刷新。
 - (void)dealloc
 {
+    @synchronized(NSUserDefaults.class) {
+        [_customGlassAvatarImport cancel];
+    }
     [_uptimeTimer invalidate];
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
@@ -1518,12 +1527,47 @@
     });
 }
 
+- (void)performCustomGlassMaintenance:(int (^)(void))operation
+{
+    if (self.didFade)
+        return;
+    UIView *mainView = self.parentViewController.view;
+    CGAffineTransform transform = mainView.transform;
+    CGFloat alpha = mainView.alpha;
+    CGFloat cornerRadius = mainView.layer.cornerRadius;
+    BOOL masksToBounds = mainView.layer.masksToBounds;
+    BOOL hideStatusBar = self.hideStatusBar;
+    BOOL interactionEnabled = mainView.userInteractionEnabled;
+    mainView.userInteractionEnabled = NO;
+    [self fadeToBlack:^{
+        int result = operation();
+        if (result == 0)
+            return;
+        self.didFade = NO;
+        self.hideStatusBar = hideStatusBar;
+        [UIView animateWithDuration:0.2 animations:^{
+            mainView.transform = transform;
+            mainView.alpha = alpha;
+            mainView.layer.cornerRadius = cornerRadius;
+        } completion:^(BOOL finished) {
+            mainView.layer.masksToBounds = masksToBounds;
+            mainView.userInteractionEnabled = interactionEnabled;
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:DOLocalizedString(@"Log_Error")
+                                 message:[NSString stringWithFormat:DOLocalizedString(@"Maintenance_Failed"), result]
+                          preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Close")
+                                                      style:UIAlertActionStyleCancel handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }];
+    }];
+}
+
 - (void)fadeToBlack:(void (^)(void))completion
 {
-    static bool didFade = false;
-    if (didFade)
+    if (self.didFade)
         return;
-    didFade = true;
+    self.didFade = YES;
     UIView *mainView = self.parentViewController.view;
     float deviceCornerRadius = [[[UIScreen mainScreen] valueForKey:@"_displayCornerRadius"] floatValue];
 

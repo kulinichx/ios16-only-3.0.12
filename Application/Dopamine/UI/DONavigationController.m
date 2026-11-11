@@ -312,6 +312,9 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 @property (nonatomic, strong) UIImage *customGlassBackgroundSourceImage;
 @property (nonatomic, assign) BOOL customGlassUsingCustomBackground;
 @property (nonatomic, assign) NSUInteger customGlassBackgroundBlurGeneration;
+@property (nonatomic, strong) UIImage *customGlassBackgroundBlurRequestedImage;
+@property (nonatomic, assign) CGFloat customGlassBackgroundBlurRequestedIntensity;
+@property (nonatomic, strong) NSOperationQueue *customGlassBackgroundBlurQueue;
 @property (nonatomic) DOMainViewController *mainView;
 @property (nonatomic) DOModalBackAction *backAction;
 
@@ -525,7 +528,17 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 {
     CGFloat clamped = DOCustomGlassNavigationClamp01(blurIntensity);
     UIImage *sourceImage = self.customGlassBackgroundSourceImage;
+    if (self.customGlassWallpaperPlaybackRetired || self.customGlassWallpaperSuspended)
+        return;
+    if (!self.customGlassUsingVideoWallpaper &&
+        sourceImage == self.customGlassBackgroundBlurRequestedImage &&
+        fabs(clamped - self.customGlassBackgroundBlurRequestedIntensity) < 0.0001)
+        return;
+
     NSUInteger generation = ++self.customGlassBackgroundBlurGeneration;
+    [self.customGlassBackgroundBlurQueue cancelAllOperations];
+    self.customGlassBackgroundBlurRequestedImage = sourceImage;
+    self.customGlassBackgroundBlurRequestedIntensity = clamped;
 
     if (self.customGlassUsingVideoWallpaper) {
         // Video wallpaper is already dynamic content. Keep the saved wallpaper
@@ -546,21 +559,40 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
         return;
     }
 
-    // Core Image is intentionally off the main thread. Old requests are ignored
-    // with a generation token, so dragging the slider cannot race a wallpaper
-    // replacement or put an older blur result back on screen.
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        UIImage *blurredImage = DOCustomGlassNavigationCreateBlurredImage(sourceImage, clamped);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (generation != self.customGlassBackgroundBlurGeneration ||
-                sourceImage != self.customGlassBackgroundSourceImage)
-                return;
+    if (!self.customGlassBackgroundBlurQueue) {
+        NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+        queue.name = @"CustomGlass.WallpaperBlur";
+        queue.maxConcurrentOperationCount = 1;
+        queue.qualityOfService = NSQualityOfServiceUserInitiated;
+        self.customGlassBackgroundBlurQueue = queue;
+    }
 
-            [UIView performWithoutAnimation:^{
-                self.backgroundImageView.image = blurredImage ?: sourceImage;
-            }];
-        });
-    });
+    // Keep one active render and only the latest pending request. Cancellation
+    // is checked before Core Image as well as before publishing the result.
+    NSBlockOperation *operation = [[NSBlockOperation alloc] init];
+    __weak NSBlockOperation *weakOperation = operation;
+    __weak typeof(self) weakSelf = self;
+    [operation addExecutionBlock:^{
+        @autoreleasepool {
+            NSBlockOperation *activeOperation = weakOperation;
+            if (!activeOperation || activeOperation.cancelled)
+                return;
+            UIImage *blurredImage = DOCustomGlassNavigationCreateBlurredImage(sourceImage, clamped);
+            if (activeOperation.cancelled)
+                return;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                typeof(self) strongSelf = weakSelf;
+                if (!strongSelf || activeOperation.cancelled ||
+                    generation != strongSelf.customGlassBackgroundBlurGeneration ||
+                    sourceImage != strongSelf.customGlassBackgroundSourceImage)
+                    return;
+                [UIView performWithoutAnimation:^{
+                    strongSelf.backgroundImageView.image = blurredImage ?: sourceImage;
+                }];
+            });
+        }
+    }];
+    [self.customGlassBackgroundBlurQueue addOperation:operation];
 }
 
 - (void)supporterLicenseDidChange:(NSNotification *)notification
@@ -602,6 +634,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
     // asynchronously on top of this same image, so there is never a frame where
     // an older/native wallpaper is used as an intermediate state.
     ++self.customGlassBackgroundBlurGeneration;
+    self.customGlassBackgroundBlurRequestedImage = nil;
     [UIView performWithoutAnimation:^{
         self.backgroundImageView.image = sourceImage;
     }];
@@ -636,6 +669,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
         [defaults floatForKey:DOCustomGlassNavigationBackgroundBlurKey] : 0.10;
 
     ++self.customGlassBackgroundBlurGeneration;
+    self.customGlassBackgroundBlurRequestedImage = nil;
     [UIView performWithoutAnimation:^{
         self.backgroundImageView.image = sourceImage;
     }];
@@ -757,6 +791,8 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 - (void)customGlassPauseForJailbreak
 {
     self.customGlassWallpaperSuspended = YES;
+    ++self.customGlassBackgroundBlurGeneration;
+    [self.customGlassBackgroundBlurQueue cancelAllOperations];
     [self.customGlassWallpaperPlayer pause];
 }
 
@@ -768,6 +804,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
     self.customGlassWallpaperPlaybackRetired = YES;
     self.customGlassWallpaperViewVisible = NO;
     ++self.customGlassBackgroundBlurGeneration;
+    [self.customGlassBackgroundBlurQueue cancelAllOperations];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self customGlassDeactivateVideoWallpaper];
 }
@@ -792,6 +829,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 
 - (void)dealloc
 {
+    [_customGlassBackgroundBlurQueue cancelAllOperations];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self customGlassDeactivateVideoWallpaper];
 }

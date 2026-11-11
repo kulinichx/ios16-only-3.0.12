@@ -242,3 +242,5 @@
 "CustomMount_SaveFailed" = "Could not update the saved mount list.";
 "CustomMount_ListRestoreFailed" = "Could not restore the previous mount list. The entry remains saved; inspect it in Manage Mounts. Existing copies were preserved.";
 "CustomMount_UnmountedSaveFailed" = "The directory was unmounted, but the mount list could not be updated. It may be mounted again on the next jailbreak.";
+"Maintenance_Failed" = "The system operation failed (error %d). You can try again.";
+"CustomMount_Working" = "Updating mount";

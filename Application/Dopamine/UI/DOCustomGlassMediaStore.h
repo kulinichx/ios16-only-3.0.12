@@ -15,6 +15,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
+#import "DOCustomGlassThemeSync.h"
 
 static NSString * const DOCustomGlassMediaStoreAvatarFilenameKey =
     @"DOCustomGlassTheme.AvatarFilename";
@@ -186,28 +187,67 @@ static inline UIImage *DOCustomGlassMediaStoreLoadImageForDefaultsKey(NSString *
     return image;
 }
 
-static inline BOOL DOCustomGlassMediaStoreSaveImage(UIImage *image,
-                                                     NSString *defaultsKey,
-                                                     NSString *filenamePrefix,
-                                                     UIImage **persistedImage)
+static inline void DOCustomGlassMediaStoreRemoveFile(NSString *filename)
+{
+    NSURL *url = DOCustomGlassMediaStoreFileURL(filename);
+    if (url)
+        [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
+}
+
+static inline BOOL DOCustomGlassMediaStoreCommit(NSDictionary<NSString *, id> *changes,
+                                                 NSProgress *request)
+{
+    @synchronized(NSUserDefaults.class) {
+        if (!request || request.cancelled)
+            return NO;
+
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSMutableArray<NSString *> *replacedFiles = [NSMutableArray array];
+        for (NSString *key in changes) {
+            NSString *old = [defaults stringForKey:key];
+            if (old && ![old isEqual:changes[key]])
+                [replacedFiles addObject:old];
+        }
+        if (!DOCustomGlassThemeSyncCommitChanges(changes))
+            return NO;
+
+        // A file shared by two references must survive until both release it.
+        NSMutableSet *referenced = [NSMutableSet set];
+        for (NSString *key in @[DOCustomGlassMediaStoreAvatarFilenameKey,
+                                DOCustomGlassMediaStoreWallpaperFilenameKey,
+                                DOCustomGlassMediaStoreWallpaperVideoFilenameKey]) {
+            NSString *filename = [defaults stringForKey:key];
+            if (filename)
+                [referenced addObject:filename];
+        }
+        for (NSString *filename in replacedFiles) {
+            if (![referenced containsObject:filename])
+                DOCustomGlassMediaStoreRemoveFile(filename);
+        }
+        return YES;
+    }
+}
+
+static inline NSString *DOCustomGlassMediaStoreStageImage(UIImage *image,
+                                                          NSString *filenamePrefix,
+                                                          UIImage **persistedImage)
 {
     NSData *imageData = image ? UIImageJPEGRepresentation(image, 0.92) : nil;
     if (imageData.length == 0)
-        return NO;
+        return nil;
 
-    NSString *oldFilename = [[NSUserDefaults standardUserDefaults] stringForKey:defaultsKey];
     NSString *newFilename = [NSString stringWithFormat:@"%@-%@.jpg",
                              filenamePrefix,
                              NSUUID.UUID.UUIDString];
     NSURL *newURL = DOCustomGlassMediaStoreFileURL(newFilename);
     if (!newURL)
-        return NO;
+        return nil;
 
     NSError *writeError = nil;
     BOOL wrote = [imageData writeToURL:newURL options:NSDataWritingAtomic error:&writeError];
     if (!wrote) {
         NSLog(@"[CustomGlass][MediaStore] write failed %@: %@", newURL.path, writeError);
-        return NO;
+        return nil;
     }
 
     NSError *readError = nil;
@@ -222,41 +262,12 @@ static inline BOOL DOCustomGlassMediaStoreSaveImage(UIImage *image,
               (unsigned long)persistedData.length,
               readError);
         [[NSFileManager defaultManager] removeItemAtURL:newURL error:nil];
-        return NO;
+        return nil;
     }
-
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:newFilename forKey:defaultsKey];
-
-    // NSUserDefaults updates the process-visible value immediately.
-    // Keep synchronize as best-effort persistence only; its return value must
-    // not invalidate media that was already written and verified successfully.
-    [defaults synchronize];
-
-    NSString *committedFilename = [defaults stringForKey:defaultsKey];
-    if (![committedFilename isEqualToString:newFilename]) {
-        NSLog(@"[CustomGlass][MediaStore] defaults commit mismatch key=%@ expected=%@ actual=%@",
-              defaultsKey, newFilename, committedFilename);
-        [[NSFileManager defaultManager] removeItemAtURL:newURL error:nil];
-        return NO;
-    }
-
-    // Commit new media first. Only then remove the previous file.
-    if (DOCustomGlassMediaStoreIsSafeFilename(oldFilename) &&
-        ![oldFilename isEqualToString:newFilename]) {
-        NSURL *oldURL = DOCustomGlassMediaStoreFileURL(oldFilename);
-        if (oldURL)
-            [[NSFileManager defaultManager] removeItemAtURL:oldURL error:nil];
-    }
-
-    NSLog(@"[CustomGlass][MediaStore] saved key=%@ file=%@ bytes=%lu",
-          defaultsKey,
-          newFilename,
-          (unsigned long)persistedData.length);
 
     if (persistedImage)
         *persistedImage = decodedImage;
-    return YES;
+    return newFilename;
 }
 
 static inline UIImage *DOCustomGlassMediaStoreLoadAvatar(void)
@@ -265,12 +276,22 @@ static inline UIImage *DOCustomGlassMediaStoreLoadAvatar(void)
         DOCustomGlassMediaStoreAvatarFilenameKey);
 }
 
-static inline BOOL DOCustomGlassMediaStoreSaveAvatar(UIImage *image, UIImage **persistedImage)
+static inline BOOL DOCustomGlassMediaStoreSaveAvatar(UIImage *image, NSProgress *request,
+                                                     UIImage **persistedImage)
 {
-    return DOCustomGlassMediaStoreSaveImage(image,
-                                             DOCustomGlassMediaStoreAvatarFilenameKey,
-                                             @"avatar",
-                                             persistedImage);
+    if (!request || request.cancelled)
+        return NO;
+    UIImage *decodedImage = nil;
+    NSString *filename = DOCustomGlassMediaStoreStageImage(image, @"avatar", &decodedImage);
+    if (!filename)
+        return NO;
+    if (!DOCustomGlassMediaStoreCommit(@{DOCustomGlassMediaStoreAvatarFilenameKey: filename}, request)) {
+        DOCustomGlassMediaStoreRemoveFile(filename);
+        return NO;
+    }
+    if (persistedImage)
+        *persistedImage = decodedImage;
+    return YES;
 }
 
 static inline NSURL *DOCustomGlassMediaStoreLoadWallpaperVideoURL(void)
@@ -283,42 +304,38 @@ static inline NSURL *DOCustomGlassMediaStoreLoadWallpaperVideoURL(void)
     return fileURL;
 }
 
-static inline void DOCustomGlassMediaStoreClearWallpaperVideo(void)
-{
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSString *filename = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
-    [defaults removeObjectForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
-    [defaults synchronize];
-
-    if (DOCustomGlassMediaStoreIsSafeFilename(filename)) {
-        NSURL *fileURL = DOCustomGlassMediaStoreFileURL(filename);
-        if (fileURL)
-            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:nil];
-    }
-}
-
 static inline UIImage *DOCustomGlassMediaStoreLoadWallpaper(void)
 {
     return DOCustomGlassMediaStoreLoadImageForDefaultsKey(
         DOCustomGlassMediaStoreWallpaperFilenameKey);
 }
 
-static inline BOOL DOCustomGlassMediaStoreSaveWallpaper(UIImage *image, UIImage **persistedImage)
+static inline BOOL DOCustomGlassMediaStoreSaveWallpaper(UIImage *image, NSProgress *request,
+                                                        UIImage **persistedImage)
 {
-    BOOL saved = DOCustomGlassMediaStoreSaveImage(image,
-                                                   DOCustomGlassMediaStoreWallpaperFilenameKey,
-                                                   @"wallpaper",
-                                                   persistedImage);
-    if (saved)
-        DOCustomGlassMediaStoreClearWallpaperVideo();
-    return saved;
+    if (!request || request.cancelled)
+        return NO;
+    UIImage *decodedImage = nil;
+    NSString *filename = DOCustomGlassMediaStoreStageImage(image, @"wallpaper", &decodedImage);
+    if (!filename)
+        return NO;
+    NSDictionary *changes = @{DOCustomGlassMediaStoreWallpaperFilenameKey: filename,
+                             DOCustomGlassMediaStoreWallpaperVideoFilenameKey: NSNull.null};
+    if (!DOCustomGlassMediaStoreCommit(changes, request)) {
+        DOCustomGlassMediaStoreRemoveFile(filename);
+        return NO;
+    }
+    if (persistedImage)
+        *persistedImage = decodedImage;
+    return YES;
 }
 
 static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
                                                               UIImage *posterImage,
+                                                              NSProgress *request,
                                                               UIImage **persistedPosterImage)
 {
-    if (!sourceURL.isFileURL || !posterImage)
+    if (!sourceURL.isFileURL || !posterImage || !request || request.cancelled)
         return NO;
 
     NSString *extension = sourceURL.pathExtension.lowercaseString;
@@ -326,8 +343,6 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
     if (![supportedExtensions containsObject:extension])
         extension = @"mov";
 
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSString *oldVideoFilename = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
     NSString *newVideoFilename = [NSString stringWithFormat:@"wallpaper-video-%@.%@",
                                   NSUUID.UUID.UUIDString,
                                   extension];
@@ -342,6 +357,7 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
     if (!copied) {
         NSLog(@"[CustomGlass][MediaStore] video copy failed %@: %@",
               sourceURL.path, copyError);
+        DOCustomGlassMediaStoreRemoveFile(newVideoFilename);
         return NO;
     }
 
@@ -357,40 +373,20 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
     // luminance/scrim analysis and UIImage-based refraction a deterministic
     // fallback while AVPlayer owns only the moving presentation layer.
     UIImage *persistedPoster = nil;
-    BOOL posterSaved = DOCustomGlassMediaStoreSaveImage(posterImage,
-                                                         DOCustomGlassMediaStoreWallpaperFilenameKey,
-                                                         @"wallpaper-poster",
-                                                         &persistedPoster);
-    if (!posterSaved) {
+    NSString *posterFilename = DOCustomGlassMediaStoreStageImage(posterImage,
+                                                                @"wallpaper-poster",
+                                                                &persistedPoster);
+    if (!posterFilename) {
         [[NSFileManager defaultManager] removeItemAtURL:newVideoURL error:nil];
         return NO;
     }
 
-    [defaults setObject:newVideoFilename forKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
-
-    // Same rule as still images: synchronize is best-effort only.
-    [defaults synchronize];
-
-    NSString *committedFilename = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
-    if (![committedFilename isEqualToString:newVideoFilename]) {
-        NSLog(@"[CustomGlass][MediaStore] video defaults commit mismatch expected=%@ actual=%@",
-              newVideoFilename, committedFilename);
-        [[NSFileManager defaultManager] removeItemAtURL:newVideoURL error:nil];
-        [defaults removeObjectForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
-        [defaults synchronize];
-        if (DOCustomGlassMediaStoreIsSafeFilename(oldVideoFilename)) {
-            NSURL *oldVideoURL = DOCustomGlassMediaStoreFileURL(oldVideoFilename);
-            if (oldVideoURL)
-                [[NSFileManager defaultManager] removeItemAtURL:oldVideoURL error:nil];
-        }
+    NSDictionary *changes = @{DOCustomGlassMediaStoreWallpaperFilenameKey: posterFilename,
+                             DOCustomGlassMediaStoreWallpaperVideoFilenameKey: newVideoFilename};
+    if (!DOCustomGlassMediaStoreCommit(changes, request)) {
+        DOCustomGlassMediaStoreRemoveFile(posterFilename);
+        DOCustomGlassMediaStoreRemoveFile(newVideoFilename);
         return NO;
-    }
-
-    if (DOCustomGlassMediaStoreIsSafeFilename(oldVideoFilename) &&
-        ![oldVideoFilename isEqualToString:newVideoFilename]) {
-        NSURL *oldVideoURL = DOCustomGlassMediaStoreFileURL(oldVideoFilename);
-        if (oldVideoURL)
-            [[NSFileManager defaultManager] removeItemAtURL:oldVideoURL error:nil];
     }
 
     NSLog(@"[CustomGlass][MediaStore] saved video file=%@ bytes=%llu",

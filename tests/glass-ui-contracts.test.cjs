@@ -290,21 +290,366 @@ test('new theme persistence is isolated from RC9 and bootstraps before UIApplica
   assert.ok(startup.indexOf('DOCustomGlassThemeSyncBootstrap();') < startup.indexOf('return UIApplicationMain('));
 });
 
-test('media validates app-container ownership and local-defaults-before-delete ordering', () => {
+test('media validates ownership and commits authoritative references before deleting old files', () => {
   assert.match(media, /NSBundle\.mainBundle\.bundleIdentifier/);
   assert.match(media, /DOCustomGlassMediaStoreLSContainerURL\(bundleIdentifier\)/);
   assert.match(media, /DOCustomGlassMediaStoreMCMContainerURL\(bundleIdentifier\)/);
   assert.match(media, /filename\.lastPathComponent/);
-  const image = section(media, 'static inline BOOL DOCustomGlassMediaStoreSaveImage', 'static inline UIImage *DOCustomGlassMediaStoreLoadAvatar');
-  const operations = ['writeToURL:newURL', 'dataWithContentsOfURL:newURL',
-    'if (!decodedImage)', '[defaults setObject:newFilename forKey:defaultsKey]',
-    'if (![committedFilename isEqualToString:newFilename])', 'removeItemAtURL:oldURL'];
+  const image = section(media, 'static inline NSString *DOCustomGlassMediaStoreStageImage', 'static inline UIImage *DOCustomGlassMediaStoreLoadAvatar');
+  const operations = ['writeToURL:newURL', 'dataWithContentsOfURL:newURL', 'if (!decodedImage)'];
   const positions = operations.map(token => {
     const index = image.indexOf(token);
     assert.ok(index >= 0, token);
     return index;
   });
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  const commit = section(media, 'static inline BOOL DOCustomGlassMediaStoreCommit', 'static inline NSString *DOCustomGlassMediaStoreStageImage');
+  assert.ok(commit.indexOf('DOCustomGlassThemeSyncCommitChanges(changes)') < commit.indexOf('for (NSString *filename in replacedFiles)'));
+  assert.match(commit, /@synchronized\(NSUserDefaults\.class\)/);
+  assert.match(commit, /request\.cancelled/);
+  const themeCommit = section(sync, 'static inline BOOL DOCustomGlassThemeSyncCommitChanges', 'static inline void DOCustomGlassThemeSyncFlush');
+  assert.ok(themeCommit.indexOf('DOCustomGlassThemeSyncWrite(snapshot)') < themeCommit.indexOf('[defaults setObject:value'));
+  assert.match(section(sync, 'static inline void DOCustomGlassThemeSyncFlush', '// Call once from main'), /@synchronized\(NSUserDefaults\.class\)/);
+});
+
+test('media imports cancel prior requests and never publish stale completions after page retirement', () => {
+  for (const [source, property] of [[main, 'customGlassAvatarImport'], [components, 'wallpaperImport']]) {
+    const picker = section(source, '- (void)picker:', source === main ?
+      '- (void)presentCustomGlassUsernameEditor' : '- (void)showThemePlaceholderForTitle:');
+    assert.match(picker, new RegExp(`@synchronized\\(NSUserDefaults\\.class\\) \\{\\s*\\[self\\.${property} cancel\\]`));
+    assert.match(picker, /request\.cancelled/);
+    assert.match(source, new RegExp(`\\[_${property} cancel\\]`));
+  }
+  assert.match(components, /isMovingFromParentViewController \|\| self\.isBeingDismissed/);
+  assert.doesNotMatch(media, /DOCustomGlassMediaStoreClearWallpaperVideo|DOCustomGlassMediaStoreSaveImage\(/);
+});
+
+test('blur coalesces unchanged inputs and cancels obsolete work before rendering', () => {
+  const blur = section(navigation, '- (void)customGlassApplySharedBackgroundBlurIntensity:', '- (void)supporterLicenseDidChange:');
+  assert.match(blur, /sourceImage == self\.customGlassBackgroundBlurRequestedImage/);
+  assert.match(blur, /queue\.maxConcurrentOperationCount = 1/);
+  assert.ok(blur.indexOf('activeOperation.cancelled') < blur.indexOf('DOCustomGlassNavigationCreateBlurredImage(sourceImage'));
+  assert.match(blur, /generation != strongSelf\.customGlassBackgroundBlurGeneration/);
+  assert.match(blur, /sourceImage != strongSelf\.customGlassBackgroundSourceImage/);
+  assert.match(navigation, /customGlassPauseForJailbreak[\s\S]*?cancelAllOperations/);
+});
+
+test('maintenance uses this jailbreak and restores the faded interface when commands fail', () => {
+  const actions = section(main, 'BOOL isJailbroken =', '// Keep a dedicated gap');
+  assert.doesNotMatch(actions, /isJailbrokenWithOtherJailbreak/);
+  assert.equal((actions.match(/performCustomGlassMaintenance:/g) || []).length, 3);
+  const maintenance = section(main, '- (void)performCustomGlassMaintenance:', '#pragma mark - Action Menu Delegate');
+  for (const token of ['int result = operation()', 'self.didFade = NO', 'mainView.transform = transform',
+    'mainView.alpha = alpha', 'mainView.userInteractionEnabled = interactionEnabled', 'Maintenance_Failed'])
+    assert.ok(maintenance.includes(token), token);
+  assert.doesNotMatch(maintenance, /static bool didFade/);
+  const spawn = section(environment, '- (int)spawnJbctlAsRootWithArgs:', '- (int)runTrollStoreAction:');
+  assert.match(spawn, /if \(r != 0 \|\| pid <= 0\)/);
+  assert.match(spawn, /needsLegacySolution && r == 0 && pid > 0/);
+  assert.match(spawn, /pipe\(waitPipe\) != 0/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN'])
+    assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Maintenance_Failed"\s*=/);
+});
+
+test('mount tasks spawn in the existing privilege scope and wait outside it with reentry protection', () => {
+  const task = section(environment, '- (void)runCustomMountCommand:', '- (BOOL)removeCustomMountCopyAtPath:');
+  assert.match(task, /self\.customMountTaskRunning = YES/);
+  assert.match(task, /exec_cmd_nowait\(&child/);
+  assert.ok(task.indexOf('exec_cmd_nowait') < task.indexOf('dispatch_get_global_queue'));
+  assert.ok(task.indexOf('dispatch_get_global_queue') < task.indexOf('waitpid(child'));
+  assert.match(task, /errno == EINTR/);
+  assert.match(task, /dispatch_get_main_queue\(\), \^\{\s*self\.customMountTaskRunning = NO;\s*completion\(result\)/);
+  assert.match(settings, /self\.view\.userInteractionEnabled = !busy/);
+  assert.match(settings, /mountCustomDirectory:path completion:/);
+  assert.match(settings, /unmountCustomDirectory:path completion:/);
+});
+
+test('native Foundation media transactions preserve old files on write failure and reject late imports', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; image codecs and the app container are test doubles.' : false,
+}, () => {
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-media-native-'));
+  try {
+    // Exercise the production transaction/file code. UIKit JPEG decoding and
+    // container discovery are substituted so Foundation can run it on macOS.
+    const theme = sync.replace(
+      /static NSString \* const DOCustomGlassThemeSyncDirectory =\s*@"[^"]+";/,
+      'static NSString *DOCustomGlassThemeSyncDirectory;',
+    ).replaceAll('NSUserDefaults', 'TestDefaults');
+    const store = (media.slice(0, media.indexOf('static inline id DOCustomGlassMediaStoreCallObjectGetter')) +
+      `static inline NSURL *DOCustomGlassMediaStoreDirectoryURL(void) {
+        NSURL *url = [NSURL fileURLWithPath:[testRoot stringByAppendingPathComponent:@"media"]];
+        [NSFileManager.defaultManager createDirectoryAtURL:url withIntermediateDirectories:YES attributes:nil error:nil];
+        return url;
+      }\n` + media.slice(media.indexOf('static inline BOOL DOCustomGlassMediaStoreIsSafeFilename')))
+      .replace('#import <UIKit/UIKit.h>', '')
+      .replace('#import "DOCustomGlassThemeSync.h"', '')
+      .replaceAll('NSUserDefaults', 'TestDefaults');
+    const source = `#import <Foundation/Foundation.h>
+static NSString *testRoot;
+static NSString *suite;
+@interface TestDefaults : NSUserDefaults
+@end
+@implementation TestDefaults
++ (NSUserDefaults *)standardUserDefaults {
+  static NSUserDefaults *defaults; static dispatch_once_t once;
+  dispatch_once(&once, ^{ suite = [@"rh-media-test-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite]; });
+  return defaults;
+}
+@end
+@interface UIImage : NSObject
+@property(nonatomic, strong) NSData *data;
++ (UIImage *)imageWithData:(NSData *)data;
+@end
+@implementation UIImage
++ (UIImage *)imageWithData:(NSData *)data {
+  if (!data.length || [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] isEqual:@"invalid"]) return nil;
+  UIImage *image = [UIImage new]; image.data = data; return image;
+}
+@end
+static NSData *UIImageJPEGRepresentation(UIImage *image, double quality) { return image.data; }
+${theme}
+${store}
+#define CHECK(value) do { if (!(value)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+static NSProgress *request(void) { return [NSProgress progressWithTotalUnitCount:1]; }
+static UIImage *image(NSString *text) { return [UIImage imageWithData:[text dataUsingEncoding:NSUTF8StringEncoding]]; }
+static NSSet *files(void) { return [NSSet setWithArray:[NSFileManager.defaultManager contentsOfDirectoryAtPath:DOCustomGlassMediaStoreDirectoryURL().path error:nil]]; }
+static BOOL exists(NSString *name) { return [NSFileManager.defaultManager fileExistsAtPath:DOCustomGlassMediaStoreFileURL(name).path]; }
+int main(int argc, char **argv) { @autoreleasepool {
+  testRoot = [NSString stringWithUTF8String:argv[1]];
+  DOCustomGlassThemeSyncDirectory = [testRoot stringByAppendingPathComponent:@"theme"];
+  NSString *goodDirectory = DOCustomGlassThemeSyncDirectory;
+  NSUserDefaults *defaults = TestDefaults.standardUserDefaults;
+  NSURL *movie = [NSURL fileURLWithPath:[testRoot stringByAppendingPathComponent:@"source.mov"]];
+  [@"video" writeToURL:movie atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  CHECK(DOCustomGlassMediaStoreSaveAvatar(image(@"avatar"), request(), NULL));
+  NSString *avatar = [defaults stringForKey:DOCustomGlassMediaStoreAvatarFilenameKey];
+  CHECK(DOCustomGlassMediaStoreSaveWallpaperVideo(movie, image(@"poster"), request(), NULL));
+  NSString *poster = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey];
+  NSString *video = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey];
+  NSDictionary *external = [NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()];
+  CHECK([external[DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:poster]);
+  CHECK([external[DOCustomGlassMediaStoreWallpaperVideoFilenameKey] isEqual:video]);
+  NSSet *before = files();
+
+  // A non-directory at the destination makes authoritative commits fail.
+  DOCustomGlassThemeSyncDirectory = [testRoot stringByAppendingPathComponent:@"blocked"];
+  [@"block" writeToFile:DOCustomGlassThemeSyncDirectory atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  CHECK(!DOCustomGlassMediaStoreSaveWallpaper(image(@"new"), request(), NULL));
+  CHECK(!DOCustomGlassMediaStoreSaveWallpaperVideo(movie, image(@"new-poster"), request(), NULL));
+  CHECK(!DOCustomGlassMediaStoreSaveAvatar(image(@"new-avatar"), request(), NULL));
+  CHECK([files() isEqual:before] && exists(avatar) && exists(poster) && exists(video));
+  CHECK([[defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:poster]);
+  CHECK([[defaults stringForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey] isEqual:video]);
+  DOCustomGlassThemeSyncDirectory = goodDirectory;
+  CHECK([[NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()] isEqual:external]);
+
+  UIImage *invalid = [UIImage new]; invalid.data = [@"invalid" dataUsingEncoding:NSUTF8StringEncoding];
+  CHECK(!DOCustomGlassMediaStoreSaveWallpaperVideo(movie, invalid, request(), NULL));
+  CHECK([files() isEqual:before]);
+  NSProgress *cancelled = request(); [cancelled cancel];
+  CHECK(!DOCustomGlassMediaStoreSaveWallpaperVideo(movie, image(@"late"), cancelled, NULL));
+  CHECK([files() isEqual:before]);
+
+  // A is staged, B finishes first, then A's provider finally returns.
+  NSProgress *a = request();
+  NSString *late = DOCustomGlassMediaStoreStageImage(image(@"A"), @"wallpaper", NULL);
+  @synchronized(TestDefaults.class) { [a cancel]; }
+  CHECK(DOCustomGlassMediaStoreSaveWallpaper(image(@"B"), request(), NULL));
+  NSString *winner = [defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey];
+  CHECK(!DOCustomGlassMediaStoreCommit(@{DOCustomGlassMediaStoreWallpaperFilenameKey:late}, a));
+  DOCustomGlassMediaStoreRemoveFile(late);
+  CHECK([[defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:winner]);
+  CHECK(exists(winner) && exists(avatar) && !exists(poster) && !exists(video));
+  CHECK(![defaults objectForKey:DOCustomGlassMediaStoreWallpaperVideoFilenameKey]);
+  DOCustomGlassThemeSyncFlush();
+  external = [NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()];
+  CHECK([external[DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:winner]);
+  CHECK(!external[DOCustomGlassMediaStoreWallpaperVideoFilenameKey]);
+
+  // Restart reconstructs local references from the committed external state.
+  [defaults setObject:@"stale.jpg" forKey:DOCustomGlassMediaStoreWallpaperFilenameKey];
+  DOCustomGlassThemeSyncBootstrap();
+  CHECK([[defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:winner]);
+  CHECK(exists(winner) && files().count == 2);
+  [defaults removePersistentDomainForName:suite];
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'media.m');
+    const binary = path.join(directory, 'media-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    execFileSync(binary, [directory]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('native Foundation runs production blur scheduling with obsolete requests and duplicate parameters', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; Core Image rendering and UIKit views are test doubles.' : false,
+}, () => {
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-blur-native-'));
+  try {
+    const method = section(navigation, '- (void)customGlassApplySharedBackgroundBlurIntensity:', '- (void)supporterLicenseDidChange:');
+    const source = `#import <Foundation/Foundation.h>
+#import <math.h>
+@interface UIImage : NSObject
+@property CGFloat intensity;
+@end
+@implementation UIImage
+@end
+@interface UIView : NSObject
+@property(nonatomic, strong) UIImage *image;
+@property CGFloat blurIntensity;
+@property BOOL hidden;
++ (void)performWithoutAnimation:(void (^)(void))block;
+@end
+@implementation UIView
++ (void)performWithoutAnimation:(void (^)(void))block { block(); }
+@end
+static dispatch_semaphore_t started, gate;
+static NSMutableArray *renders;
+static CGFloat DOCustomGlassNavigationClamp01(CGFloat value) { return MIN(1.0, MAX(0.0, value)); }
+static UIImage *DOCustomGlassNavigationCreateBlurredImage(UIImage *image, CGFloat intensity) {
+  @synchronized(renders) { [renders addObject:@(intensity)]; }
+  if (fabs(intensity - 0.1) < 0.0001) {
+    dispatch_semaphore_signal(started);
+    dispatch_semaphore_wait(gate, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+  }
+  UIImage *result = [UIImage new]; result.intensity = intensity; return result;
+}
+@interface TestNavigation : NSObject
+@property(nonatomic, strong) UIImage *customGlassBackgroundSourceImage;
+@property(nonatomic, strong) UIImage *customGlassBackgroundBlurRequestedImage;
+@property CGFloat customGlassBackgroundBlurRequestedIntensity;
+@property BOOL customGlassWallpaperPlaybackRetired, customGlassWallpaperSuspended, customGlassUsingVideoWallpaper;
+@property NSUInteger customGlassBackgroundBlurGeneration;
+@property(nonatomic, strong) NSOperationQueue *customGlassBackgroundBlurQueue;
+@property(nonatomic, strong) UIView *backgroundImageView, *customGlassVideoWallpaperBlurView;
+@end
+@implementation TestNavigation
+${method}
+@end
+#define CHECK(value) do { if (!(value)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+int main(void) { @autoreleasepool {
+  renders = [NSMutableArray array]; started = dispatch_semaphore_create(0); gate = dispatch_semaphore_create(0);
+  TestNavigation *nav = [TestNavigation new];
+  nav.backgroundImageView = [UIView new]; nav.customGlassVideoWallpaperBlurView = [UIView new];
+  nav.customGlassBackgroundSourceImage = [UIImage new];
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.1];
+  CHECK(dispatch_semaphore_wait(started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.2];
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.3];
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.4];
+  NSUInteger generation = nav.customGlassBackgroundBlurGeneration;
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.4];
+  CHECK(nav.customGlassBackgroundBlurGeneration == generation);
+  dispatch_semaphore_signal(gate);
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+  while (fabs(nav.backgroundImageView.image.intensity - 0.4) > 0.0001 && deadline.timeIntervalSinceNow > 0)
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  CHECK(fabs(nav.backgroundImageView.image.intensity - 0.4) < 0.0001);
+  @synchronized(renders) { CHECK(renders.count == 2); CHECK(fabs([renders.lastObject doubleValue] - 0.4) < 0.0001); }
+  nav.customGlassUsingVideoWallpaper = YES;
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.8];
+  CHECK(nav.backgroundImageView.image == nav.customGlassBackgroundSourceImage);
+  CHECK(nav.customGlassVideoWallpaperBlurView.hidden && nav.customGlassVideoWallpaperBlurView.blurIntensity == 0);
+  nav.customGlassWallpaperPlaybackRetired = YES;
+  generation = nav.customGlassBackgroundBlurGeneration;
+  [nav customGlassApplySharedBackgroundBlurIntensity:0.9];
+  CHECK(nav.customGlassBackgroundBlurGeneration == generation);
+  CHECK(renders.count == 2);
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'blur.m');
+    const binary = path.join(directory, 'blur-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    execFileSync(binary, []);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('native Foundation mount task waits outside privilege scopes and reports spawn, busy and child failures', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; no mounts or privilege changes are performed.' : false,
+}, () => {
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-mount-task-'));
+  try {
+    const methods = section(environment, '- (void)runCustomMountCommand:', '- (BOOL)removeCustomMountCopyAtPath:');
+    const source = `#import <Foundation/Foundation.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <errno.h>
+extern char **environ;
+static int scopeDepth, spawnFailure, waitCalls;
+static dispatch_semaphore_t gate;
+static int exec_cmd_nowait(pid_t *child, const char *binary, ...) {
+  if (scopeDepth != 2) abort();
+  if (spawnFailure) return spawnFailure;
+  char *args[] = {"/bin/sh", "-c", "exit 3", NULL};
+  return posix_spawn(child, args[0], NULL, NULL, args, environ);
+}
+static pid_t testWait(pid_t child, int *status, int options) {
+  if (scopeDepth != 0 || NSThread.isMainThread || child <= 0) abort();
+  waitCalls++;
+  if (waitCalls == 1) { errno = EINTR; return -1; }
+  dispatch_semaphore_wait(gate, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+  return waitpid(child, status, options);
+}
+#define waitpid testWait
+#define JBROOT_PATH(p) p
+@interface TestEnvironment : NSObject
+@property BOOL isJailbroken, customMountTaskRunning;
+@end
+@implementation TestEnvironment
+- (void)runAsRoot:(void (^)(void))block { scopeDepth++; block(); scopeDepth--; }
+- (void)runUnsandboxed:(void (^)(void))block { scopeDepth++; block(); scopeDepth--; }
+${methods}
+@end
+#undef waitpid
+#define CHECK(value) do { if (!(value)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+int main(void) { @autoreleasepool {
+  gate = dispatch_semaphore_create(0);
+  TestEnvironment *env = [TestEnvironment new]; env.isJailbroken = YES;
+  __block BOOL completed = NO, busy = NO, responsive = NO;
+  __block int result = -1;
+  [env mountCustomDirectory:@"/test" completion:^(int r) {
+    if (!NSThread.isMainThread || env.customMountTaskRunning || scopeDepth) abort();
+    result = r; completed = YES;
+  }];
+  CHECK(env.customMountTaskRunning && scopeDepth == 0);
+  [env unmountCustomDirectory:@"/test" completion:^(int r) { busy = r == EBUSY; }];
+  dispatch_async(dispatch_get_main_queue(), ^{ responsive = YES; dispatch_semaphore_signal(gate); });
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+  while ((!completed || !busy || !responsive) && deadline.timeIntervalSinceNow > 0)
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  CHECK(completed && busy && responsive && WIFEXITED(result) && WEXITSTATUS(result) == 3 && waitCalls == 2);
+  completed = NO; spawnFailure = 57;
+  [env mountCustomDirectory:@"/test" completion:^(int r) { result = r; completed = YES; }];
+  deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+  while (!completed && deadline.timeIntervalSinceNow > 0)
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  CHECK(completed && result == 57 && waitCalls == 2 && !env.customMountTaskRunning);
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'mount-task.m');
+    const binary = path.join(directory, 'mount-task-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    execFileSync(binary, []);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('only the purple fallback theme and primary icon remain', () => {
@@ -393,6 +738,7 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
   );
   const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:')
     .replace(supporterActions, '')
+    .replace(section(settings, '- (void)setCustomMountBusy:', '- (void)presentCustomMountMessage:'), '')
     .replace(section(settings, '- (void)presentCustomMountMessage:', '- (void)refreshJailbreakAppsPressed'), '');
   assert.equal(fingerprint(actions.replace(/\n{3,}/g, '\n\n')),
     'c41d2b8b3706d4a2e3291ca57b8cbbca01c3487d0b4d12ebe393cf0b0bf234b8');
