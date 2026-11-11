@@ -897,6 +897,19 @@ extern char **environ;
     return saved;
 }
 
+- (int)mountCustomDirectory:(NSString *)path
+{
+    if (!self.isJailbroken || ![path isKindOfClass:NSString.class]) return -1;
+    __block int result = -1;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            result = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "mount",
+                              path.fileSystemRepresentation, NULL);
+        }];
+    }];
+    return result;
+}
+
 - (void)runCustomMountCommand:(NSString *)command path:(NSString *)path
                   completion:(void (^)(int result))completion
 {

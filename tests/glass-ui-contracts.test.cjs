@@ -362,6 +362,11 @@ test('mount tasks spawn in the existing privilege scope and wait outside it with
   assert.match(settings, /self\.view\.userInteractionEnabled = !busy/);
   assert.match(settings, /mountCustomDirectory:path completion:/);
   assert.match(settings, /unmountCustomDirectory:path completion:/);
+  // The startup restore is a separate synchronous caller on the jailbreak
+  // worker. It must not continue before saved mounts have been restored.
+  assert.match(environment, /- \(int\)mountCustomDirectory:\(NSString \*\)path\s*\{/);
+  assert.match(read('Application/Dopamine/Jailbreak/DOEnvironmentManager.h'), /- \(int\)mountCustomDirectory:\(NSString \*\)path;/);
+  assert.match(read('Application/Dopamine/Jailbreak/DORuntimeConfiguration.m'), /int result = \[environment mountCustomDirectory:path\]/);
 });
 
 test('native Foundation media transactions preserve old files on write failure and reject late imports', {

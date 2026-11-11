@@ -80,6 +80,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
 - (NSArray<NSString *> *)customMountPaths;
+// Startup restoration must finish before the jailbreak continues.
+- (int)mountCustomDirectory:(NSString *)path;
 - (void)mountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (void)unmountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (BOOL)removeCustomMountCopyAtPath:(NSString *)path;
