@@ -579,3 +579,11 @@ Final local full suite after deployment: 161 tests, 151 passed, 0 failed,
 sidecar hashes match the tested repository files; installed PowerShell parses
 without errors. A read-only preview confirms only the requested displayed
 identity 0029 is REVERIFY_REQUIRED. No TIPA build is needed for this fix.
+
+Pushed fix `066bc1095b0e19afa026d998507ccdd2fb88b461` to the owner's
+`rc9-ios16-next` branch. GitHub source-check run `43159384279` succeeded:
+161 tests, 145 passed, 0 failed, 16 skips. Linux cannot execute Windows Forms or
+the optional original-source/OpenSSL Windows integration tests; the reviewed
+predecessor upgrade test also skips in the shallow checkout. Those upgrade and
+Windows paths passed locally with synthetic data as recorded above. No mobile
+build was triggered and no new TIPA was produced.
