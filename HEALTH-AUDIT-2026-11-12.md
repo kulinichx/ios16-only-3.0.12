@@ -460,3 +460,17 @@ Follow-up CI evidence for runtime commit
 
 Device proof generation and subsequent RHB1 activation still require the
 owner's phone validation; CI success alone does not establish device success.
+
+Owner downloaded the artifact to TIPA/11-12 and reported that it can now be used
+normally. Verified the downloaded ZIP against the GitHub artifact digest and
+the extracted local TIPA against the entry inside that verified ZIP. TIPA size
+29,137,564 bytes; SHA256:
+`20b696c38af84e853e2cf2a46a2467c98960fd1fbf8ef6afc5c102eef7006ad8`.
+The artifact's extracted signed entitlement plist contains the intended app
+identity and single app-scoped keychain group. Stopped only this session's
+duplicate download after the owner's download was available.
+
+The owner's general success report does not yet explicitly confirm a successful
+RHP1 exchange, RHB1 import or the bound status label. Those detailed milestones
+and reboot/cross-device checks remain unconfirmed; do not enable mandatory
+binding or announce full anti-copy protection based on this report alone.
