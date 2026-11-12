@@ -474,3 +474,51 @@ The owner's general success report does not yet explicitly confirm a successful
 RHP1 exchange, RHB1 import or the bound status label. Those detailed milestones
 and reboot/cross-device checks remain unconfirmed; do not enable mandatory
 binding or announce full anti-copy protection based on this report alone.
+
+## Original Issuer Binding Integration
+
+Installed an additive integration into M:\签发工具 at the owner's request.
+Only the public program source was read, backed up and patched. The installer
+never opens the private key, user databases, challenges, bindings or issued
+activation files. No live issuance or production-window startup performed.
+
+- The original window now has selected-user, batch and refresh controls in the
+  License header; history adds a device-proof status column. It uses its own
+  directory without another folder picker and retains original names/notes.
+- Both UIs call the same tested Node binding helper. Initial load and refresh
+  only plan; signing requires an explicit user review of the full selection
+  followed by a chosen output target. Preserve exact review digests, stale
+  snapshot refusal and no-overwrite publication. A successful proof/RH1 issue
+  refreshes the plan but never auto-signs RHB1.
+- Missing Node, malformed input and failed/stale previews disable signing and
+  discard cached eligibility. Clipboard/read failure after publication does not
+  misreport an already generated file as an issuance failure.
+- Original RH1 signing, proof protocol, migration logic and database writers
+  were not rewritten. An existing RHB1 still binds the exact RH1; docs warn not
+  to regenerate RH1 when only a binding supplement is needed.
+- Installer checks the reviewed program SHA256, refuses unknown existing
+  sidecars, backs up program bytes only, rechecks before replacement, preserves
+  BOM/line endings and rolls back new sidecars on failed replacement. Repeated
+  installation is idempotent for identical program files. This is not a general
+  updater or crash-atomic transaction across all files.
+
+Production original PS1 SHA256:
+`28b1dde804aa2a2c525917d283b4fc99a91bb600ecf89c991e86a922f44f7654`.
+Installed PS1 SHA256:
+`d04bb2feced30f949d1b391878f0687b0ccd965ef3a3454dea27885678d43160`.
+Backup directory: M:\签发工具\program-backups\binding-2026-11-12T04-26-36-352Z-83650806.
+Verified the backup hash equals the original; parsed both installed PS1 files
+without execution. New program sidecar hashes match the repository sources.
+
+Local full Windows suite: 148 tests, 138 passed, 0 failed, 10 platform skips.
+Integration-specific suite: 5/5 passed, including actual Forms controls,
+single/batch/cancel/stale/failure paths, program-only backup and fault injection.
+An optional original-source test runs in a temporary directory with synthetic
+users and a plan-only helper; both before and after installation it passed
+data-bound history refresh/search and minimum-window overlap checks. Rendered
+and visually inspected the original layout and review dialog using synthetic
+users only. No production data, private key or real clipboard used in tests.
+
+This changes the desktop issuer only. The tested mobile package remains
+Dopamine-rh-rc9-e725865.tipa; no new TIPA is required. Real operator interaction
+and real issuance through the newly integrated UI remain owner-controlled.

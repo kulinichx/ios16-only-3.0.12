@@ -35,7 +35,7 @@ jobs:
         with:
           submodules: recursive
       - run: node scripts/prepare-xpf-ios16.cjs
-      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs
+      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs
 
   build:
     if: github.event_name == 'workflow_dispatch'
@@ -70,7 +70,7 @@ jobs:
       - name: Check iOS 16 source contracts
         run: |
           node scripts/prepare-xpf-ios16.cjs
-          node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs
+          node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
           plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
           plutil -lint Application/Dopamine/UI/Themes/Themes.plist
