@@ -1,7 +1,8 @@
-﻿param([string]$IssuerDirectory = '', [switch]$SmokeTest)
+﻿param([string]$IssuerDirectory = '', [switch]$SmokeTest, [switch]$VerifyVisible)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+if ($VerifyVisible -and -not $SmokeTest) { throw 'VerifyVisible requires SmokeTest.' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $node = (Get-Command node -ErrorAction Stop).Source
@@ -187,6 +188,29 @@ if ($IssuerDirectory) {
 if ($SmokeTest) {
     $form.CreateControl()
     $form.PerformLayout()
+    if ($VerifyVisible) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class BindingStartupVisibility {
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr handle);
+}
+'@
+        $script:startupVisible = $false
+        $timer = New-Object Windows.Forms.Timer
+        $timer.Interval = 250
+        $timer.Add_Tick({
+            $timer.Stop()
+            $script:startupVisible = [BindingStartupVisibility]::IsWindowVisible($form.Handle)
+            $form.Close()
+        })
+        try {
+            $timer.Start()
+            [void]$form.ShowDialog()
+        } finally { $timer.Stop(); $timer.Dispose() }
+        if (-not $script:startupVisible) { $form.Dispose(); throw 'Launcher created a hidden main window.' }
+    }
     [pscustomobject]@{ Rows = $grid.Rows.Count; CanIssue = $issue.Enabled; CanBatch = $batch.Enabled;
         Summary = $summary.Text; Width = $form.ClientSize.Width; Height = $form.ClientSize.Height } | ConvertTo-Json
     $form.Dispose()

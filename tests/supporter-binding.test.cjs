@@ -295,6 +295,26 @@ test('Windows migration preview smoke test uses empty temporary databases and ne
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('Windows VBS launcher displays an actual visible main window and propagates smoke-test failures', {
+  skip: process.platform !== 'win32' ? 'Requires the Windows script host and an interactive desktop.' : false,
+}, () => {
+  const launcher = read('scripts/SupporterBindingTool.vbs');
+  assert.match(launcher, /shell\.Run\(command, 1, True\)/);
+  assert.match(launcher, /-WindowStyle Hidden/);
+  assert.match(launcher, /WScript\.Quit status/);
+  execFileSync('cscript.exe', ['//Nologo', path.join(root, 'scripts/SupporterBindingTool.vbs'), '--smoke-test'],
+    { encoding: 'utf8', timeout: 30000 });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-launcher-'));
+  try {
+    const filename = path.join(directory, 'SupporterBindingTool.vbs');
+    fs.writeFileSync(filename, launcher);
+    fs.writeFileSync(path.join(directory, 'SupporterBindingTool.ps1'),
+      'param([switch]$SmokeTest, [switch]$VerifyVisible)\nexit 23\n');
+    assert.throws(() => execFileSync('cscript.exe', ['//Nologo', filename, '--smoke-test'],
+      { encoding: 'utf8', timeout: 30000 }), error => error.status === 23);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('App validates issuer signature before payload parsing, hardware and fresh device-key possession', () => {
   const parser = body(app, 'DORHSupporterBindingCertificateInfo');
   assert.ok(parser.indexOf('SecKeyVerifySignature(') < parser.indexOf('JSONObjectWithData:payload'));

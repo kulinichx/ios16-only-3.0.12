@@ -324,3 +324,23 @@ Linux CI run `43143626679` passed for commit
 the dangling-link refusal and POSIX output-permission assertions. No new macOS
 build was requested for this tooling-only change; no app/runtime source changed.
 The most recent tested TIPA remains `Dopamine-rh-rc9-41d6df6.tipa`.
+
+## Windows launcher visibility repair
+
+User double-click reproduction found five running helper instances whose main
+forms all had native `IsWindowVisible == false`. Direct PowerShell smoke tests
+passed because they had not exercised the hidden VBS launch path.
+
+- VBS now starts the child with normal window startup information; PowerShell's
+  own `-WindowStyle Hidden` hides its console without hiding the modal form.
+- Launch errors propagate a nonzero status. Test mode suppresses the error
+  message box, returns the child status and never loads the real issuer folder.
+- A Windows regression test invokes the actual VBS launcher, shows the form,
+  checks native visibility using a short UI timer, then closes it. A disposable
+  stub verifies propagation of a child failure status without blocking dialogs.
+- Local full suite: 138 tests, 128 passed, 0 failed, 10 platform skips. Both
+  Windows preview and actual launcher visibility checks passed.
+- The five observed duplicate hidden forms were closed gracefully by exact
+  title and process/path checks. No issuer database or key was read or changed.
+
+No app/runtime files changed and no new TIPA is needed for this launcher repair.
