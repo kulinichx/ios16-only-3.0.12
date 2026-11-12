@@ -284,3 +284,39 @@ temporary files or unknown user files. References remain subject to the normal
 theme bootstrap/recovery policy. Real device appearance/storage behavior is not
 proven by native codec/container test doubles. Legacy RH1 binding migration
 remains open and the real issuer tool/data remain untouched.
+
+## Binding migration tooling safeguards
+
+The legacy RH1 compatibility policy is unchanged. This follow-up only hardens
+the repository's independent migration helper and Windows preview UI:
+
+- Preview returns a deterministic digest of each selected signed RH1 and exact
+  hardware/key binding. Issue commands require the reviewed digest and reject
+  changed data before opening the issuer key. This detects review/issue drift;
+  it does not establish that a historical binding was legitimately reviewed.
+- Existing/source output paths are rejected before private-key access. Bounded
+  database reads enforce the 16 MiB limit before parsing, including file growth.
+- All outputs are written and synced in a unique staging directory first.
+  Hard-link publication refuses overwrites, including files created after the
+  initial check. Ordinary failures roll back only outputs with matching file
+  identity; incomplete rollback reports remaining paths. Unsupported filesystems
+  fail rather than falling back to overwrite-prone publication.
+- UI clears old preview state on reload, carries the correct digest and reports
+  clipboard/staging cleanup problems separately from successful issuance.
+- Tests use generated disposable issuer keys and temporary databases only.
+  Cover stale review, source/existing targets, single/batch issuance, injected
+  write/link/cleanup failure, concurrently replaced files, and Windows Forms
+  preview startup. No real issuer key/database was opened or changed.
+
+This is not crash-atomic multi-file publication. Power loss or forced process
+termination may leave complete partial outputs and staging files for manual
+inspection. Directory ACLs remain the issuer's responsibility; no hostile local
+filesystem security boundary is claimed. Mandatory binding remains disabled
+pending issuer-approved migration and physical-device validation.
+
+Local Windows validation: 137 tests, 127 passed, 0 failed, 10 platform skips.
+Includes actual Windows Forms preview startup and NTFS hard-link publication
+using disposable data. An initial fixture assertion used argv after the helper
+consumed it; the capture wrapper now copies argv. No production guard relaxed.
+Cross-platform CI remains pending. No app/runtime source has changed; the most
+recent tested TIPA remains `Dopamine-rh-rc9-41d6df6.tipa`.

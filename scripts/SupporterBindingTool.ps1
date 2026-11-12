@@ -30,7 +30,10 @@ function Invoke-BindingHelper([string[]]$Arguments) {
         $process.WaitForExit()
         $output = $stdout.Result
         $failure = $stderr.Result
-        if ($process.ExitCode -ne 0) { throw $failure.Trim() }
+        if ($process.ExitCode -ne 0) {
+            if ($failure -match 'review-stale-reload-plan') { throw '数据库已在预览后改变。请重新选择目录、复核绑定后再补发。' }
+            throw $failure.Trim()
+        }
         return $output | ConvertFrom-Json
     } finally { $process.Dispose() }
 }
@@ -101,21 +104,27 @@ function Show-BindingError([object]$Failure) {
 }
 
 function Load-BindingPlan([string]$Directory) {
-    $plan = Invoke-BindingHelper @('plan', '--issuer-dir', $Directory)
+    $issue.Enabled = $false
+    $batch.Enabled = $false
+    $batch.Tag = $null
+    $pathBox.Clear()
     $grid.Rows.Clear()
+    $summary.Text = '正在预检；若失败，请重新选择有效的签发工具目录。'
+    $plan = Invoke-BindingHelper @('plan', '--issuer-dir', $Directory)
     foreach ($record in @($plan.records)) {
         $state = if ($record.status -eq 'READY_FOR_REVIEW') { '已有历史绑定 · 可复核后补发' } else { '旧授权 · 待补设备证明' }
         $index = $grid.Rows.Add([string]$record.id, $state)
-        $grid.Rows[$index].Tag = [string]$record.status
+        $grid.Rows[$index].Tag = $record
     }
     $pathBox.Text = [IO.Path]::GetFullPath($Directory)
     $summary.Text = "用户 $($plan.total) · 可补发 $($plan.eligible) · 待证明 $($plan.needsProof) · 未匹配绑定 $($plan.orphanBindings)`r`n原授权编号和数据库保持不变。"
     $batch.Enabled = $plan.eligible -gt 0
-    $issue.Enabled = $grid.SelectedRows.Count -gt 0 -and $grid.SelectedRows[0].Tag -eq 'READY_FOR_REVIEW'
+    $batch.Tag = [string]$plan.reviewSha256
+    $issue.Enabled = $grid.SelectedRows.Count -gt 0 -and $null -ne $grid.SelectedRows[0].Tag -and $grid.SelectedRows[0].Tag.status -eq 'READY_FOR_REVIEW'
 }
 
 $grid.Add_SelectionChanged({
-    $issue.Enabled = $grid.SelectedRows.Count -gt 0 -and $grid.SelectedRows[0].Tag -eq 'READY_FOR_REVIEW'
+    $issue.Enabled = $grid.SelectedRows.Count -gt 0 -and $null -ne $grid.SelectedRows[0].Tag -and $grid.SelectedRows[0].Tag.status -eq 'READY_FOR_REVIEW'
 })
 
 $choose.Add_Click({
@@ -128,8 +137,9 @@ $choose.Add_Click({
 })
 
 $issue.Add_Click({
-    if ($grid.SelectedRows.Count -eq 0) { return }
+    if ($grid.SelectedRows.Count -eq 0 -or $null -eq $grid.SelectedRows[0].Tag -or $grid.SelectedRows[0].Tag.status -ne 'READY_FOR_REVIEW') { return }
     $id = [string]$grid.SelectedRows[0].Cells['id'].Value
+    $review = [string]$grid.SelectedRows[0].Tag.reviewSha256
     $confirm = [Windows.Forms.MessageBox]::Show($form,
         "确认已复核用户 #$id 的历史绑定？将使用现有签发私钥生成绑定凭证，不修改原数据库。", '确认补发', 'YesNo', 'Question')
     if ($confirm -ne 'Yes') { return }
@@ -137,11 +147,16 @@ $issue.Add_Click({
     try {
         $dialog.Filter = '授权文本 (*.txt)|*.txt'
         $dialog.FileName = "supporter-$id-bound.txt"
-        $dialog.OverwritePrompt = $true
+        $dialog.OverwritePrompt = $false
         if ($dialog.ShowDialog($form) -ne 'OK') { return }
-        $result = Invoke-BindingHelper @('issue', '--issuer-dir', $pathBox.Text, '--id', $id, '--out', $dialog.FileName)
-        [Windows.Forms.Clipboard]::SetText([IO.File]::ReadAllText($dialog.FileName))
-        [void][Windows.Forms.MessageBox]::Show($form, '已生成并复制。用户可在新版设置的授权入口一次粘贴。', '补发完成', 'OK', 'Information')
+        $result = Invoke-BindingHelper @('issue', '--issuer-dir', $pathBox.Text, '--id', $id, '--out', $dialog.FileName, '--review-sha256', $review)
+        $message = "已生成：$($dialog.FileName)"
+        try {
+            [Windows.Forms.Clipboard]::SetText([IO.File]::ReadAllText($dialog.FileName))
+            $message += "`r`n已复制。用户可在新版设置的授权入口一次粘贴。"
+        } catch { $message += "`r`n剪贴板不可用，授权文件已生成，请勿重复补发。" }
+        if (@($result.cleanupWarnings).Count -gt 0) { $message += "`r`n暂存清理未完成：$($result.cleanupWarnings -join ', ')" }
+        [void][Windows.Forms.MessageBox]::Show($form, $message, '补发完成', 'OK', 'Information')
     } catch { Show-BindingError $_.Exception.Message }
     finally { $dialog.Dispose() }
 })
@@ -154,8 +169,10 @@ $batch.Add_Click({
     try {
         $dialog.Description = '选择空的输出目录；不会覆盖已有文件'
         if ($dialog.ShowDialog($form) -ne 'OK') { return }
-        $result = Invoke-BindingHelper @('issue-all', '--issuer-dir', $pathBox.Text, '--out-dir', $dialog.SelectedPath)
-        [void][Windows.Forms.MessageBox]::Show($form, "已补发 $($result.issued) 条，原数据库未改动。", '补发完成', 'OK', 'Information')
+        $result = Invoke-BindingHelper @('issue-all', '--issuer-dir', $pathBox.Text, '--out-dir', $dialog.SelectedPath, '--review-sha256', ([string]$batch.Tag))
+        $message = "已补发 $($result.issued) 条，原数据库未改动。"
+        if (@($result.cleanupWarnings).Count -gt 0) { $message += "`r`n暂存清理未完成：$($result.cleanupWarnings -join ', ')" }
+        [void][Windows.Forms.MessageBox]::Show($form, $message, '补发完成', 'OK', 'Information')
     } catch { Show-BindingError $_.Exception.Message }
     finally { $dialog.Dispose() }
 })

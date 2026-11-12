@@ -117,35 +117,114 @@ function issue(row, privateKey, publicKey = issuerPublicKey, now = Math.floor(Da
   return `${row.license}\n${certificate}\n`;
 }
 
+function reviewSha256(rows) {
+  const snapshot = rows.map(row => ({ id: row.id, license: row.license, binding: row.binding ? {
+    DeviceCode: row.binding.DeviceCode, HardwareHash: row.binding.HardwareHash,
+    KeyFingerprint: row.binding.KeyFingerprint, PublicKey: row.binding.PublicKey,
+  } : null })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return sha256(JSON.stringify({ protocol: 'DopamineRH-RHB1-review-v1', records: snapshot }));
+}
+
+function outputExists(filename, io = fs) {
+  try { io.lstatSync(filename); return true; }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
+function publishOutputs(outputs, io = fs) {
+  requireValue(outputs.length > 0, 'no-outputs');
+  const parent = path.dirname(outputs[0].filename);
+  requireValue(outputs.every(output => path.dirname(output.filename) === parent), 'output-directories-must-match');
+  requireValue(new Set(outputs.map(output => output.filename.toLowerCase())).size === outputs.length, 'duplicate-output');
+  for (const output of outputs) requireValue(!outputExists(output.filename, io), 'output-already-exists');
+  io.mkdirSync(parent, { recursive: true });
+  const staging = io.mkdtempSync(path.join(parent, '.rh-binding-'));
+  const prepared = [];
+  const published = [];
+  const warnings = [];
+  let failure;
+  try {
+    for (const [index, output] of outputs.entries()) {
+      const temporary = path.join(staging, `${index}.txt`);
+      const fd = io.openSync(temporary, 'wx', 0o600);
+      prepared.push(temporary);
+      try { io.writeFileSync(fd, output.content); io.fsyncSync(fd); }
+      finally { io.closeSync(fd); }
+    }
+    // Hard links publish complete files without the overwrite race of rename.
+    for (const [index, output] of outputs.entries()) {
+      const identity = io.lstatSync(prepared[index], { bigint: true });
+      io.linkSync(prepared[index], output.filename);
+      published.push({ filename: output.filename, identity });
+    }
+  } catch (error) {
+    failure = error;
+    for (const output of published.reverse()) {
+      try {
+        const current = io.lstatSync(output.filename, { bigint: true });
+        requireValue(current.isFile() && current.dev === output.identity.dev && current.ino === output.identity.ino,
+          'published-output-replaced');
+        io.unlinkSync(output.filename);
+      } catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') warnings.push(output.filename);
+      }
+    }
+  } finally {
+    for (const temporary of prepared) {
+      try { io.unlinkSync(temporary); }
+      catch (error) { if (error.code !== 'ENOENT') warnings.push(temporary); }
+    }
+    try { io.rmdirSync(staging); }
+    catch (error) { if (error.code !== 'ENOENT') warnings.push(staging); }
+  }
+  if (failure) throw new Error(`${failure.message}${warnings.length ? `; cleanup-incomplete: ${warnings.join(', ')}` : ''}`);
+  return warnings;
+}
+
 function readArray(filename) {
-  const bytes = fs.readFileSync(filename);
-  requireValue(bytes.length <= 16 * 1024 * 1024, 'database-too-large');
+  const limit = 16 * 1024 * 1024;
+  const fd = fs.openSync(filename, 'r');
+  let bytes;
+  try {
+    const stat = fs.fstatSync(fd);
+    requireValue(stat.isFile(), 'database-must-be-file');
+    requireValue(stat.size <= limit, 'database-too-large');
+    const buffer = Buffer.alloc(limit + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const count = fs.readSync(fd, buffer, size, buffer.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    requireValue(size <= limit, 'database-too-large');
+    bytes = buffer.subarray(0, size);
+  } finally { fs.closeSync(fd); }
   const parsed = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));
   requireValue(Array.isArray(parsed), 'database-must-be-array');
   return parsed;
 }
 
-function main(argv) {
+function main(argv, publicKey = issuerPublicKey) {
   const command = argv.shift();
   requireValue(['plan', 'issue', 'issue-all'].includes(command),
-    'Usage: node supporter-binding.cjs plan|issue|issue-all --issuer-dir DIR [--id ID --out FILE | --out-dir DIR]');
+    'Usage: node supporter-binding.cjs plan|issue|issue-all --issuer-dir DIR [--id ID --out FILE | --out-dir DIR] --review-sha256 HASH (issue commands only)');
   const options = {};
   while (argv.length) {
     const key = argv.shift();
     const value = argv.shift();
-    requireValue(['--issuer-dir', '--id', '--out', '--out-dir'].includes(key) && value && !options[key], 'invalid-or-duplicate-option');
+    requireValue(['--issuer-dir', '--id', '--out', '--out-dir', '--review-sha256'].includes(key) && value && !options[key], 'invalid-or-duplicate-option');
     options[key] = value;
   }
   requireValue(options['--issuer-dir'], 'issuer-directory-required');
   const directory = path.resolve(options['--issuer-dir']);
   const result = plan(readArray(path.join(directory, 'supporters.json')),
-    readArray(path.join(directory, 'supporter-device-proof-bindings.json')));
+    readArray(path.join(directory, 'supporter-device-proof-bindings.json')), publicKey);
   const eligible = result.rows.filter(row => row.binding);
   if (command === 'plan') {
     requireValue(Object.keys(options).length === 1, 'plan-does-not-accept-output-options');
-    console.log(JSON.stringify({ total: result.rows.length, eligible: eligible.length,
+    console.log(JSON.stringify({ total: result.rows.length, eligible: eligible.length, reviewSha256: reviewSha256(eligible),
       needsProof: result.rows.length - eligible.length, orphanBindings: result.orphanBindings,
-      records: result.rows.map(row => ({ id: row.id, status: row.binding ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND' })),
+      records: result.rows.map(row => ({ id: row.id, status: row.binding ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND',
+        reviewSha256: reviewSha256([row]) })),
     }, null, 2));
     return;
   }
@@ -159,28 +238,28 @@ function main(argv) {
     selected = eligible;
     requireValue(selected.length > 0, 'no-reviewed-bindings');
   }
-  // Only explicit issue commands open the private key. Never update the source databases.
-  const privateKey = crypto.createPrivateKey(fs.readFileSync(path.join(directory, 'DopamineRH-supporter-private.pem')));
-  const outputs = selected.map(row => ({
+  requireValue(typeof options['--review-sha256'] === 'string' && hashPattern.test(options['--review-sha256']), 'review-sha256-required');
+  requireValue(options['--review-sha256'] === reviewSha256(selected), 'review-stale-reload-plan');
+  const targets = selected.map(row => ({ row,
     filename: command === 'issue' ? path.resolve(options['--out']) :
       path.resolve(options['--out-dir'], `supporter-${row.id}-bound.txt`),
-    content: issue(row, privateKey),
   }));
   const sourceFiles = ['supporters.json', 'supporters.backup.json', 'supporter-device-proof-bindings.json',
     'supporter-device-proof-challenges.json', 'DopamineRH-supporter-private.pem'];
   const excluded = new Set(sourceFiles.map(name => path.join(directory, name).toLowerCase()));
-  for (const output of outputs) {
-    requireValue(!excluded.has(output.filename.toLowerCase()) && !fs.existsSync(output.filename), 'output-exists-or-is-source-data');
+  for (const output of targets) {
+    requireValue(!excluded.has(output.filename.toLowerCase()) && !outputExists(output.filename), 'output-exists-or-is-source-data');
   }
-  for (const output of outputs) {
-    fs.mkdirSync(path.dirname(output.filename), { recursive: true });
-    fs.writeFileSync(output.filename, output.content, { flag: 'wx', mode: 0o600 });
-  }
+  // A reviewed snapshot and all target checks precede opening the issuer key.
+  const privateKey = crypto.createPrivateKey(fs.readFileSync(path.join(directory, 'DopamineRH-supporter-private.pem')));
+  const outputs = targets.map(output => ({ filename: output.filename, content: issue(output.row, privateKey, publicKey) }));
+  const cleanupWarnings = publishOutputs(outputs);
   console.log(JSON.stringify({ issued: outputs.length, needsProof: result.rows.length - eligible.length,
-    orphanBindings: result.orphanBindings, sourceDatabasesChanged: false }));
+    orphanBindings: result.orphanBindings, sourceDatabasesChanged: false, cleanupWarnings }));
 }
 
-module.exports = { sha256, publicKeyFromPoint, issuerPublicKey, bindingDomain, plan, issue, verifyLicense, verifyCertificate, main };
+module.exports = { sha256, publicKeyFromPoint, issuerPublicKey, bindingDomain, plan, issue, verifyLicense, verifyCertificate,
+  reviewSha256, publishOutputs, main };
 if (require.main === module) {
   try { main(process.argv.slice(2)); }
   catch (error) { console.error(`Binding operation failed: ${error.message}`); process.exitCode = 1; }

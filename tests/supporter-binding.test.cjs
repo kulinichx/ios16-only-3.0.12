@@ -98,6 +98,203 @@ test('issuer planning opens only records and bindings, never the private key or 
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+function captureMain(argv) {
+  const original = console.log;
+  let output;
+  console.log = value => { output = value; };
+  try { binding.main([...argv], issuer.publicKey); return JSON.parse(output); }
+  finally { console.log = original; }
+}
+
+function issuerFixture(run) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-issuer-'));
+  const { records, proof } = fixture();
+  const recordsFile = path.join(directory, 'supporters.json');
+  const bindingsFile = path.join(directory, 'supporter-device-proof-bindings.json');
+  fs.writeFileSync(recordsFile, JSON.stringify(records));
+  fs.writeFileSync(bindingsFile, JSON.stringify([proof]));
+  try { run({ directory, recordsFile, bindingsFile, records, proof }); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+test('review digests bind selected signed licenses and exact device bindings, independent of record order', () => {
+  const { row } = fixture();
+  const digest = binding.reviewSha256([row]);
+  assert.match(digest, /^[0-9A-F]{64}$/);
+  assert.notEqual(binding.reviewSha256([{ ...row, binding: null }]), digest);
+  assert.notEqual(binding.reviewSha256([{ ...row, binding: { ...row.binding, HardwareHash: 'B'.repeat(64) } }]), digest);
+  assert.notEqual(binding.reviewSha256([{ ...row, license: row.license + 'x' }]), digest);
+  const other = { ...row, id: '0028' };
+  assert.equal(binding.reviewSha256([row, other]), binding.reviewSha256([other, row]));
+});
+
+test('issuance requires the reviewed snapshot and rejects stale bindings before opening any private key', () => {
+  issuerFixture(({ directory, bindingsFile, proof }) => {
+    const plan = captureMain(['plan', '--issuer-dir', directory]);
+    const argv = ['issue', '--issuer-dir', directory, '--id', '0027', '--out', path.join(directory, 'out.txt')];
+    assert.throws(() => captureMain([...argv]), /review-sha256-required/);
+    assert.throws(() => captureMain([...argv, '--review-sha256', 'A'.repeat(64)]), /review-stale/);
+    fs.writeFileSync(bindingsFile, JSON.stringify([{ ...proof, HardwareHash: 'B'.repeat(64) }]));
+    assert.throws(() => captureMain([...argv, '--review-sha256', plan.records[0].reviewSha256]), /review-stale/);
+    assert.equal(fs.existsSync(path.join(directory, 'out.txt')), false);
+  });
+});
+
+test('existing and source outputs are rejected before reading the issuer key', () => {
+  issuerFixture(({ directory, recordsFile }) => {
+    const plan = captureMain(['plan', '--issuer-dir', directory]);
+    const filename = path.join(directory, 'existing.txt');
+    fs.writeFileSync(filename, 'keep');
+    for (const output of [filename, recordsFile, path.join(directory, 'DopamineRH-supporter-private.pem')])
+      assert.throws(() => captureMain(['issue', '--issuer-dir', directory, '--id', '0027', '--out', output,
+        '--review-sha256', plan.records[0].reviewSha256]), /output-exists-or-is-source-data/);
+    assert.equal(fs.readFileSync(filename, 'utf8'), 'keep');
+  });
+});
+
+test('oversized databases are refused without parsing or opening an issuer key', () => {
+  issuerFixture(({ directory, recordsFile }) => {
+    fs.truncateSync(recordsFile, 16 * 1024 * 1024 + 1);
+    assert.throws(() => captureMain(['plan', '--issuer-dir', directory]), /database-too-large/);
+  });
+});
+
+test('reviewed single and batch issuance use only disposable issuer data and leave databases unchanged', () => {
+  issuerFixture(({ directory, recordsFile, bindingsFile, records, proof }) => {
+    const otherDevice = 'FFFF-FFFF-FFFF-FFFF-FFFF-FFFF-FFFF-FFFF';
+    const otherLicense = signedWire('RH1', { v: 1, product: 'DopamineRH', sid: '0028', device: otherDevice, ent: ['custom_glass'] });
+    fs.writeFileSync(recordsFile, JSON.stringify([...records, { SupporterId: '0028', DeviceCode: otherDevice, License: otherLicense }]));
+    fs.writeFileSync(bindingsFile, JSON.stringify([proof, { ...proof, DeviceCode: otherDevice }]));
+    const before = [fs.readFileSync(recordsFile), fs.readFileSync(bindingsFile)];
+    fs.writeFileSync(path.join(directory, 'DopamineRH-supporter-private.pem'),
+      issuer.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+    const plan = captureMain(['plan', '--issuer-dir', directory]);
+    const single = path.join(directory, 'single', 'bound.txt');
+    const batch = path.join(directory, 'batch');
+    for (const argv of [
+      ['issue', '--issuer-dir', directory, '--id', '0027', '--out', single, '--review-sha256', plan.records[0].reviewSha256],
+      ['issue-all', '--issuer-dir', directory, '--out-dir', batch, '--review-sha256', plan.reviewSha256],
+    ]) {
+      const result = captureMain(argv);
+      assert.equal(result.issued, argv[0] === 'issue' ? 1 : 2);
+      assert.equal(result.sourceDatabasesChanged, false);
+      assert.deepEqual(result.cleanupWarnings, []);
+    }
+    for (const filename of [single, path.join(batch, 'supporter-0027-bound.txt'), path.join(batch, 'supporter-0028-bound.txt')]) {
+      const [license, certificate] = fs.readFileSync(filename, 'utf8').trim().split('\n');
+      binding.verifyCertificate(certificate, license, issuer.publicKey);
+      if (process.platform !== 'win32') assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
+    }
+    assert.deepEqual(fs.readdirSync(path.dirname(single)), ['bound.txt']);
+    assert.deepEqual(fs.readdirSync(batch).sort(), ['supporter-0027-bound.txt', 'supporter-0028-bound.txt']);
+    assert.deepEqual([fs.readFileSync(recordsFile), fs.readFileSync(bindingsFile)], before);
+  });
+});
+
+function publicationFixture(run) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-publish-'));
+  const outputs = ['one', 'two'].map(name => ({ filename: path.join(directory, `${name}.txt`), content: name }));
+  try { run(directory, outputs); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+test('publication writes and syncs all files before exposing outputs; write failures leave no partial batch', () => {
+  publicationFixture((directory, outputs) => {
+    let writes = 0;
+    const io = { ...fs, writeFileSync(...args) {
+      assert.equal(outputs.some(output => fs.existsSync(output.filename)), false);
+      fs.writeFileSync(...args);
+      if (++writes === 2) throw new Error('injected-write-failure');
+    } };
+    assert.throws(() => binding.publishOutputs(outputs, io), /injected-write-failure/);
+    assert.deepEqual(fs.readdirSync(directory), []);
+  });
+});
+
+test('publication failure rolls back its own outputs without overwriting a concurrent file', () => {
+  publicationFixture((directory, outputs) => {
+    let links = 0;
+    const io = { ...fs, linkSync(source, target) {
+      if (++links === 2) fs.writeFileSync(target, 'concurrent-user-file', { flag: 'wx' });
+      fs.linkSync(source, target);
+    } };
+    assert.throws(() => binding.publishOutputs(outputs, io), /EEXIST/);
+    assert.deepEqual(fs.readdirSync(directory), ['two.txt']);
+    assert.equal(fs.readFileSync(outputs[1].filename, 'utf8'), 'concurrent-user-file');
+  });
+});
+
+test('publication refuses pre-existing targets including dangling links and unsupported hard-link filesystems', () => {
+  publicationFixture((directory, outputs) => {
+    fs.writeFileSync(outputs[0].filename, 'keep');
+    assert.throws(() => binding.publishOutputs(outputs), /output-already-exists/);
+    assert.equal(fs.readFileSync(outputs[0].filename, 'utf8'), 'keep');
+    fs.unlinkSync(outputs[0].filename);
+    if (process.platform !== 'win32') {
+      fs.symlinkSync(path.join(directory, 'missing'), outputs[0].filename);
+      assert.throws(() => binding.publishOutputs(outputs), /output-already-exists/);
+      assert.equal(fs.lstatSync(outputs[0].filename).isSymbolicLink(), true);
+      fs.unlinkSync(outputs[0].filename);
+    }
+    const io = { ...fs, linkSync() { throw new Error('injected-links-unsupported'); } };
+    assert.throws(() => binding.publishOutputs(outputs, io), /injected-links-unsupported/);
+    assert.deepEqual(fs.readdirSync(directory), []);
+  });
+});
+
+test('rollback preserves replaced outputs and reports incomplete cleanup rather than claiming success', () => {
+  publicationFixture((directory, outputs) => {
+    let links = 0;
+    const io = { ...fs, linkSync(source, target) {
+      if (++links === 2) {
+        fs.unlinkSync(outputs[0].filename);
+        fs.writeFileSync(outputs[0].filename, 'replacement', { flag: 'wx' });
+        throw new Error('injected-publish-failure');
+      }
+      fs.linkSync(source, target);
+    } };
+    assert.throws(() => binding.publishOutputs(outputs, io), /injected-publish-failure; cleanup-incomplete:/);
+    assert.deepEqual(fs.readdirSync(directory), ['one.txt']);
+    assert.equal(fs.readFileSync(outputs[0].filename, 'utf8'), 'replacement');
+  });
+});
+
+test('successful publication reports staging cleanup warnings without inviting duplicate issuance', () => {
+  publicationFixture((directory, outputs) => {
+    const io = { ...fs, rmdirSync() { throw new Error('injected-cleanup-failure'); } };
+    const warnings = binding.publishOutputs(outputs, io);
+    assert.equal(warnings.length, 1);
+    assert.equal(path.dirname(warnings[0]), directory);
+    for (const output of outputs) assert.equal(fs.readFileSync(output.filename, 'utf8'), output.content);
+  });
+});
+
+test('migration UI passes review digests, clears failed previews and distinguishes clipboard failure from issuance failure', () => {
+  const ui = read('scripts/SupporterBindingTool.ps1');
+  assert.equal((ui.match(/'--review-sha256'/g) || []).length, 2);
+  assert.ok(ui.indexOf('$grid.Rows.Clear()') < ui.indexOf("$plan = Invoke-BindingHelper @('plan'"));
+  assert.match(ui, /review-stale-reload-plan/);
+  assert.match(ui, /catch \{ \$message \+=/);
+  assert.match(ui, /cleanupWarnings/);
+});
+
+test('Windows migration preview smoke test uses empty temporary databases and never opens an issuer key', {
+  skip: process.platform !== 'win32' ? 'Requires Windows Forms; macOS runs the native app binding tests instead.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-ui-'));
+  try {
+    fs.writeFileSync(path.join(directory, 'supporters.json'), '[]');
+    fs.writeFileSync(path.join(directory, 'supporter-device-proof-bindings.json'), '[]');
+    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(root, 'scripts/SupporterBindingTool.ps1'), '-IssuerDirectory', directory, '-SmokeTest'],
+    { encoding: 'utf8', timeout: 30000 }));
+    assert.equal(result.Rows, 0);
+    assert.equal(result.CanIssue, false);
+    assert.equal(result.CanBatch, false);
+    assert.deepEqual(fs.readdirSync(directory).sort(), ['supporter-device-proof-bindings.json', 'supporters.json']);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('App validates issuer signature before payload parsing, hardware and fresh device-key possession', () => {
   const parser = body(app, 'DORHSupporterBindingCertificateInfo');
   assert.ok(parser.indexOf('SecKeyVerifySignature(') < parser.indexOf('JSONObjectWithData:payload'));

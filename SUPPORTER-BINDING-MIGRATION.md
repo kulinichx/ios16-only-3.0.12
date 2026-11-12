@@ -23,11 +23,13 @@
 node scripts/supporter-binding.cjs plan --issuer-dir 'M:\签发工具'
 ```
 
-正式补发的命令如下，仅在历史绑定已经复核且决定签发时执行：
+正式补发前，先查看 `plan` 返回结果并复核历史绑定。
+单用户使用对应 `records` 行的 `reviewSha256`，批量使用顶层 `reviewSha256`；
+将下面占位符替换为该摘要，仅在确认签发时执行：
 
 ```powershell
-node scripts/supporter-binding.cjs issue --issuer-dir 'M:\签发工具' --id 0027 --out 'TIPA\binding-output\supporter-0027-bound.txt'
-node scripts/supporter-binding.cjs issue-all --issuer-dir 'M:\签发工具' --out-dir 'TIPA\binding-output'
+node scripts/supporter-binding.cjs issue --issuer-dir 'M:\签发工具' --id 0027 --out 'TIPA\binding-output\supporter-0027-bound.txt' --review-sha256 '<该用户的摘要>'
+node scripts/supporter-binding.cjs issue-all --issuer-dir 'M:\签发工具' --out-dir 'TIPA\binding-output' --review-sha256 '<整批摘要>'
 ```
 
 输出为旧 RH1 和新 RHB1 各一行，用户可以在新版设置的授权入口一次粘贴。
@@ -35,6 +37,21 @@ node scripts/supporter-binding.cjs issue-all --issuer-dir 'M:\签发工具' --ou
 输出拒绝覆盖已有文件；不改写原用户库、原授权文件、挑战记录或绑定记录。
 无绑定的记录跳过，重复/损坏/不匹配的身份记录会阻止签发，未匹配绑定不自动分配给用户。
 私钥只在明确签发时由本地 Node.js 读取用于签名，不显示、导出或发送到网络。
+
+### 预览与输出保护
+
+- 图形界面自动携带预览摘要。摘要覆盖所选用户的完整 RH1 及绑定设备码、硬件摘要、公钥和指纹。
+  若预览后这些数据发生变化，补发在读取私钥前停止，必须重新加载并复核。
+  摘要只是防止预览与实际签发错位，不替代人工身份审核，也不是额外的设备证明。
+- 输出目标及受保护数据库路径同样在读取私钥前检查；现有文件和悬空符号链接不覆盖。
+- 先在输出目录的独占暂存目录中完成全部写入和文件同步，再以不覆盖的硬链接发布。
+  输出目录必须位于支持硬链接的文件系统上（如 NTFS、APFS）；不支持时操作失败，不降级成覆盖写入。
+- 普通写入或发布异常会回收本次已发布且文件身份仍匹配的输出，不删除并发出现或被替换的文件。
+  若回收失败会列出位置；成功签发但暂存清理失败则单独提示，不误报为签发失败。
+  剪贴板失败也单独提示，已生成的授权文件仍然有效，无须再次补发。
+- 这不是跨文件的断电事务。进程被强制结束或机器掉电仍可能留下部分完整输出及暂存目录；
+  重试前应人工核对输出，不要因缺少成功提示就认定没有签发。
+  本工具不删除未知暂存目录，不替代签发目录本身的访问权限保护。
 
 ## RHB1 协议
 
