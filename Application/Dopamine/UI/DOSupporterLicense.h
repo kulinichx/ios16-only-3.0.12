@@ -9,12 +9,22 @@
 #import <UIKit/UIKit.h>
 @import Security;
 #import <CommonCrypto/CommonDigest.h>
+#import <objc/runtime.h>
 
 CFPropertyListRef MGCopyAnswer(CFStringRef property);
 
 static NSString * const DORHSupporterLicenseDefaultsKey = @"DORHSupporter.LicenseCode";
 static NSString * const DORHSupporterLicenseDidChangeNotification = @"DORHSupporter.LicenseDidChange";
 static NSString * const DORHSupporterLicenseErrorDomain = @"DORHSupporterLicense";
+
+static inline void DORHSupporterInvalidateRenderAuthorization(void)
+{
+    @synchronized (NSUserDefaults.class) {
+        const void *key = (const void *)NSSelectorFromString(@"dorh_supporterRenderAuthorizationState");
+        NSMutableDictionary *state = objc_getAssociatedObject(NSUserDefaults.class, key);
+        [state removeObjectForKey:@"verified"];
+    }
+}
 //
 // Persistence V2 (RC9 port).
 //
@@ -1762,6 +1772,7 @@ static inline BOOL DORHSupporterStoreLicenseCode(NSString *licenseCode, NSError 
 
     [NSUserDefaults.standardUserDefaults synchronize];
 
+    DORHSupporterInvalidateRenderAuthorization();
     [[NSNotificationCenter defaultCenter]
         postNotificationName:
             DORHSupporterLicenseDidChangeNotification
@@ -1814,6 +1825,7 @@ static inline BOOL DORHSupporterStoreActivationText(NSString *text, NSError **er
         }
         [NSUserDefaults.standardUserDefaults setObject:license forKey:DORHSupporterLicenseDefaultsKey];
         [NSUserDefaults.standardUserDefaults synchronize];
+        DORHSupporterInvalidateRenderAuthorization();
         [[NSNotificationCenter defaultCenter] postNotificationName:DORHSupporterLicenseDidChangeNotification object:nil];
         return YES;
     }
@@ -1845,6 +1857,7 @@ static inline BOOL DORHSupporterRemoveLicense(void)
         [NSUserDefaults.standardUserDefaults synchronize];
     }
 
+    DORHSupporterInvalidateRenderAuthorization();
     [[NSNotificationCenter defaultCenter]
         postNotificationName:
             DORHSupporterLicenseDidChangeNotification

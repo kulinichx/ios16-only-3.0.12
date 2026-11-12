@@ -2,6 +2,7 @@
 #import "DOEnvironmentManager.h"
 #import "DOUIManager.h"
 #import "../DOSupporterLicense.h"
+#import "../DOSupporterRenderAuthorization.h"
 #import "../../../../BaseBin/roothidehooks/src/RCLowPowerSchedule.h"
 #include <notify.h>
 
@@ -207,7 +208,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)styleScheduleCell:(UITableViewCell *)cell
 {
     cell.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    cell.backgroundColor = DORHSupporterIsVerified() ? UIColor.clearColor :
+    cell.backgroundColor = DORHSupporterRenderIsVerified() ? UIColor.clearColor :
         [UIColor.secondarySystemGroupedBackgroundColor colorWithAlphaComponent:0.82];
     cell.contentView.backgroundColor = UIColor.clearColor;
     cell.backgroundView = nil;
@@ -231,7 +232,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)refreshScheduleGlassFrames
 {
-    if (!DORHSupporterIsVerified()) {
+    if (!DORHSupporterRenderIsVerified()) {
         for (DOCustomLiquidGlassView *glass in self.sectionGlassViews.allValues) glass.hidden = YES;
         return;
     }

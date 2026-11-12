@@ -116,6 +116,31 @@ static int fake_path_mount(bool mount, const char *path)
 	return unmount_unsandboxed(path, MNT_FORCE);
 }
 
+static int cleanup_mount_copy(const char *rawPath)
+{
+	if (!custom_mount_path_is_valid(rawPath)) return EINVAL;
+	if (fake_path_is_mounted(rawPath)) return EBUSY;
+	NSString *path = [NSString stringWithUTF8String:rawPath];
+	NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:JBROOT_PATH(@"/mnt/newFakePath.plist")];
+	id paths = configuration[@"path"];
+	// Missing/corrupt configuration is not evidence that a copy is unowned.
+	if (![paths isKindOfClass:NSArray.class]) return EIO;
+	for (id retained in paths) {
+		if (![retained isKindOfClass:NSString.class] || ![retained hasPrefix:@"/"] ||
+			![retained isEqualToString:[retained stringByStandardizingPath]]) return EIO;
+	}
+	if ([paths containsObject:path] || DOCustomMountConflictingPath(path, paths)) return EBUSY;
+	NSString *root = [JBROOT_PATH(@"/mnt") stringByResolvingSymlinksInPath];
+	NSString *copy = [root stringByAppendingString:path];
+	NSString *parent = copy.stringByDeletingLastPathComponent;
+	if (![copy hasPrefix:[root stringByAppendingString:@"/"]] ||
+		![parent isEqualToString:parent.stringByResolvingSymlinksInPath]) return EINVAL;
+	struct stat info;
+	if (lstat(copy.fileSystemRepresentation, &info) != 0) return errno == ENOENT ? 0 : EIO;
+	if (!S_ISDIR(info.st_mode) || S_ISLNK(info.st_mode)) return EINVAL;
+	return [NSFileManager.defaultManager removeItemAtPath:copy error:nil] ? 0 : EIO;
+}
+
 int jbctl_handle_internal(const char *command, int argc, char* argv[])
 {
 	if (!strcmp(command, "launchd_stash_port")) {
@@ -225,6 +250,10 @@ if(access(JBROOT_PATH("/.disable_auto_uicache"), F_OK) == 0) {
 		if (argc < 2 || !custom_mount_path_is_valid(argv[1])) return EINVAL;
 		bool shouldMount = !strcmp(command, "mount");
 		return fake_path_mount(shouldMount, argv[1]);
+	}
+	else if (!strcmp(command, "cleanup_mount_copy")) {
+		if (argc < 2) return EINVAL;
+		return cleanup_mount_copy(argv[1]);
 	}
 	else if (!strcmp(command, "install_pkg")) {
 		if (argc > 1) {

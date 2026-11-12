@@ -295,14 +295,17 @@ int main(int argc, char **argv) { @autoreleasepool {
 
 test('mount removal persists the list before cleanup and guards both shared-tree directions', () => {
   const manager = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
-  const finish = manager.slice(manager.indexOf('- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:'),
+  const finish = manager.slice(manager.indexOf('- (void)finishCustomMountRemovalAtPath:'),
     manager.indexOf('// 根据注入配置'));
-  assert.ok(finish.indexOf('saveCustomMountPaths:updatedPaths') < finish.indexOf('removeCustomMountCopyAtPath:path'));
-  assert.match(finish, /if \(!\[self saveCustomMountPaths:updatedPaths\]\)\s*return DOCustomMountRemovalSaveFailed/);
+  assert.ok(finish.indexOf('saveCustomMountPaths:updatedPaths') < finish.indexOf('runCustomMountCommand:@"cleanup_mount_copy"'));
+  assert.match(finish, /if \(!\[self saveCustomMountPaths:updatedPaths\]\)\s*\{\s*completion\(DOCustomMountRemovalSaveFailed\)/);
   assert.match(finish, /conflictingCustomMountPathForPath:path/);
-  const remove = manager.slice(manager.indexOf('- (BOOL)removeCustomMountCopyAtPath:'),
-    manager.indexOf('- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:'));
-  assert.ok(remove.indexOf('DOCustomMountConflictingPath(path, retainedPaths)') < remove.indexOf('removeItemAtPath:copyPath'));
+  assert.doesNotMatch(manager.slice(manager.indexOf('- (void)runCustomMountCommand:'),
+    manager.indexOf('// 根据注入配置')), /removeItemAtPath:/);
+  const remove = body(read('BaseBin/jbctl/src/internal.m'), 'cleanup_mount_copy');
+  assert.ok(remove.indexOf('DOCustomMountConflictingPath(path, paths)') < remove.indexOf('removeItemAtPath:copy'));
+  assert.match(remove, /fake_path_is_mounted\(rawPath\)/);
+  assert.match(remove, /stringByResolvingSymlinksInPath/);
   const prepare = body(read('BaseBin/jbctl/src/internal.m'), 'prepare_mount_copy');
   assert.ok(prepare.indexOf('DOCustomMountHasSavedDescendant(path, paths)') < prepare.indexOf('contents.count > 0'));
   assert.match(manager, /DOCustomMountIntroducesOverlap\(paths, previous\)/);
@@ -310,6 +313,7 @@ test('mount removal persists the list before cleanup and guards both shared-tree
   const settings = read('Application/Dopamine/UI/Settings/DOSettingsController.m');
   assert.match(settings, /conflictingCustomMountPathForPath:path/);
   assert.match(settings, /finishCustomMountRemovalAtPath:path/);
+  assert.match(settings, /finishCustomMountRemovalAtPath:path completion:[\s\S]*?self\.customMountBusy = NO/);
 });
 
 test('native Foundation mount removal preserves copies on save failure and keeps legacy overlapping entries editable', {
@@ -321,14 +325,20 @@ test('native Foundation mount removal preserves copies on save failure and keeps
     const method = (start, end) => manager.slice(manager.indexOf(start), manager.indexOf(end));
     const source = `#import <Foundation/Foundation.h>
 ${read('BaseBin/libjailbreak/src/custom_mount.h')}
+#include <sys/stat.h>
+#include <errno.h>
 static NSString *root;
 #define JBROOT_PATH(p) [root stringByAppendingString:p]
+static bool mounted;
+static bool custom_mount_path_is_valid(const char *p) { return p && p[0] == '/'; }
+static bool fake_path_is_mounted(const char *p) { return mounted; }
+${body(read('BaseBin/jbctl/src/internal.m'), 'cleanup_mount_copy')}
 typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
   DOCustomMountRemovalCompleted, DOCustomMountRemovalSaveFailed,
   DOCustomMountRemovalCopyPreserved, DOCustomMountRemovalCleanupFailed
 };
 @interface TestEnvironment : NSObject
-@property BOOL failSave, failCleanup;
+@property BOOL failSave, failCleanup, customMountTaskRunning;
 @property NSUInteger cleanupCalls;
 @end
 @implementation TestEnvironment
@@ -338,10 +348,38 @@ typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
 - (NSArray *)customMountPaths { return [NSDictionary dictionaryWithContentsOfFile:self.customMountListPath][@"path"] ?: @[]; }
 ${method('- (BOOL)saveCustomMountPaths:', '- (int)mountCustomDirectory:').replace(
   'if (![paths isKindOfClass:NSArray.class])', 'if (self.failSave || ![paths isKindOfClass:NSArray.class])')}
-${method('- (BOOL)removeCustomMountCopyAtPath:', '// 根据注入配置').replace(
-  'NSString *mountRoot =', 'self.cleanupCalls++; if (self.failCleanup) return NO;\n    NSString *mountRoot =')}
+- (void)runCustomMountCommand:(NSString *)command path:(NSString *)path completion:(void (^)(int))completion {
+  if (!NSThread.isMainThread || self.customMountTaskRunning || ![command isEqual:@"cleanup_mount_copy"]) abort();
+  self.cleanupCalls++;
+  self.customMountTaskRunning = YES;
+  BOOL failure = self.failCleanup;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    if (NSThread.isMainThread) abort();
+    int result = failure ? EIO : cleanup_mount_copy(path.fileSystemRepresentation);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      self.customMountTaskRunning = NO;
+      completion(result);
+    });
+  });
+}
+${method('- (void)finishCustomMountRemovalAtPath:', '// 根据注入配置')}
 @end
 #define CHECK(...) do { if (!(__VA_ARGS__)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+static DOCustomMountRemovalResult finish(TestEnvironment *env, NSString *path) {
+  __block BOOL completed = NO;
+  __block DOCustomMountRemovalResult result;
+  NSUInteger calls = env.cleanupCalls;
+  [env finishCustomMountRemovalAtPath:path completion:^(DOCustomMountRemovalResult r) {
+    if (!NSThread.isMainThread || env.customMountTaskRunning) abort();
+    result = r; completed = YES;
+  }];
+  if (env.cleanupCalls > calls && (completed || !env.customMountTaskRunning)) abort();
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+  while (!completed && deadline.timeIntervalSinceNow > 0)
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  if (!completed) abort();
+  return result;
+}
 static NSString *makeCopy(NSString *path) {
   NSString *copy = [JBROOT_PATH(@"/mnt") stringByAppendingString:path];
   [NSFileManager.defaultManager createDirectoryAtPath:copy withIntermediateDirectories:YES attributes:nil error:nil];
@@ -350,7 +388,7 @@ static NSString *makeCopy(NSString *path) {
   return font;
 }
 int main(int argc, char **argv) { @autoreleasepool {
-  root = [NSString stringWithUTF8String:argv[1]];
+  root = [[NSString stringWithUTF8String:argv[1]] stringByResolvingSymlinksInPath];
   TestEnvironment *env = [TestEnvironment new];
   NSString *parent = @"/System/Library/Fonts", *child = @"/System/Library/Fonts/Cache";
   CHECK([env saveCustomMountPaths:@[parent]]);
@@ -362,36 +400,55 @@ int main(int argc, char **argv) { @autoreleasepool {
   NSString *font = makeCopy(parent);
   CHECK([env saveCustomMountPaths:@[parent]]);
   env.failSave = YES;
-  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalSaveFailed);
+  CHECK(finish(env, parent) == DOCustomMountRemovalSaveFailed);
   CHECK(env.cleanupCalls == 0 && [env.customMountPaths containsObject:parent]);
   CHECK([NSFileManager.defaultManager fileExistsAtPath:font]);
   env.failSave = NO;
-  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCompleted);
+  CHECK(finish(env, parent) == DOCustomMountRemovalCompleted);
   CHECK(env.customMountPaths.count == 0 && ![NSFileManager.defaultManager fileExistsAtPath:font]);
   // Simulate an old on-disk overlapping list, in both insertion orders.
   for (NSArray *legacy in @[@[child, parent], @[parent, child]]) {
     CHECK([@{@"path": legacy} writeToFile:env.customMountListPath atomically:YES]);
     NSString *childFont = makeCopy(child);
-    CHECK(![env removeCustomMountCopyAtPath:parent]);
+    CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == EBUSY);
     CHECK([env saveCustomMountPaths:legacy]);
-    CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCopyPreserved);
+    CHECK(finish(env, parent) == DOCustomMountRemovalCopyPreserved);
     CHECK([env.customMountPaths isEqual:@[child]] && [NSFileManager.defaultManager fileExistsAtPath:childFont]);
-    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalCompleted);
+    CHECK(finish(env, child) == DOCustomMountRemovalCompleted);
     CHECK([@{@"path": legacy} writeToFile:env.customMountListPath atomically:YES]);
     childFont = makeCopy(child);
-    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalSaveFailed);
+    CHECK(finish(env, child) == DOCustomMountRemovalSaveFailed);
     CHECK([env.customMountPaths isEqual:legacy] && [NSFileManager.defaultManager fileExistsAtPath:childFont]);
-    CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCopyPreserved);
-    CHECK([env finishCustomMountRemovalAtPath:child] == DOCustomMountRemovalCompleted);
+    CHECK(finish(env, parent) == DOCustomMountRemovalCopyPreserved);
+    CHECK(finish(env, child) == DOCustomMountRemovalCompleted);
   }
   font = makeCopy(parent);
   CHECK([env saveCustomMountPaths:@[parent]]);
   env.failCleanup = YES;
-  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCleanupFailed);
+  CHECK(finish(env, parent) == DOCustomMountRemovalCleanupFailed);
   CHECK(env.customMountPaths.count == 0 && [NSFileManager.defaultManager fileExistsAtPath:font]);
   env.failCleanup = NO;
-  CHECK([env finishCustomMountRemovalAtPath:parent] == DOCustomMountRemovalCompleted);
+  CHECK(finish(env, parent) == DOCustomMountRemovalCompleted);
   CHECK(![NSFileManager.defaultManager fileExistsAtPath:font]);
+  font = makeCopy(parent);
+  mounted = true;
+  CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == EBUSY);
+  mounted = false;
+  CHECK([@{} writeToFile:env.customMountListPath atomically:YES]);
+  CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == EIO);
+  CHECK([NSFileManager.defaultManager fileExistsAtPath:font]);
+  CHECK([env saveCustomMountPaths:@[]]);
+  CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == 0);
+  // A redirected intermediate copy directory must not delete outside its tree.
+  NSString *library = JBROOT_PATH(@"/mnt/System/Library");
+  NSString *outside = [root stringByAppendingPathComponent:@"outside"];
+  CHECK([NSFileManager.defaultManager createDirectoryAtPath:outside withIntermediateDirectories:YES attributes:nil error:nil]);
+  NSString *outsideFont = [outside stringByAppendingPathComponent:@"Fonts"];
+  CHECK([NSFileManager.defaultManager createDirectoryAtPath:outsideFont withIntermediateDirectories:YES attributes:nil error:nil]);
+  CHECK([NSFileManager.defaultManager removeItemAtPath:library error:nil]);
+  CHECK([NSFileManager.defaultManager createSymbolicLinkAtPath:library withDestinationPath:outside error:nil]);
+  CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == EINVAL);
+  CHECK([NSFileManager.defaultManager fileExistsAtPath:outsideFont]);
   return 0;
 } }
 `;
@@ -403,4 +460,99 @@ int main(int argc, char **argv) { @autoreleasepool {
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('render authorization is display-only and license mutations invalidate it before notifying views', () => {
+  for (const name of ['DORHSupporterStoreLicenseCode', 'DORHSupporterStoreActivationText', 'DORHSupporterRemoveLicense']) {
+    const method = body(licenseSource, name);
+    assert.ok(method.indexOf('DORHSupporterInvalidateRenderAuthorization()') < method.indexOf('postNotificationName:'));
+    assert.ok(method.indexOf('DORHSupporterInvalidateRenderAuthorization()') > method.indexOf('DORHSupporterWritePersistentState('));
+  }
+  const render = read('Application/Dopamine/UI/DOSupporterRenderAuthorization.h');
+  assert.match(render, /queue:nil/);
+  assert.match(render, /UIApplicationWillResignActiveNotification/);
+  assert.match(render, /UIApplicationDidBecomeActiveNotification/);
+  assert.match(render, /now - \[state\[@"checkedAt"\] doubleValue\] >= 1\.0/);
+  for (const file of ['DOMainViewController.m', '../Jailbreak/DOJailbreaker.m', 'DOSupporterLicenseUI.h'])
+    assert.doesNotMatch(read('Application/Dopamine/UI/' + file), /DORHSupporterRenderIsVerified/);
+  assert.doesNotMatch(body(licenseSource, 'DORHSupporterIsVerified'), /Render/);
+  const theme = read('Application/Dopamine/UI/DOCustomGlassView.m');
+  assert.match(theme, /- \(void\)reloadMaterial\s*\{[\s\S]*?DORHSupporterRenderIsVerified\(\)/);
+  assert.match(theme, /if \(!DORHSupporterIsVerified\(\)\)/);
+});
+
+test('native render snapshot is shared across translation units, expires and invalidates before earlier view observers run', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation/Objective-C runtime; authorization is a test double.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-render-authorization-'));
+  try {
+    const prefix = `#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+extern NSString * const DORHSupporterLicenseDidChangeNotification;
+extern NSString * const UIApplicationWillResignActiveNotification;
+extern NSString * const UIApplicationDidBecomeActiveNotification;
+extern NSTimeInterval testUptime;
+BOOL DORHSupporterIsVerified(void);
+${body(licenseSource, 'DORHSupporterInvalidateRenderAuthorization')}
+`;
+    const header = read('Application/Dopamine/UI/DOSupporterRenderAuthorization.h')
+      .replace('#import "DOSupporterLicense.h"', prefix)
+      .replace('NSProcessInfo.processInfo.systemUptime', 'testUptime');
+    fs.writeFileSync(path.join(directory, 'render.h'), header);
+    fs.writeFileSync(path.join(directory, 'other.m'), `#import "render.h"
+BOOL otherRender(void) { return DORHSupporterRenderIsVerified(); }
+`);
+    const source = `#import "render.h"
+NSString * const DORHSupporterLicenseDidChangeNotification = @"license";
+NSString * const UIApplicationWillResignActiveNotification = @"resign";
+NSString * const UIApplicationDidBecomeActiveNotification = @"active";
+NSTimeInterval testUptime = 100;
+static BOOL entitled;
+static NSUInteger checks;
+BOOL DORHSupporterIsVerified(void) { checks++; return entitled; }
+BOOL otherRender(void);
+#define CHECK(value) do { if (!(value)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+int main(void) { @autoreleasepool {
+  __block BOOL notifiedValue = YES;
+  // Views can register before the lazy cache observer. Mutation must invalidate first.
+  id earlier = [NSNotificationCenter.defaultCenter addObserverForName:DORHSupporterLicenseDidChangeNotification
+    object:nil queue:nil usingBlock:^(NSNotification *n) { notifiedValue = otherRender(); }];
+  CHECK(!DORHSupporterRenderIsVerified() && checks == 1);
+  for (int i = 0; i < 100; i++) CHECK(!otherRender());
+  CHECK(checks == 1);
+  entitled = YES;
+  CHECK(!otherRender() && checks == 1);
+  DORHSupporterInvalidateRenderAuthorization();
+  [NSNotificationCenter.defaultCenter postNotificationName:DORHSupporterLicenseDidChangeNotification object:nil];
+  CHECK(notifiedValue && DORHSupporterRenderIsVerified() && checks >= 2 && checks <= 3);
+  NSUInteger previous = checks;
+  entitled = NO;
+  DORHSupporterInvalidateRenderAuthorization();
+  [NSNotificationCenter.defaultCenter postNotificationName:DORHSupporterLicenseDidChangeNotification object:nil];
+  CHECK(!notifiedValue && !otherRender() && checks > previous && checks <= previous + 2);
+  previous = checks;
+  entitled = YES;
+  testUptime += 1.01;
+  CHECK(otherRender() && DORHSupporterRenderIsVerified() && checks == previous + 1);
+  previous = checks;
+  entitled = NO;
+  // The action check is always fresh, independently of the display snapshot.
+  CHECK(!DORHSupporterIsVerified() && otherRender() && checks == previous + 1);
+  previous = checks;
+  [NSNotificationCenter.defaultCenter postNotificationName:UIApplicationWillResignActiveNotification object:nil];
+  CHECK(!otherRender() && checks == previous + 1);
+  previous = checks;
+  entitled = YES;
+  [NSNotificationCenter.defaultCenter postNotificationName:UIApplicationDidBecomeActiveNotification object:nil];
+  CHECK(DORHSupporterRenderIsVerified() && checks == previous + 1);
+  [NSNotificationCenter.defaultCenter removeObserver:earlier];
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'main.m');
+    const binary = path.join(directory, 'render-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, path.join(directory, 'other.m'), '-o', binary]);
+    execFileSync(binary, []);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

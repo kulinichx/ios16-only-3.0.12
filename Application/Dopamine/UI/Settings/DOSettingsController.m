@@ -1069,26 +1069,28 @@
                 }
                 self.customMountBusy = YES;
                 [environment unmountCustomDirectory:path completion:^(int result) {
-                    self.customMountBusy = NO;
                     if (result != 0) {
+                        self.customMountBusy = NO;
                         [self presentCustomMountMessage:
                             [NSString stringWithFormat:DOLocalizedString(@"CustomMount_Failed"), result]];
                         return;
                     }
-                    DOCustomMountRemovalResult removal = [environment finishCustomMountRemovalAtPath:path];
-                    [self reloadSpecifiers];
-                    NSString *messageKey = nil;
-                    if (removal == DOCustomMountRemovalSaveFailed)
-                        messageKey = @"CustomMount_UnmountedSaveFailed";
-                    else if (removal == DOCustomMountRemovalCopyPreserved)
-                        messageKey = @"CustomMount_SharedCopyPreserved";
-                    else if (removal == DOCustomMountRemovalCleanupFailed)
-                        messageKey = @"CustomMount_CleanupFailed";
-                    if (messageKey) {
-                        NSString *message = [NSString stringWithFormat:@"%@\n%@",
-                            DOLocalizedString(messageKey), targetMountPath];
-                        [self presentCustomMountMessage:message];
-                    }
+                    [environment finishCustomMountRemovalAtPath:path completion:^(DOCustomMountRemovalResult removal) {
+                        self.customMountBusy = NO;
+                        [self reloadSpecifiers];
+                        NSString *messageKey = nil;
+                        if (removal == DOCustomMountRemovalSaveFailed)
+                            messageKey = @"CustomMount_UnmountedSaveFailed";
+                        else if (removal == DOCustomMountRemovalCopyPreserved)
+                            messageKey = @"CustomMount_SharedCopyPreserved";
+                        else if (removal == DOCustomMountRemovalCleanupFailed)
+                            messageKey = @"CustomMount_CleanupFailed";
+                        if (messageKey) {
+                            NSString *message = [NSString stringWithFormat:@"%@\n%@",
+                                DOLocalizedString(messageKey), targetMountPath];
+                            [self presentCustomMountMessage:message];
+                        }
+                    }];
                 }];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];

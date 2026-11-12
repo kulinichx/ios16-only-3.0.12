@@ -190,3 +190,33 @@ Recorded 2026-11-12, America/Denver (client date).
 This verifies compilation and the bounded fault-injection scenarios, not real
 bindfs behavior, UIKit device error presentation, or physical Secure Enclave
 binding. Old RH1 policy and the existing issuer data remain unchanged.
+
+## Remaining performance repairs
+
+The follow-up after `8da14837` addresses two of the explicit residuals:
+
+- Mount removal now persists the list on the app thread, then uses the existing
+  asynchronous child runner for `jbctl internal cleanup_mount_copy`. Recursive
+  deletion no longer happens in the app. The settings busy state spans both
+  unmount and cleanup. Startup mount restoration remains synchronous.
+- The child independently refuses mounted paths, retained/shared copies,
+  missing or malformed lists, and symlinked copy components. It uses the same
+  ZQBB copy namespace; it does not scan for or delete unrelated leftovers.
+- Glass material reloads and low-power cell/layout styling share a display-only
+  authorization snapshot across translation units. It expires after one second
+  and invalidates on license changes and app lifecycle changes. Successful
+  activation/removal invalidates before notifying views, independent of observer
+  delivery order. Jailbreak execution and protected editing keep fresh checks.
+- Native tests exercise production cleanup on temporary directories and the
+  render snapshot in two translation units, including expiry and invalidation.
+  The cleanup task/privileges and authorization result are test doubles; no
+  system mount, real license or issuer key is used.
+
+Legacy unbound RH1 migration is still an open P1: preserving all legacy devices
+without an issuer-approved binding exchange cannot establish non-copyable
+identity. Mandatory binding remains disabled for that compatibility path.
+Media staging orphans after process termination also remain an acknowledged
+storage residual; this change does not broadly clean user media.
+
+Native validation of this follow-up is pending. Previous package success above
+does not prove the new code compiled or passed its native tests.

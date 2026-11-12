@@ -93,8 +93,8 @@ typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
 - (int)mountCustomDirectory:(NSString *)path;
 - (void)mountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
 - (void)unmountCustomDirectory:(NSString *)path completion:(void (^)(int result))completion;
-- (BOOL)removeCustomMountCopyAtPath:(NSString *)path;
-- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:(NSString *)path;
+- (void)finishCustomMountRemovalAtPath:(NSString *)path
+                           completion:(void (^)(DOCustomMountRemovalResult result))completion;
 - (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths;
 - (NSDictionary *)lowPowerScheduleConfiguration;
 - (NSDictionary *)lowPowerScheduleStatus;

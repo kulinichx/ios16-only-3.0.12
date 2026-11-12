@@ -978,47 +978,33 @@ extern char **environ;
     [self runCustomMountCommand:@"unmount" path:path completion:completion];
 }
 
-- (BOOL)removeCustomMountCopyAtPath:(NSString *)path
+- (void)finishCustomMountRemovalAtPath:(NSString *)path
+                           completion:(void (^)(DOCustomMountRemovalResult result))completion
 {
-    if (![path isKindOfClass:NSString.class] ||
-        ![path hasPrefix:@"/"] ||
-        ![path isEqualToString:path.stringByStandardizingPath] ||
-        [path isEqualToString:@"/"]) return NO;
-
-    NSString *mountRoot = JBROOT_PATH(@"/mnt");
-    NSString *copyPath = [mountRoot stringByAppendingString:path];
-    if (![copyPath hasPrefix:[mountRoot stringByAppendingString:@"/"]]) return NO;
-
-    __block BOOL removed = NO;
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            NSFileManager *manager = [NSFileManager defaultManager];
-            NSArray *retainedPaths = self.customMountPaths;
-            if ([retainedPaths containsObject:path] ||
-                DOCustomMountConflictingPath(path, retainedPaths)) return;
-            if (![manager fileExistsAtPath:copyPath]) {
-                removed = YES;
-                return;
-            }
-            NSError *error = nil;
-            removed = [manager removeItemAtPath:copyPath error:&error];
-        }];
-    }];
-    return removed;
-}
-
-- (DOCustomMountRemovalResult)finishCustomMountRemovalAtPath:(NSString *)path
-{
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self finishCustomMountRemovalAtPath:path completion:completion];
+        });
+        return;
+    }
+    if (self.customMountTaskRunning || ![path isKindOfClass:NSString.class]) {
+        completion(DOCustomMountRemovalCleanupFailed);
+        return;
+    }
     NSMutableArray *updatedPaths = [self.customMountPaths mutableCopy];
     [updatedPaths removeObject:path];
-    if (![self saveCustomMountPaths:updatedPaths])
-        return DOCustomMountRemovalSaveFailed;
+    if (![self saveCustomMountPaths:updatedPaths]) {
+        completion(DOCustomMountRemovalSaveFailed);
+        return;
+    }
     // Saving first prevents reboot restoration from recreating a deleted copy.
-    if ([self conflictingCustomMountPathForPath:path])
-        return DOCustomMountRemovalCopyPreserved;
-    if (![self removeCustomMountCopyAtPath:path])
-        return DOCustomMountRemovalCleanupFailed;
-    return DOCustomMountRemovalCompleted;
+    if ([self conflictingCustomMountPathForPath:path]) {
+        completion(DOCustomMountRemovalCopyPreserved);
+        return;
+    }
+    [self runCustomMountCommand:@"cleanup_mount_copy" path:path completion:^(int result) {
+        completion(result == 0 ? DOCustomMountRemovalCompleted : DOCustomMountRemovalCleanupFailed);
+    }];
 }
 
 // 根据注入配置是否存在返回模式简称，供系统版本后的括号显示。

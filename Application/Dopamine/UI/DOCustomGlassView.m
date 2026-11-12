@@ -3,6 +3,7 @@
 #import "DOGlobalAppearance.h"
 #import "DOUIManager.h"
 #import "DOSupporterLicense.h"
+#import "DOSupporterRenderAuthorization.h"
 #import "Settings/DOSettingsController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <Photos/Photos.h>
@@ -219,7 +220,7 @@
 - (void)reloadMaterial
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    BOOL supporterVerified = DORHSupporterIsVerified();
+    BOOL supporterVerified = DORHSupporterRenderIsVerified();
 
     CGFloat blurStrength = supporterVerified && [defaults objectForKey:DOCustomGlassBlurIntensityKey] ?
         [defaults floatForKey:DOCustomGlassBlurIntensityKey] : 0.85;

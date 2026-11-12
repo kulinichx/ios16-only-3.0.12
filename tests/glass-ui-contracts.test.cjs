@@ -352,7 +352,7 @@ test('maintenance uses this jailbreak and restores the faded interface when comm
 });
 
 test('mount tasks spawn in the existing privilege scope and wait outside it with reentry protection', () => {
-  const task = section(environment, '- (void)runCustomMountCommand:', '- (BOOL)removeCustomMountCopyAtPath:');
+  const task = section(environment, '- (void)runCustomMountCommand:', '- (void)finishCustomMountRemovalAtPath:');
   assert.match(task, /self\.customMountTaskRunning = YES/);
   assert.match(task, /exec_cmd_nowait\(&child/);
   assert.ok(task.indexOf('exec_cmd_nowait') < task.indexOf('dispatch_get_global_queue'));
@@ -589,7 +589,7 @@ test('native Foundation mount task waits outside privilege scopes and reports sp
   const { execFileSync } = require('node:child_process');
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-mount-task-'));
   try {
-    const methods = section(environment, '- (void)runCustomMountCommand:', '- (BOOL)removeCustomMountCopyAtPath:');
+    const methods = section(environment, '- (void)runCustomMountCommand:', '- (void)finishCustomMountRemovalAtPath:');
     const source = `#import <Foundation/Foundation.h>
 #include <spawn.h>
 #include <sys/wait.h>

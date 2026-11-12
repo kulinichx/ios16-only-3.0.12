@@ -135,7 +135,7 @@ test('ZQBB custom mounts are user-managed, validated and restored without the ex
   assert.match(settings, /CustomMount_Forget/);
   assert.match(settings, /finishCustomMountRemovalAtPath:/);
   assert.match(managerHeader, /saveCustomMountPaths:/);
-  assert.match(managerHeader, /removeCustomMountCopyAtPath:/);
+  assert.match(managerHeader, /finishCustomMountRemovalAtPath:[\s\S]*?completion:/);
   assert.match(manager, /NSDataWritingAtomic/);
   assert.match(runtime, /restoreCustomMounts/);
   assert.match(jailbreaker, /DORuntimeConfiguration restoreCustomMounts/);
@@ -144,7 +144,7 @@ test('ZQBB custom mounts are user-managed, validated and restored without the ex
   assert.match(jbctl, /JBROOT_PATH\(@\"\/mnt\"\)/);
   assert.doesNotMatch(jbctl, /stringByAppendingString:\@\"_tmp\"/);
   assert.match(jbctl, /mkdtemp\(template\)/);
-  assert.match(manager, /removeCustomMountCopyAtPath:path/);
+  assert.match(manager, /runCustomMountCommand:@"cleanup_mount_copy"/);
   assert.ok(
     jailbreaker.indexOf('ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"))') <
       jailbreaker.indexOf('[DORuntimeConfiguration restoreCustomMounts]'),
