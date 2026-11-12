@@ -318,5 +318,9 @@ Local Windows validation: 137 tests, 127 passed, 0 failed, 10 platform skips.
 Includes actual Windows Forms preview startup and NTFS hard-link publication
 using disposable data. An initial fixture assertion used argv after the helper
 consumed it; the capture wrapper now copies argv. No production guard relaxed.
-Cross-platform CI remains pending. No app/runtime source has changed; the most
-recent tested TIPA remains `Dopamine-rh-rc9-41d6df6.tipa`.
+Linux CI run `43143626679` passed for commit
+`4b4a74653efb4edaa247a2151dc1293e8ee9d4d6`: 137 tests, 129 passed, 0 failed,
+8 platform skips (7 macOS-native cases plus Windows Forms startup). Includes
+the dangling-link refusal and POSIX output-permission assertions. No new macOS
+build was requested for this tooling-only change; no app/runtime source changed.
+The most recent tested TIPA remains `Dopamine-rh-rc9-41d6df6.tipa`.
