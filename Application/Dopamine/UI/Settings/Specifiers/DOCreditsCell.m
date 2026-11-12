@@ -114,10 +114,10 @@
         [self.contentView addSubview:self.collectionView];
 
         [NSLayoutConstraint activateConstraints:@[
-            [self.collectionView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:20],
-            [self.collectionView.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-20],
-            [self.collectionView.topAnchor constraintEqualToAnchor:self.topAnchor constant:0],
-            [self.collectionView.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-0],
+            [self.collectionView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+            [self.collectionView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+            [self.collectionView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [self.collectionView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor],
         ]];
         
     }

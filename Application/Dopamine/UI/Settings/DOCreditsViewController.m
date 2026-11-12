@@ -97,7 +97,8 @@
     [super viewDidLayoutSubviews];
     UIEdgeInsets safeArea = self.view.safeAreaInsets;
     CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
-    CGFloat width = MAX(0.0, MIN(620.0, availableWidth - 24.0));
+    // Keep the viewport wide enough for Preferences' own iPad row insets.
+    CGFloat width = MAX(0.0, availableWidth - 24.0);
     CGFloat top = safeArea.top + 56.0;
     _table.frame = CGRectMake(safeArea.left + (availableWidth - width) * 0.5, top, width,
                              MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom - 5.0));
@@ -171,6 +172,9 @@
     }
 
     CGRect sectionRect = [_table rectForSection:0];
+    CGRect rowRect = [_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+    sectionRect.origin.x = rowRect.origin.x;
+    sectionRect.size.width = CGRectGetWidth(rowRect);
     if (CGRectIsEmpty(sectionRect)) {
         self.customGlassPageBackdrop.hidden = YES;
         return;

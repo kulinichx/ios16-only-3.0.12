@@ -247,7 +247,9 @@
     // here so scrolling settings can never cover the back button.
     UIEdgeInsets safeArea = self.view.safeAreaInsets;
     CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
-    CGFloat width = MAX(0.0, MIN(620.0, availableWidth - 24.0));
+    // Preferences already centers regular-width iPad rows. Narrowing the table
+    // again applies that horizontal inset to an already constrained viewport.
+    CGFloat width = MAX(0.0, availableWidth - 24.0);
     CGFloat top = safeArea.top + 56.0;
     _table.frame = CGRectMake(safeArea.left + (availableWidth - width) * 0.5,
                              top, width,

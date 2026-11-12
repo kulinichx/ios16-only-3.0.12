@@ -892,7 +892,7 @@ test('settings and credits gain full-screen framing without changing other Prefe
   assert.match(section(navigation, '-(CGRect)_frameForViewController:(id)viewController', '\n@end'), /isCustomGlassFullScreenViewController:viewController/);
   const layout = section(settings, '- (void)viewDidLayoutSubviews', '- (void)tableView:');
   assert.match(layout, /safeArea\.top \+ 56\.0/);
-  assert.match(layout, /MIN\(620\.0, availableWidth - 24\.0\)/);
+  assert.match(layout, /CGFloat width = MAX\(0\.0, availableWidth - 24\.0\)/);
   assert.match(layout, /- top - safeArea\.bottom/);
   // Existing Preferences selection pages retain their own return path.
   const items = read(ui + 'Settings/PSLists/DOPSListItemsController.m');
@@ -917,6 +917,52 @@ test('settings uses one RC9 glass surface per section without replacing controls
   assert.match(settings, /isKindOfClass:UISwitch\.class/);
   assert.match(settings, /isKindOfClass:UISlider\.class/);
   assert.doesNotMatch(settings, /_table\.(?:delegate|dataSource)\s*=/);
+});
+
+test('Preferences table viewport follows phone, mini, Pro and split-view bounds without a second width cap', () => {
+  // Execute the production frame arithmetic, not UIKit's private row layout.
+  // This guards the viewport contract; actual iOS 16.2 row layout needs a device.
+  for (const source of [settings, credits]) {
+    const layout = section(source, '- (void)viewDidLayoutSubviews', '[self customGlassRefreshPageAppearance]');
+    const arithmetic = layout.match(/CGFloat availableWidth =[\s\S]*?_table\.frame = CGRectMake\([\s\S]*?\);/)[0]
+      .replace(/CGFloat /g, 'const ')
+      .replace(/self\.view\.bounds/g, 'bounds')
+      .replace(/_table\.frame = /, 'return ');
+    const frame = new Function('bounds', 'safeArea', 'MAX', 'MIN', 'CGRectGetWidth', 'CGRectGetHeight', 'CGRectMake', arithmetic);
+    for (const [width, height, safeArea] of [
+      [320, 568, { left: 0, right: 0, top: 20, bottom: 0 }],
+      [393, 852, { left: 0, right: 0, top: 59, bottom: 34 }],
+      [852, 393, { left: 59, right: 59, top: 0, bottom: 21 }],
+      [744, 1133, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [1133, 744, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [834, 1194, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [1194, 834, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [375, 744, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [507, 744, { left: 0, right: 0, top: 24, bottom: 20 }],
+      [0, 0, { left: 0, right: 0, top: 0, bottom: 0 }],
+    ]) {
+      const actual = frame({ width, height }, safeArea, Math.max, Math.min,
+        rect => rect.width, rect => rect.height,
+        (x, y, width, height) => ({ x, y, width, height }));
+      const availableWidth = Math.max(0, width - safeArea.left - safeArea.right);
+      assert.equal(actual.width, Math.max(0, availableWidth - 24));
+      assert.equal(actual.x, safeArea.left + (availableWidth - actual.width) / 2);
+      assert.equal(actual.y, safeArea.top + 56);
+      assert.equal(actual.height, Math.max(0, height - actual.y - safeArea.bottom - (source === credits ? 5 : 0)));
+    }
+    assert.doesNotMatch(layout, /620|UIScreen|setContentOffset:|reloadData|layoutIfNeeded/);
+  }
+});
+
+test('custom Preferences contents use their contentView coordinate space, not the outer cell', () => {
+  for (const name of ['DOHeaderCell', 'DOButtonCell', 'DOCreditsCell']) {
+    const cell = read(ui + `Settings/Specifiers/${name}.m`);
+    assert.doesNotMatch(cell, /constraint(?:EqualTo|GreaterThanOrEqualTo|LessThanOrEqualTo)Anchor:self\.(?:leading|trailing|top|bottom|centerX|centerY)Anchor/);
+    assert.match(cell, /constraintEqualToAnchor:self\.contentView\./);
+  }
+  const title = read(ui + 'Settings/Specifiers/DOHeaderCell.m');
+  assert.match(title, /titleLabel\.leadingAnchor constraintGreaterThanOrEqualToAnchor:self\.contentView\.leadingAnchor/);
+  assert.match(title, /titleLabel\.trailingAnchor constraintLessThanOrEqualToAnchor:self\.contentView\.trailingAnchor/);
 });
 
 test('settings refreshes reused cells, layout and theme changes without retaining its controller', () => {
@@ -1006,8 +1052,10 @@ test('credits uses shared glass without replacing its content or collection dele
   assert.match(credits, /rectForSection:0/);
   assert.match(credits, /self\.customGlassPageBackdrop\.frame = sectionRect/);
   assert.match(credits, /\[_table sendSubviewToBack:self\.customGlassPageBackdrop\]/);
-  assert.match(credits, /MIN\(620\.0, availableWidth - 24\.0\)/);
-  assert.doesNotMatch(credits, /customGlassSectionBackdrops|rectForHeaderInSection:|rectForRowAtIndexPath:/);
+  assert.match(credits, /CGFloat width = MAX\(0\.0, availableWidth - 24\.0\)/);
+  assert.match(credits, /sectionRect\.origin\.x = rowRect\.origin\.x/);
+  assert.match(credits, /sectionRect\.size\.width = CGRectGetWidth\(rowRect\)/);
+  assert.doesNotMatch(credits, /customGlassSectionBackdrops|rectForHeaderInSection:/);
   assert.doesNotMatch(credits, /(?:_table|collectionView)\.(?:delegate|dataSource)\s*=/);
   assert.doesNotMatch(credits, /DORHSupporter|DOCustomGlassMediaStoreSave|setObject:.*forKey:/);
 });
