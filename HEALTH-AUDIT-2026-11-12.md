@@ -587,3 +587,26 @@ the optional original-source/OpenSSL Windows integration tests; the reviewed
 predecessor upgrade test also skips in the shallow checkout. Those upgrade and
 Windows paths passed locally with synthetic data as recorded above. No mobile
 build was triggered and no new TIPA was produced.
+
+## Numbered Authorization Instructions
+
+Owner-approved copy-only app update: the three Chinese action labels now use
+1/2/3 and equal five-character names. Copy/proof success messages explicitly
+state clipboard completion and ask the user to paste/send to the author. The
+third activation message, apply action, IDs, cryptography, storage and rollout
+policy are unchanged. English action numbers and feedback are updated too.
+
+Four concise text guides are stored under 授权流程说明 and copied to the owner's
+M:\签发工具\授权流程说明-2026-11-12. Existing texts were hash-checked before
+replacement and backed up in 旧说明备份-13a10363e38b4c27ac7a0d54a1ff4a5c.
+The old-user guide starts at step 2, retaining the app's step numbers, with
+conditions for skipping device-code submission or proof and no removal of RH1.
+Only text files were changed in the issuer directory; no signing or database
+mutation performed for this documentation update.
+
+Added source contracts for exact Chinese labels, equal lengths, success copy,
+clipboard-before-success ordering, unchanged activation text and user-guide
+step numbering. Full Windows suite with optional original-source tests:
+163 tests, 153 passed, 0 failed, 10 platform skips. Native packaged locale
+verification is added to the TIPA workflow so copied strings must match source
+values in all three shipped locales. macOS build and device UI remain pending.

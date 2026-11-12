@@ -70,6 +70,53 @@ function objcMethod(sourceText, signature) {
   assert.fail(`Unclosed Objective-C method: ${signature}`);
 }
 
+test('authorization actions use matching numbered labels and brief copied-proof feedback without changing activation copy', () => {
+  const actionKeys = ['Supporter_Copy_Device_Code', 'Supporter_Bind_This_Device', 'Supporter_Paste_License'];
+  const value = (text, key) => {
+    const matches = [...text.matchAll(new RegExp(`^"${key}"\\s*=\\s*("(?:[^"\\\\]|\\\\.)*");`, 'gm'))];
+    assert.equal(matches.length, 1, `Missing or duplicate ${key}`);
+    return JSON.parse(matches[0][1]);
+  };
+  for (const locale of ['zh-Hans', 'zh-CN', 'en']) {
+    const text = fs.readFileSync(path.join(root, `Application/Dopamine/${locale}.lproj/Localizable.strings`), 'utf8');
+    const actions = actionKeys.map(key => value(text, key));
+    actions.forEach((label, index) => assert.ok(label.startsWith(`${index + 1}. `)));
+    if (locale !== 'en') {
+      assert.deepEqual(actions, ['1. 复制设备码', '2. 生成证明码', '3. 粘贴授权码']);
+      assert.equal(new Set(actions.map(label => [...label].length)).size, 1);
+      assert.equal(value(text, 'Supporter_Device_Code_Copied'), '设备码已复制');
+      assert.equal(value(text, 'Supporter_Device_Proof_Ready'), '证明已生成并复制');
+      assert.equal(value(text, 'Supporter_Device_Code_Copied_Message'), '请粘贴发给作者。');
+      assert.equal(value(text, 'Supporter_Device_Proof_Ready_Message'), '请粘贴发给作者。');
+      assert.equal(value(text, 'Supporter_Activated'), '支持者授权已启用');
+      assert.equal(value(text, 'Supporter_Activated_Message'), '授权已保存。立即应用以刷新界面。');
+      assert.equal(value(text, 'Supporter_Apply_Now'), '立即应用');
+    }
+    assert.ok(!/^\d/.test(value(text, 'Supporter_Remove_License')));
+    assert.ok(!/^\d/.test(value(text, 'Supporter_Advanced_Diagnostics')));
+  }
+  assert.ok(licenseUI.indexOf('UIPasteboard.generalPasteboard.string = deviceCode;') <
+    licenseUI.indexOf('DOLocalizedString(@"Supporter_Device_Code_Copied")'));
+  assert.ok(licenseUI.indexOf('UIPasteboard.generalPasteboard.string = proofText;') <
+    licenseUI.indexOf('DOLocalizedString(@"Supporter_Device_Proof_Ready")'));
+});
+
+test('brief user guides preserve the app step numbers when existing users skip device-code submission', () => {
+  const guides = ['03-发给用户-授权与设备绑定步骤.txt', '04-发给旧用户-补发授权步骤.txt']
+    .map(name => fs.readFileSync(path.join(root, '授权流程说明', name), 'utf8'));
+  assert.deepEqual([...guides[0].matchAll(/^(\d)\. /gm)].map(match => match[1]), ['1', '2', '3']);
+  assert.deepEqual([...guides[1].matchAll(/^(\d)\. /gm)].map(match => match[1]), ['2', '3']);
+  for (const guide of guides) {
+    assert.ok(guide.includes('复制作者发来的验证文本'));
+    assert.ok(guide.includes('2. 生成证明码'));
+    assert.ok(guide.includes('3. 粘贴授权码'));
+    assert.ok(guide.includes('已验证 · 已绑定本机'));
+    assert.ok(guide.length < 400);
+  }
+  assert.ok(guides[1].includes('原记录和设备码未变'));
+  assert.ok(guides[1].includes('旧授权不用删除'));
+});
+
 test('packaged entitlement verifier rejects missing, broad or mismatched keychain permissions', () => {
   const info = { CFBundleIdentifier: 'cn.zqbb.dopaRH' };
   const valid = {

@@ -211,6 +211,14 @@ jobs:
           unzip -p "$tipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
           test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
+          for locale in zh-Hans zh-CN en; do
+            strings="$RUNNER_TEMP/RootHide-$locale-Localizable.strings"
+            unzip -p "$tipa" "Payload/Dopamine.app/$locale.lproj/Localizable.strings" > "$strings"
+            plutil -lint "$strings"
+            for key in Supporter_Copy_Device_Code Supporter_Bind_This_Device Supporter_Paste_License Supporter_Device_Code_Copied Supporter_Device_Code_Copied_Message Supporter_Device_Proof_Ready Supporter_Device_Proof_Ready_Message Supporter_Activated Supporter_Activated_Message Supporter_Apply_Now; do
+              test "$(plutil -extract "$key" raw -o - "$strings")" = "$(plutil -extract "$key" raw -o - "Application/Dopamine/$locale.lproj/Localizable.strings")"
+            done
+          done
           unzip -p "$tipa" Payload/Dopamine.app/Dopamine > "$RUNNER_TEMP/RootHide-Dopamine"
           ldid -e "$RUNNER_TEMP/RootHide-Dopamine" > app-entitlements.plist
           plutil -lint app-entitlements.plist
