@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 #import "DOAppDelegate.h"
 #import "UI/DOCustomGlassThemeSync.h"
+#import "UI/DOCustomGlassMediaStore.h"
 
 #import "DOEnvironmentManager.h"
 #import <libjailbreak/info.h>
@@ -49,6 +50,7 @@ NSString* documentsPath = [@(getenv("HOME")) stringByAppendingPathComponent:@"Do
     NSString * appDelegateClassName;
     @autoreleasepool {
         DOCustomGlassThemeSyncBootstrap();
+        DOCustomGlassMediaStoreScheduleOrphanCleanup();
         // Setup code that might create autoreleased objects goes here.
         appDelegateClassName = NSStringFromClass([DOAppDelegate class]);
     }

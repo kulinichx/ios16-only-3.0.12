@@ -15,6 +15,11 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
+#import <objc/runtime.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #import "DOCustomGlassThemeSync.h"
 
 static NSString * const DOCustomGlassMediaStoreAvatarFilenameKey =
@@ -155,6 +160,132 @@ static inline BOOL DOCustomGlassMediaStoreIsSafeFilename(NSString *filename)
            ![filename isEqualToString:@".."];
 }
 
+// Access only while holding the shared defaults class lock, including across TUs.
+static inline NSMutableSet<NSString *> *DOCustomGlassMediaStoreActiveFiles(void)
+{
+    const void *key = (const void *)NSSelectorFromString(@"do_customGlassActiveMediaFiles");
+    NSMutableSet *files = objc_getAssociatedObject(NSUserDefaults.class, key);
+    if (!files) {
+        files = [NSMutableSet set];
+        objc_setAssociatedObject(NSUserDefaults.class, key, files, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return files;
+}
+
+static inline NSString *DOCustomGlassMediaStoreReserveFilename(NSString *prefix, NSString *extension)
+{
+    @synchronized(NSUserDefaults.class) {
+        NSString *filename = [NSString stringWithFormat:@"%@-%@.%@", prefix, NSUUID.UUID.UUIDString, extension];
+        [DOCustomGlassMediaStoreActiveFiles() addObject:filename];
+        return filename;
+    }
+}
+
+static inline void DOCustomGlassMediaStoreReleaseFilename(NSString *filename)
+{
+    @synchronized(NSUserDefaults.class) {
+        if (filename) [DOCustomGlassMediaStoreActiveFiles() removeObject:filename];
+    }
+}
+
+static inline BOOL DOCustomGlassMediaStoreIsGeneratedFilename(NSString *filename)
+{
+    if (!DOCustomGlassMediaStoreIsSafeFilename(filename)) return NO;
+    NSString *stem = filename.stringByDeletingPathExtension;
+    NSString *extension = filename.pathExtension;
+    NSString *prefix = nil;
+    if ([stem hasPrefix:@"wallpaper-video-"]) {
+        prefix = @"wallpaper-video-";
+        if (![@[@"mov", @"mp4", @"m4v"] containsObject:extension]) return NO;
+    } else {
+        if (![extension isEqualToString:@"jpg"]) return NO;
+        if ([stem hasPrefix:@"wallpaper-poster-"]) prefix = @"wallpaper-poster-";
+        else if ([stem hasPrefix:@"wallpaper-"]) prefix = @"wallpaper-";
+        else if ([stem hasPrefix:@"avatar-"]) prefix = @"avatar-";
+    }
+    if (!prefix) return NO;
+    NSString *identifier = [stem substringFromIndex:prefix.length];
+    NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:identifier];
+    return uuid && [uuid.UUIDString isEqualToString:identifier];
+}
+
+// Nil means the reference state cannot safely authorize any deletion.
+static inline NSSet<NSString *> *DOCustomGlassMediaStoreReferencedFiles(void)
+{
+    NSDictionary *external = [NSDictionary dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath()];
+    id version = external[DOCustomGlassThemeSyncVersionKey];
+    if (![version isKindOfClass:NSNumber.class] || ![version isEqual:@1]) return nil;
+    NSMutableSet *referenced = [NSMutableSet set];
+    for (NSString *key in @[DOCustomGlassMediaStoreAvatarFilenameKey,
+                            DOCustomGlassMediaStoreWallpaperFilenameKey,
+                            DOCustomGlassMediaStoreWallpaperVideoFilenameKey]) {
+        for (id value in @[external[key] ?: NSNull.null,
+                           [NSUserDefaults.standardUserDefaults objectForKey:key] ?: NSNull.null]) {
+            if (value == NSNull.null) continue;
+            if (![value isKindOfClass:NSString.class] || !DOCustomGlassMediaStoreIsSafeFilename(value)) return nil;
+            [referenced addObject:value];
+        }
+    }
+    return referenced;
+}
+
+static inline NSUInteger DOCustomGlassMediaStorePruneOrphans(void)
+{
+    NSURL *container = DOCustomGlassMediaStoreContainerURL();
+    NSURL *directory = container ? DOCustomGlassMediaStoreDirectoryURL() : nil;
+    if (!directory) return 0;
+    NSString *expected = [container.path.stringByResolvingSymlinksInPath
+        stringByAppendingPathComponent:@"Library/Application Support/CustomGlass/Media"];
+    if (![directory.path.stringByResolvingSymlinksInPath isEqualToString:expected]) return 0;
+
+    int flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    int descriptor = open(container.path.stringByResolvingSymlinksInPath.fileSystemRepresentation, flags);
+    if (descriptor < 0) return 0;
+    for (NSString *component in @[@"Library", @"Application Support", @"CustomGlass", @"Media"]) {
+        int next = openat(descriptor, component.fileSystemRepresentation, flags);
+        close(descriptor);
+        if (next < 0) return 0;
+        descriptor = next;
+    }
+    DIR *entries = fdopendir(descriptor);
+    if (!entries) { close(descriptor); return 0; }
+    NSUInteger removed = 0;
+    NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - (24.0 * 60.0 * 60.0);
+    struct dirent *entry;
+    while ((entry = readdir(entries))) {
+        @autoreleasepool {
+            NSString *filename = [NSString stringWithUTF8String:entry->d_name];
+            if (!DOCustomGlassMediaStoreIsGeneratedFilename(filename)) continue;
+            @synchronized(NSUserDefaults.class) {
+                if ([DOCustomGlassMediaStoreActiveFiles() containsObject:filename]) continue;
+                NSSet *referenced = DOCustomGlassMediaStoreReferencedFiles();
+                if (!referenced) break;
+                if ([referenced containsObject:filename]) continue;
+                struct stat info;
+                // One immediate child only: never recurse or follow a link.
+                if (fstatat(descriptor, entry->d_name, &info, AT_SYMLINK_NOFOLLOW) != 0 ||
+                    !S_ISREG(info.st_mode) || info.st_mtime > cutoff) continue;
+                if (unlinkat(descriptor, entry->d_name, 0) == 0) removed++;
+            }
+        }
+    }
+    closedir(entries);
+    return removed;
+}
+
+static inline void DOCustomGlassMediaStoreScheduleOrphanCleanup(void)
+{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            @autoreleasepool {
+                NSUInteger removed = DOCustomGlassMediaStorePruneOrphans();
+                if (removed) NSLog(@"[CustomGlass][MediaStore] removed orphan files=%lu", (unsigned long)removed);
+            }
+        });
+    });
+}
+
 static inline NSURL *DOCustomGlassMediaStoreFileURL(NSString *filename)
 {
     if (!DOCustomGlassMediaStoreIsSafeFilename(filename))
@@ -189,9 +320,12 @@ static inline UIImage *DOCustomGlassMediaStoreLoadImageForDefaultsKey(NSString *
 
 static inline void DOCustomGlassMediaStoreRemoveFile(NSString *filename)
 {
-    NSURL *url = DOCustomGlassMediaStoreFileURL(filename);
-    if (url)
-        [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
+    @synchronized(NSUserDefaults.class) {
+        NSURL *url = DOCustomGlassMediaStoreFileURL(filename);
+        if (url)
+            [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
+        DOCustomGlassMediaStoreReleaseFilename(filename);
+    }
 }
 
 static inline BOOL DOCustomGlassMediaStoreCommit(NSDictionary<NSString *, id> *changes,
@@ -224,6 +358,10 @@ static inline BOOL DOCustomGlassMediaStoreCommit(NSDictionary<NSString *, id> *c
             if (![referenced containsObject:filename])
                 DOCustomGlassMediaStoreRemoveFile(filename);
         }
+        for (id value in changes.allValues) {
+            if ([value isKindOfClass:NSString.class])
+                DOCustomGlassMediaStoreReleaseFilename(value);
+        }
         return YES;
     }
 }
@@ -236,17 +374,18 @@ static inline NSString *DOCustomGlassMediaStoreStageImage(UIImage *image,
     if (imageData.length == 0)
         return nil;
 
-    NSString *newFilename = [NSString stringWithFormat:@"%@-%@.jpg",
-                             filenamePrefix,
-                             NSUUID.UUID.UUIDString];
+    NSString *newFilename = DOCustomGlassMediaStoreReserveFilename(filenamePrefix, @"jpg");
     NSURL *newURL = DOCustomGlassMediaStoreFileURL(newFilename);
-    if (!newURL)
+    if (!newURL) {
+        DOCustomGlassMediaStoreReleaseFilename(newFilename);
         return nil;
+    }
 
     NSError *writeError = nil;
     BOOL wrote = [imageData writeToURL:newURL options:NSDataWritingAtomic error:&writeError];
     if (!wrote) {
         NSLog(@"[CustomGlass][MediaStore] write failed %@: %@", newURL.path, writeError);
+        DOCustomGlassMediaStoreRemoveFile(newFilename);
         return nil;
     }
 
@@ -261,7 +400,7 @@ static inline NSString *DOCustomGlassMediaStoreStageImage(UIImage *image,
               newURL.path,
               (unsigned long)persistedData.length,
               readError);
-        [[NSFileManager defaultManager] removeItemAtURL:newURL error:nil];
+        DOCustomGlassMediaStoreRemoveFile(newFilename);
         return nil;
     }
 
@@ -343,12 +482,12 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
     if (![supportedExtensions containsObject:extension])
         extension = @"mov";
 
-    NSString *newVideoFilename = [NSString stringWithFormat:@"wallpaper-video-%@.%@",
-                                  NSUUID.UUID.UUIDString,
-                                  extension];
+    NSString *newVideoFilename = DOCustomGlassMediaStoreReserveFilename(@"wallpaper-video", extension);
     NSURL *newVideoURL = DOCustomGlassMediaStoreFileURL(newVideoFilename);
-    if (!newVideoURL)
+    if (!newVideoURL) {
+        DOCustomGlassMediaStoreReleaseFilename(newVideoFilename);
         return NO;
+    }
 
     NSError *copyError = nil;
     BOOL copied = [[NSFileManager defaultManager] copyItemAtURL:sourceURL
@@ -365,7 +504,7 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
         attributesOfItemAtPath:newVideoURL.path error:nil];
     unsigned long long fileSize = [attributes[NSFileSize] unsignedLongLongValue];
     if (fileSize == 0) {
-        [[NSFileManager defaultManager] removeItemAtURL:newVideoURL error:nil];
+        DOCustomGlassMediaStoreRemoveFile(newVideoFilename);
         return NO;
     }
 
@@ -377,7 +516,7 @@ static inline BOOL DOCustomGlassMediaStoreSaveWallpaperVideo(NSURL *sourceURL,
                                                                 @"wallpaper-poster",
                                                                 &persistedPoster);
     if (!posterFilename) {
-        [[NSFileManager defaultManager] removeItemAtURL:newVideoURL error:nil];
+        DOCustomGlassMediaStoreRemoveFile(newVideoFilename);
         return NO;
     }
 

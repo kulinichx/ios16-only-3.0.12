@@ -324,6 +324,22 @@ test('media imports cancel prior requests and never publish stale completions af
   assert.doesNotMatch(media, /DOCustomGlassMediaStoreClearWallpaperVideo|DOCustomGlassMediaStoreSaveImage\(/);
 });
 
+test('orphan cleanup is deferred until theme bootstrap and only unlinks old generated unreferenced files', () => {
+  assert.ok(startup.indexOf('DOCustomGlassThemeSyncBootstrap();') < startup.indexOf('DOCustomGlassMediaStoreScheduleOrphanCleanup();'));
+  const cleanup = section(media, 'static inline NSUInteger DOCustomGlassMediaStorePruneOrphans', 'static inline void DOCustomGlassMediaStoreScheduleOrphanCleanup');
+  for (const token of ['DOCustomGlassMediaStoreIsGeneratedFilename(filename)',
+    'DOCustomGlassMediaStoreActiveFiles()', 'DOCustomGlassMediaStoreReferencedFiles()',
+    'if (!referenced) break', 'containsObject:filename', 'AT_SYMLINK_NOFOLLOW',
+    'S_ISREG(info.st_mode)', 'info.st_mtime > cutoff', '24.0 * 60.0 * 60.0',
+    'openat(descriptor', 'O_NOFOLLOW', 'unlinkat(descriptor, entry->d_name, 0)'])
+    assert.ok(cleanup.includes(token), token);
+  assert.doesNotMatch(cleanup, /removeItemAt|enumeratorAt|AT_REMOVEDIR/);
+  const references = section(media, 'static inline NSSet<NSString *> *DOCustomGlassMediaStoreReferencedFiles', 'static inline NSUInteger DOCustomGlassMediaStorePruneOrphans');
+  assert.match(references, /dictionaryWithContentsOfFile:DOCustomGlassThemeSyncPath\(\)/);
+  assert.match(references, /objectForKey:key/);
+  assert.match(media, /OBJC_ASSOCIATION_RETAIN_NONATOMIC/);
+});
+
 test('blur coalesces unchanged inputs and cancels obsolete work before rendering', () => {
   const blur = section(navigation, '- (void)customGlassApplySharedBackgroundBlurIntensity:', '- (void)supporterLicenseDidChange:');
   assert.match(blur, /sourceImage == self\.customGlassBackgroundBlurRequestedImage/);
@@ -383,8 +399,11 @@ test('native Foundation media transactions preserve old files on write failure a
       'static NSString *DOCustomGlassThemeSyncDirectory;',
     ).replace(/\bNSUserDefaults\b/g, 'TestDefaults').replace(/^#pragma once$/gm, '');
     const store = (media.slice(0, media.indexOf('static inline id DOCustomGlassMediaStoreCallObjectGetter')) +
-      `static inline NSURL *DOCustomGlassMediaStoreDirectoryURL(void) {
-        NSURL *url = [NSURL fileURLWithPath:[testRoot stringByAppendingPathComponent:@"media"]];
+      `static inline NSURL *DOCustomGlassMediaStoreContainerURL(void) {
+        return [NSURL fileURLWithPath:testRoot];
+      }
+      static inline NSURL *DOCustomGlassMediaStoreDirectoryURL(void) {
+        NSURL *url = [NSURL fileURLWithPath:[testRoot stringByAppendingPathComponent:@"Library/Application Support/CustomGlass/Media"]];
         [NSFileManager.defaultManager createDirectoryAtURL:url withIntermediateDirectories:YES attributes:nil error:nil];
         return url;
       }\n` + media.slice(media.indexOf('static inline BOOL DOCustomGlassMediaStoreIsSafeFilename')))
@@ -394,6 +413,8 @@ test('native Foundation media transactions preserve old files on write failure a
     const source = `#import <Foundation/Foundation.h>
 static NSString *testRoot;
 static NSString *suite;
+NSUInteger otherActiveCount(void);
+void otherRelease(NSString *filename);
 @interface TestDefaults : NSUserDefaults
 @end
 @implementation TestDefaults
@@ -422,6 +443,14 @@ static NSProgress *request(void) { return [NSProgress progressWithTotalUnitCount
 static UIImage *image(NSString *text) { return [UIImage imageWithData:[text dataUsingEncoding:NSUTF8StringEncoding]]; }
 static NSSet *files(void) { return [NSSet setWithArray:[NSFileManager.defaultManager contentsOfDirectoryAtPath:DOCustomGlassMediaStoreDirectoryURL().path error:nil]]; }
 static BOOL exists(NSString *name) { return [NSFileManager.defaultManager fileExistsAtPath:DOCustomGlassMediaStoreFileURL(name).path]; }
+static NSString *orphan(NSString *prefix, NSString *extension, BOOL old) {
+  NSString *filename = DOCustomGlassMediaStoreReserveFilename(prefix, extension);
+  [@"orphan" writeToURL:DOCustomGlassMediaStoreFileURL(filename) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  if (old) [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate:[NSDate dateWithTimeIntervalSinceNow:-172800]}
+    ofItemAtPath:DOCustomGlassMediaStoreFileURL(filename).path error:nil];
+  DOCustomGlassMediaStoreReleaseFilename(filename);
+  return filename;
+}
 int main(int argc, char **argv) { @autoreleasepool {
   testRoot = [NSString stringWithUTF8String:argv[1]];
   DOCustomGlassThemeSyncDirectory = [testRoot stringByAppendingPathComponent:@"theme"];
@@ -479,14 +508,81 @@ int main(int argc, char **argv) { @autoreleasepool {
   DOCustomGlassThemeSyncBootstrap();
   CHECK([[defaults stringForKey:DOCustomGlassMediaStoreWallpaperFilenameKey] isEqual:winner]);
   CHECK(exists(winner) && files().count == 2);
+  CHECK(DOCustomGlassMediaStoreActiveFiles().count == 0);
+
+  // Only old, known UUID files are disposable. Preserve both reference stores.
+  for (NSString *name in @[winner, avatar])
+    [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate:[NSDate dateWithTimeIntervalSinceNow:-172800]}
+      ofItemAtPath:DOCustomGlassMediaStoreFileURL(name).path error:nil];
+  NSString *localOnly = orphan(@"wallpaper", @"jpg", YES);
+  [defaults setObject:localOnly forKey:DOCustomGlassMediaStoreWallpaperFilenameKey];
+  NSString *abandoned = orphan(@"wallpaper", @"jpg", YES);
+  NSString *oldVideo = orphan(@"wallpaper-video", @"mp4", YES);
+  NSString *oldPoster = orphan(@"wallpaper-poster", @"jpg", YES);
+  NSString *fresh = orphan(@"avatar", @"jpg", NO);
+  NSString *active = orphan(@"avatar", @"jpg", YES);
+  @synchronized(TestDefaults.class) { [DOCustomGlassMediaStoreActiveFiles() addObject:active]; }
+  CHECK(otherActiveCount() == 1);
+  NSString *unknown = @"wallpaper-user-original.jpg";
+  [@"user" writeToURL:DOCustomGlassMediaStoreFileURL(unknown) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate:[NSDate dateWithTimeIntervalSinceNow:-172800]}
+    ofItemAtPath:DOCustomGlassMediaStoreFileURL(unknown).path error:nil];
+  CHECK(!DOCustomGlassMediaStoreIsGeneratedFilename(unknown));
+  CHECK(!DOCustomGlassMediaStoreIsGeneratedFilename(@"../avatar-00000000-0000-0000-0000-000000000000.jpg"));
+  NSString *subdirectory = DOCustomGlassMediaStoreReserveFilename(@"avatar", @"jpg");
+  NSURL *subURL = DOCustomGlassMediaStoreFileURL(subdirectory);
+  CHECK([NSFileManager.defaultManager createDirectoryAtURL:subURL withIntermediateDirectories:YES attributes:nil error:nil]);
+  [@"keep" writeToURL:[subURL URLByAppendingPathComponent:@"child"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate:[NSDate dateWithTimeIntervalSinceNow:-172800]}
+    ofItemAtPath:subURL.path error:nil];
+  DOCustomGlassMediaStoreReleaseFilename(subdirectory);
+  NSString *link = DOCustomGlassMediaStoreReserveFilename(@"wallpaper", @"jpg");
+  CHECK([NSFileManager.defaultManager createSymbolicLinkAtPath:DOCustomGlassMediaStoreFileURL(link).path
+    withDestinationPath:movie.path error:nil]);
+  DOCustomGlassMediaStoreReleaseFilename(link);
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 3);
+  CHECK(!exists(abandoned) && !exists(oldVideo) && !exists(oldPoster));
+  CHECK(exists(winner) && exists(localOnly) && exists(avatar) && exists(fresh) && exists(active));
+  CHECK(exists(unknown) && exists(subdirectory) && exists(link));
+  otherRelease(active);
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 1 && !exists(active));
+
+  // Invalid/missing reference state must stop cleanup, not act like an empty set.
+  NSString *recoverable = orphan(@"avatar", @"jpg", YES);
+  NSData *savedTheme = [NSData dataWithContentsOfFile:DOCustomGlassThemeSyncPath()];
+  [@"invalid" writeToFile:DOCustomGlassThemeSyncPath() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 0 && exists(recoverable));
+  [NSFileManager.defaultManager removeItemAtPath:DOCustomGlassThemeSyncPath() error:nil];
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 0 && exists(recoverable));
+  CHECK([savedTheme writeToFile:DOCustomGlassThemeSyncPath() atomically:YES]);
+  [defaults setObject:@123 forKey:DOCustomGlassMediaStoreAvatarFilenameKey];
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 0 && exists(recoverable));
+  [defaults setObject:avatar forKey:DOCustomGlassMediaStoreAvatarFilenameKey];
+
+  // Redirecting a managed directory cannot make cleanup walk into another tree.
+  NSString *managed = DOCustomGlassMediaStoreDirectoryURL().path;
+  NSString *moved = [testRoot stringByAppendingPathComponent:@"saved-media"];
+  CHECK([NSFileManager.defaultManager moveItemAtPath:managed toPath:moved error:nil]);
+  CHECK([NSFileManager.defaultManager createSymbolicLinkAtPath:managed withDestinationPath:moved error:nil]);
+  CHECK(DOCustomGlassMediaStorePruneOrphans() == 0);
+  CHECK([NSFileManager.defaultManager fileExistsAtPath:[moved stringByAppendingPathComponent:recoverable]]);
   [defaults removePersistentDomainForName:suite];
   return 0;
 } }
 `;
     const file = path.join(directory, 'media.m');
     const binary = path.join(directory, 'media-test');
+    const other = path.join(directory, 'other.m');
+    fs.writeFileSync(other, `#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+@interface TestDefaults : NSUserDefaults
+@end
+${section(media, 'static inline NSMutableSet<NSString *> *DOCustomGlassMediaStoreActiveFiles', 'static inline BOOL DOCustomGlassMediaStoreIsGeneratedFilename').replace(/\bNSUserDefaults\b/g, 'TestDefaults')}
+NSUInteger otherActiveCount(void) { @synchronized(TestDefaults.class) { return DOCustomGlassMediaStoreActiveFiles().count; } }
+void otherRelease(NSString *filename) { DOCustomGlassMediaStoreReleaseFilename(filename); }
+`);
     fs.writeFileSync(file, source);
-    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, other, '-o', binary]);
     execFileSync(binary, [directory]);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

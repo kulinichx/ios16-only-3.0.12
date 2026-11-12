@@ -246,3 +246,27 @@ These results close the explicit synchronous-cleanup and material/layout
 verification performance repairs, not the legacy RH1 migration policy or media
 staging-orphan residuals. Device bindfs, UIKit appearance and physical Secure
 Enclave behavior still require device validation; native mocks are not that proof.
+
+## Media orphan recovery follow-up
+
+- After theme bootstrap, schedule one utility-queue pass over the app's explicit
+  container media directory. Do not delay startup with directory enumeration.
+- Only exact app-generated UUID filenames with known image/video prefixes and
+  extensions qualify, and only when their modification time is over 24 hours old.
+- Preserve the union of all three media references in authoritative external
+  theme state and local defaults. Missing, unsupported-version or malformed
+  reference state stops deletion rather than being treated as an empty theme.
+- Share active staged filenames across translation units, registering before
+  image writes or video copies and releasing after commit or failure cleanup.
+  Recheck active status and references under the same lock as media commit.
+- Resolve the exact container, then walk fixed directory components using
+  no-follow directory descriptors. Only unlink immediate regular-file children;
+  do not recurse, follow symbolic links or remove unknown files/directories.
+- Native Foundation fixtures add old/fresh/active/referenced media, shared
+  translation-unit occupancy, malformed/missing state and symlink cases. Codecs
+  and container discovery are test doubles; filesystem operations are real in
+  a temporary directory.
+
+Local verification: 125 total, 115 passed, 0 failed, 10 Windows platform skips.
+Native verification and TIPA build for this follow-up are pending. Legacy RH1
+binding migration remains open and the real issuer tool/data remain untouched.
