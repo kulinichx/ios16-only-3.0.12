@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { spawnSync } = require('node:child_process');
+const { verifyAppEntitlements } = require('../scripts/verify-app-entitlements.cjs');
 
 const root = path.resolve(__dirname, '..');
 const uiRoot = path.join(root, 'Application/Dopamine/UI');
@@ -67,6 +69,63 @@ function objcMethod(sourceText, signature) {
   }
   assert.fail(`Unclosed Objective-C method: ${signature}`);
 }
+
+test('packaged entitlement verifier rejects missing, broad or mismatched keychain permissions', () => {
+  const info = { CFBundleIdentifier: 'cn.zqbb.dopaRH' };
+  const valid = {
+    'application-identifier': info.CFBundleIdentifier,
+    'keychain-access-groups': [info.CFBundleIdentifier],
+    'platform-application': true,
+    'com.apple.private.security.no-sandbox': true,
+  };
+  assert.doesNotThrow(() => verifyAppEntitlements(valid, info));
+  for (const key of Object.keys(valid)) {
+    const missing = { ...valid };
+    delete missing[key];
+    assert.throws(() => verifyAppEntitlements(missing, info), key);
+  }
+  for (const groups of [[], ['*'], ['TROLLTROLL.*'], ['other.app'],
+    [info.CFBundleIdentifier, 'com.apple.token'], info.CFBundleIdentifier]) {
+    assert.throws(() => verifyAppEntitlements({ ...valid, 'keychain-access-groups': groups }, info));
+  }
+  assert.throws(() => verifyAppEntitlements({ ...valid, 'application-identifier': 'other.app' }, info));
+  assert.throws(() => verifyAppEntitlements({ ...valid, 'com.apple.developer.team-identifier': 'FAKETEAM' }, info));
+  assert.throws(() => verifyAppEntitlements(valid, { CFBundleIdentifier: 'other.app' }));
+});
+
+test('source entitlements pass the native plist parser and scoped keychain contract', {
+  skip: process.platform !== 'darwin' && process.platform !== 'win32',
+}, () => {
+  const file = path.join(root, 'Application/Dopamine/Dopamine.entitlements');
+  let result;
+  if (process.platform === 'darwin') {
+    result = spawnSync('plutil', ['-convert', 'json', '-o', '-', file], { encoding: 'utf8' });
+  } else {
+    // Use the native XML parser, not text matching, to preserve plist value types.
+    result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
+      $ErrorActionPreference = 'Stop'
+      $plist = [xml](Get-Content -LiteralPath '${file.replace(/'/g, "''")}' -Raw)
+      $values = @{}
+      foreach ($key in $plist.plist.dict.SelectNodes('key')) {
+        $value = $key.NextSibling
+        switch ($value.LocalName) {
+          'string' { $values[$key.InnerText] = $value.InnerText }
+          'true' { $values[$key.InnerText] = $true }
+          'false' { $values[$key.InnerText] = $false }
+          'array' { $values[$key.InnerText] = @($value.SelectNodes('string') | ForEach-Object { $_.InnerText }) }
+          default { throw 'Unexpected entitlement plist value type' }
+        }
+      }
+      ConvertTo-Json -InputObject $values -Depth 10 -Compress
+    `], { encoding: 'utf8' });
+  }
+  assert.equal(result.status, 0, result.stderr);
+  verifyAppEntitlements(JSON.parse(result.stdout), { CFBundleIdentifier: 'cn.zqbb.dopaRH' });
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/build.yml'), 'utf8');
+  assert.match(workflow, /unzip -p "\$tipa" Payload\/Dopamine\.app\/Dopamine/);
+  assert.match(workflow, /ldid -e .*RootHide-Dopamine.* > app-entitlements\.plist/);
+  assert.match(workflow, /node scripts\/verify-app-entitlements\.cjs/);
+});
 
 test('supporter state keeps stable legacy keys and an external removal tombstone', () => {
   for (const value of [

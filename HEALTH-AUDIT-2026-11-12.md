@@ -408,3 +408,36 @@ Local validation: 140 tests, 130 passed, 0 failed, 10 platform skips.
 Only the desktop helper changed. The reported mobile lookup/-34018 failure
 remains separate and is not fixed by remembering the desktop directory.
 Local full suite: 141 tests, 131 passed, 0 failed, 10 platform skips.
+
+## Device Proof Lookup Entitlement Repair
+
+- Downloaded the successful run 43141411466 artifact and inspected the actual
+  Mach-O LC_CODE_SIGNATURE XML entitlement slot in Dopamine-rh-rc9-41d6df6.tipa.
+  Both application-identifier and keychain-access-groups are absent, matching
+  the source entitlement plist. This is a packaging defect consistent with the
+  reported lookup / errSecMissingEntitlement (-34018), not a stale RH1 license.
+- Read the official TrollStore RootHelper/main.m signApp implementation: fallback
+  keychain entitlements apply only when no entitlement dictionary exists, so it
+  does not repair this application's existing nonempty entitlement dictionary.
+  Apple Security SecItemServer.c reports missing entitlement when a client has
+  neither application-identifier nor keychain-access-groups.
+- Add application-identifier cn.zqbb.dopaRH and exactly one keychain access group
+  with the same value. No wildcard, Apple token group or invented team identity.
+  Keep the bundle identifier, legacy device-code seed, Secure Enclave key tag,
+  default key lookup/create queries, RH1/RHB1 formats and migration policy intact.
+  No key deletion, license removal or software-key fallback.
+- CI now extracts entitlements from the final packaged executable using ldid,
+  parses them with plutil and checks identity, exact access group and preserved
+  platform/sandbox flags. The extracted plist is included in build artifacts.
+  Tests reject missing/broad/mismatched permissions and parse the source plist
+  with native platform parsers on Windows/macOS.
+
+Real-device proof generation and continuity of any keys from independently
+signed historical builds remain unverified. Existing keys are not deleted or
+silently migrated between access groups. Keep the old RH1 authorization during
+testing; changing or removing it cannot supply a missing code-sign entitlement.
+
+Local Windows suite: 143 tests, 133 passed, 0 failed, 10 platform skips.
+The new native XML-parser check and entitlement rejection cases passed. Native
+macOS app compilation, final signature verification and device proof testing
+are still pending at this point.

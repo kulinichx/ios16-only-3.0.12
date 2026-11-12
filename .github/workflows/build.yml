@@ -211,6 +211,12 @@ jobs:
           unzip -p "$tipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
           test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
+          unzip -p "$tipa" Payload/Dopamine.app/Dopamine > "$RUNNER_TEMP/RootHide-Dopamine"
+          ldid -e "$RUNNER_TEMP/RootHide-Dopamine" > app-entitlements.plist
+          plutil -lint app-entitlements.plist
+          plutil -convert json -o "$RUNNER_TEMP/RootHide-entitlements.json" app-entitlements.plist
+          plutil -convert json -o "$RUNNER_TEMP/RootHide-Info.json" "$RUNNER_TEMP/RootHide-Info.plist"
+          node scripts/verify-app-entitlements.cjs "$RUNNER_TEMP/RootHide-entitlements.json" "$RUNNER_TEMP/RootHide-Info.json"
           unzip -p "$tipa" Payload/Dopamine.app/Credits.plist > "$RUNNER_TEMP/RootHide-Credits.plist"
           plutil -lint "$RUNNER_TEMP/RootHide-Credits.plist"
           plutil -convert xml1 -o "$RUNNER_TEMP/RootHide-Credits.xml" "$RUNNER_TEMP/RootHide-Credits.plist"
@@ -235,3 +241,4 @@ jobs:
             package-contents.txt
             basebin-files.txt
             xpf-exports.txt
+            app-entitlements.plist
