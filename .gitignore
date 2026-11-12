@@ -28,4 +28,7 @@ supporters.json
 supporters.backup.json
 supporter-device-proof-bindings.json
 supporter-device-proof-challenges.json
+supporter-device-key-reviews.json
+binding-backups/
+program-backups/
 supporter-*-bound.txt

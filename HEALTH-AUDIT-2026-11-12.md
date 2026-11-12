@@ -527,3 +527,55 @@ Pushed integration commit `f0ff47bc933ec7d9826f134c4c3902bd778ac211`.
 GitHub Linux source checks run `43155171248` succeeded: 148 tests, 134 passed,
 0 failed, 14 platform/optional-source skips. Windows integration behavior is
 covered by the local real-Forms/synthetic-data tests above, not by Linux CI.
+
+## Same-Device Key Review Follow-Up
+
+The owner reported a real defect: the original verifier returned a same-hardware
+key REVIEW without persisting it, so the additive supplement UI could still use
+the historical binding. This is now blocked in both desktop frontends.
+
+- An additive wrapper captures successful NORMAL verification, independently
+  verifies the canonical RHP1 and its consumed NORMAL challenge, and persists a
+  separate review receipt. Proof text travels by UTF-8 stdin, not process args.
+  New-device proof before initial RH1 issuance remains supported.
+- Planning and issuance include that receipt in reviewed digests. Key mismatch,
+  hardware mismatch, malformed receipt and reverify markers are ineligible;
+  checks precede private-key access. Failed receipt persistence latches the
+  current window closed and attempts a persistent reverify marker. Refresh
+  cannot clear the latch; successful verification of the affected device can.
+- A dark same-device key review requires exact typed supporter ID, same hardware,
+  fresh proof receipt and unchanged reviewed digest. Migration backs up the full
+  original binding file and changes only the selected key fields/timestamps.
+  RH1, hardware, first-verification metadata and other users remain unchanged.
+  No automatic signing; operator must separately review supplement issuance.
+- File replacement uses unique staging, fsync and before-byte checks. Original
+  legacy writers have no shared lock: single-instance operation is required.
+  This is not a crash-atomic multi-file transaction or a local-admin security
+  boundary. Old offline RHB1 files are not remotely revoked by changing a key.
+- Installer upgrades only exact reviewed predecessor sidecar hashes, with
+  program-only backups and rollback guarded against concurrent edits. Tests
+  inject partial upgrade failure, source drift and database write failure.
+
+Program upgrade installed under M:\签发工具 with backup:
+`program-backups\binding-2026-11-12T05-05-03-529Z-04ef5d7f`.
+Original PS1 hash is unchanged from the earlier integrated version. Installer
+did not read user databases or any private key. Separately, with explicit owner
+confirmation, the helper marked only supporter 0029 REVERIFY_REQUIRED. It read
+the signed public records/bindings to validate identity but printed no other
+users; did not open a private key, change old bindings/RH1, or issue credentials.
+Marker change backup: `binding-backups\1794459931564-987c80bc3de2330a`.
+
+Windows tests exercise exact-ID dialog enablement, cancellation, wrong IDs,
+stdin transfer, persistent mismatch blocking, receipt failure and minimum-width
+layout. Optional original-source tests use synthetic records/software keys;
+the actual original OpenSSL verifier consumes a signed test challenge, returns
+REVIEW, persists the blocking state and migrates only after test confirmation.
+No real clipboard, production private key or production GUI was used in tests.
+The real iPad's fresh proof, operator confirmation, supplement and activation
+remain pending. Mobile runtime and binding rollout policy are unchanged.
+
+Final local full suite after deployment: 161 tests, 151 passed, 0 failed,
+10 platform skips, with both optional original-source tests enabled. Installed
+sidecar hashes match the tested repository files; installed PowerShell parses
+without errors. A read-only preview confirms only the requested displayed
+identity 0029 is REVERIFY_REQUIRED. No TIPA build is needed for this fix.

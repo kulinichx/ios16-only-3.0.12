@@ -5,6 +5,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const knownPrevious = {
+  'SupporterBindingIntegration.ps1': 'd6cab08aa685596f5c8c26fbc2b2cff84d6f3ac708a6efee082931a1cfcabf57',
+  'supporter-binding.cjs': 'a78695c9dc1be96c61a469dc89f5960436284cfad939b9fbdeca95e5a19463c9',
+};
 const marker = '# RootHide binding integration v1';
 const hook = `${marker}
 . (Join-Path $script:BaseDir 'SupporterBindingIntegration.ps1')
@@ -40,42 +44,72 @@ function install(directory, expectedHash, io = fs) {
   const before = io.readFileSync(issuerPath);
   if (hash(before) !== expectedHash.toLowerCase()) throw new Error('issuer-source-changed');
   const modified = Buffer.from(patchIssuerSource(before.toString('utf8')), 'utf8');
-  const files = ['SupporterBindingIntegration.ps1', 'supporter-binding.cjs'].map(name => ({
-    name, bytes: io.readFileSync(path.join(__dirname, name)),
+  const files = ['SupporterBindingIntegration.ps1', 'supporter-binding.cjs', 'supporter-key-review.cjs'].map(name => ({
+    name, bytes: io.readFileSync(path.join(__dirname, name)), before: null,
   }));
   for (const file of files) {
     const filename = path.join(target, file.name);
-    if (io.existsSync(filename) && !io.readFileSync(filename).equals(file.bytes)) {
-      throw new Error(`existing-program-file-differs: ${file.name}`);
+    if (io.existsSync(filename)) {
+      file.before = io.readFileSync(filename);
+      if (!file.before.equals(file.bytes) && hash(file.before) !== knownPrevious[file.name]) {
+        throw new Error(`existing-program-file-differs: ${file.name}`);
+      }
     }
   }
-  if (before.equals(modified) && files.every(file => io.existsSync(path.join(target, file.name)))) {
+  if (before.equals(modified) && files.every(file => file.before && file.before.equals(file.bytes))) {
     return { changed: false, issuerSha256: hash(before) };
   }
   const backup = path.join(target, 'program-backups', `binding-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(4).toString('hex')}`);
   io.mkdirSync(backup, { recursive: true });
   io.writeFileSync(path.join(backup, 'RootHideSupporterIssuer.ps1'), before, { flag: 'wx' });
+  for (const file of files) {
+    if (file.before && !file.before.equals(file.bytes)) {
+      io.writeFileSync(path.join(backup, file.name), file.before, { flag: 'wx' });
+    }
+  }
   const result = { changed: true, backup, issuerSha256: hash(modified),
-    sourceSha256: hash(before), programFiles: files.map(file => ({ name: file.name, sha256: hash(file.bytes) })) };
+    sourceSha256: hash(before), programFiles: files.map(file => ({ name: file.name, sha256: hash(file.bytes),
+      previousSha256: file.before ? hash(file.before) : null })) };
   io.writeFileSync(path.join(backup, 'installation.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });
   // The installer reads/copies program files only, never databases or a private key.
-  const created = [];
-  const temporary = path.join(target, `.issuer-binding-${crypto.randomBytes(8).toString('hex')}.tmp`);
+  const changes = [...files, { name: 'RootHideSupporterIssuer.ps1', bytes: modified, before }]
+    .filter(file => !file.before || !file.before.equals(file.bytes));
+  const installed = [];
+  const staged = [];
+  const matchesBefore = file => {
+    const filename = path.join(target, file.name);
+    return file.before ? io.existsSync(filename) && io.readFileSync(filename).equals(file.before) : !io.existsSync(filename);
+  };
   try {
-    for (const file of files) {
-      const filename = path.join(target, file.name);
-      if (!io.existsSync(filename)) {
-        io.writeFileSync(filename, file.bytes, { flag: 'wx' });
-        created.push(filename);
-      }
+    for (const file of changes) {
+      file.temporary = path.join(target, `.issuer-binding-${crypto.randomBytes(8).toString('hex')}.tmp`);
+      staged.push(file.temporary);
+      io.writeFileSync(file.temporary, file.bytes, { flag: 'wx' });
     }
-    io.writeFileSync(temporary, modified, { flag: 'wx' });
     if (hash(io.readFileSync(issuerPath)) !== hash(before)) throw new Error('issuer-source-changed-before-install');
-    io.renameSync(temporary, issuerPath);
+    for (const file of changes) {
+      if (!matchesBefore(file)) throw new Error(`program-file-changed-before-install: ${file.name}`);
+      io.renameSync(file.temporary, path.join(target, file.name));
+      installed.push(file);
+    }
   } catch (error) {
-    if (io.existsSync(temporary)) io.unlinkSync(temporary);
-    for (const filename of created) io.unlinkSync(filename);
+    const failures = [];
+    for (const file of installed.reverse()) {
+      const filename = path.join(target, file.name);
+      try {
+        if (!io.readFileSync(filename).equals(file.bytes)) throw new Error('concurrent-program-edit');
+        if (file.before) {
+          const temporary = path.join(target, `.issuer-binding-${crypto.randomBytes(8).toString('hex')}.tmp`);
+          staged.push(temporary);
+          io.writeFileSync(temporary, file.before, { flag: 'wx' });
+          io.renameSync(temporary, filename);
+        } else { io.unlinkSync(filename); }
+      } catch { failures.push(file.name); }
+    }
+    if (failures.length) throw new Error(`${error.message}; rollback-incomplete: ${failures.join(', ')}; backup: ${backup}`);
     throw error;
+  } finally {
+    for (const temporary of staged) if (io.existsSync(temporary)) io.unlinkSync(temporary);
   }
   return result;
 }

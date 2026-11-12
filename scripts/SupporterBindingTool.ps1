@@ -215,7 +215,13 @@ function Load-BindingPlan([string]$Directory) {
     $summary.Text = '正在预检；若失败，请重新选择有效的签发工具目录。'
     $plan = Invoke-BindingHelper @('plan', '--issuer-dir', $Directory)
     foreach ($record in @($plan.records)) {
-        $state = if ($record.status -eq 'READY_FOR_REVIEW') { '已有历史绑定 · 可复核后补发' } else { '旧授权 · 待补设备证明' }
+        $state = switch ($record.status) {
+            'READY_FOR_REVIEW' { '已有历史绑定 · 可复核后补发' }
+            'REVIEW_KEY_MISMATCH' { '同设备密钥变化 · 请到签发工具复核迁移' }
+            'HARDWARE_MISMATCH' { '硬件不符 · 禁止补发' }
+            'REVERIFY_REQUIRED' { '需重新生成并验证设备证明' }
+            default { '旧授权 · 待补设备证明' }
+        }
         $note = [string]$record.note
         $displayName = [string]$record.displayName
         $index = $grid.Rows.Add([string]$record.id, ($displayName -replace '[\r\n]+', ' '),

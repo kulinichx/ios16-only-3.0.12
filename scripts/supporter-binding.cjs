@@ -102,6 +102,7 @@ function verifyCertificate(certificate, license, publicKey = issuerPublicKey) {
 }
 
 function issue(row, privateKey, publicKey = issuerPublicKey, now = Math.floor(Date.now() / 1000)) {
+  requireValue(!row.status || row.status === 'READY_FOR_REVIEW', 'device-key-review-blocks-issuance');
   requireValue(row.binding, 'legacy-unbound-needs-reviewed-device-proof');
   validateBinding(row.binding);
   const old = verifyLicense(row.license, publicKey);
@@ -122,7 +123,7 @@ function issue(row, privateKey, publicKey = issuerPublicKey, now = Math.floor(Da
 
 function reviewSha256(rows) {
   const snapshot = rows.map(row => ({ id: row.id, displayName: row.displayName || '', lastIssuedAt: row.lastIssuedAt || '',
-    note: row.note || '', license: row.license, binding: row.binding ? {
+    note: row.note || '', license: row.license, keyReview: row.keyReview || null, binding: row.binding ? {
     DeviceCode: row.binding.DeviceCode, HardwareHash: row.binding.HardwareHash,
     KeyFingerprint: row.binding.KeyFingerprint, PublicKey: row.binding.PublicKey,
   } : null })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -209,6 +210,10 @@ function readArray(filename) {
 
 function main(argv, publicKey = issuerPublicKey) {
   const command = argv.shift();
+  const keyReview = require('./supporter-key-review.cjs');
+  if (['review-proof', 'block-key-review', 'rekey-plan', 'rekey'].includes(command)) {
+    return keyReview.main([command, ...argv], publicKey);
+  }
   requireValue(['plan', 'issue', 'issue-all'].includes(command),
     'Usage: node supporter-binding.cjs plan|issue|issue-all --issuer-dir DIR [--id ID --out FILE | --out-dir DIR] --review-sha256 HASH (issue commands only)');
   const options = {};
@@ -220,15 +225,15 @@ function main(argv, publicKey = issuerPublicKey) {
   }
   requireValue(options['--issuer-dir'], 'issuer-directory-required');
   const directory = path.resolve(options['--issuer-dir']);
-  const result = plan(readArray(path.join(directory, 'supporters.json')),
-    readArray(path.join(directory, 'supporter-device-proof-bindings.json')), publicKey);
-  const eligible = result.rows.filter(row => row.binding);
+  const result = keyReview.applyReviews(plan(readArray(path.join(directory, 'supporters.json')),
+    readArray(path.join(directory, 'supporter-device-proof-bindings.json')), publicKey), directory);
+  const eligible = result.rows.filter(row => row.status === 'READY_FOR_REVIEW');
   if (command === 'plan') {
     requireValue(Object.keys(options).length === 1, 'plan-does-not-accept-output-options');
     console.log(JSON.stringify({ total: result.rows.length, eligible: eligible.length, reviewSha256: reviewSha256(eligible),
       needsProof: result.rows.length - eligible.length, orphanBindings: result.orphanBindings,
       records: result.rows.map(row => ({ id: row.id, displayName: row.displayName, deviceCode: row.deviceCode,
-        lastIssuedAt: row.lastIssuedAt, note: row.note, status: row.binding ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND',
+        lastIssuedAt: row.lastIssuedAt, note: row.note, status: row.status,
         reviewSha256: reviewSha256([row]) })),
     }, null, 2));
     return;
@@ -237,7 +242,7 @@ function main(argv, publicKey = issuerPublicKey) {
   if (command === 'issue') {
     requireValue(options['--id'] && options['--out'] && !options['--out-dir'], 'issue-requires-id-and-out');
     selected = result.rows.filter(row => row.id === options['--id']);
-    requireValue(selected.length === 1 && selected[0].binding, 'selected-supporter-missing-or-unbound');
+    requireValue(selected.length === 1 && selected[0].status === 'READY_FOR_REVIEW', 'selected-supporter-missing-unbound-or-review-blocked');
   } else {
     requireValue(options['--out-dir'] && !options['--id'] && !options['--out'], 'issue-all-requires-out-dir');
     selected = eligible;
@@ -250,7 +255,7 @@ function main(argv, publicKey = issuerPublicKey) {
       path.resolve(options['--out-dir'], `supporter-${row.id}-bound.txt`),
   }));
   const sourceFiles = ['supporters.json', 'supporters.backup.json', 'supporter-device-proof-bindings.json',
-    'supporter-device-proof-challenges.json', 'DopamineRH-supporter-private.pem'];
+    'supporter-device-proof-challenges.json', 'supporter-device-key-reviews.json', 'DopamineRH-supporter-private.pem'];
   const excluded = new Set(sourceFiles.map(name => path.join(directory, name).toLowerCase()));
   for (const output of targets) {
     requireValue(!excluded.has(output.filename.toLowerCase()) && !outputExists(output.filename), 'output-exists-or-is-source-data');
@@ -264,7 +269,7 @@ function main(argv, publicKey = issuerPublicKey) {
 }
 
 module.exports = { sha256, publicKeyFromPoint, issuerPublicKey, bindingDomain, plan, issue, verifyLicense, verifyCertificate,
-  reviewSha256, publishOutputs, main };
+  reviewSha256, publishOutputs, readArray, main };
 if (require.main === module) {
   try { main(process.argv.slice(2)); }
   catch (error) { console.error(`Binding operation failed: ${error.message}`); process.exitCode = 1; }

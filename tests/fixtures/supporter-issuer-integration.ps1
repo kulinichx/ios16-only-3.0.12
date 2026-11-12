@@ -43,6 +43,12 @@ $issueRH1 = New-Object Windows.Forms.Button
 $form.Controls.Add($proof)
 $form.Controls.Add($issueRH1)
 $script:ProofEvents = 0
+function Load-DeviceProofState { $script:ProofLoads++ }
+$script:ProofLoads = 0
+function Verify-RHP1Proof([string]$ProofText, [string]$ExpectedMode = '') {
+    if ($ProofText -ne 'SYNTHETIC-PROOF-STDIN') { throw 'synthetic invalid proof' }
+    return [pscustomobject]@{ Mode = 'NORMAL'; DeviceCode = '0029-4567-89AB-CDEF-0123-4567-89AB-CDEF'; Policy = 'REVIEW_KEY_MISMATCH' }
+}
 $proof.Add_Click({ $script:ProofEvents++ })
 . (Join-Path $Directory 'SupporterBindingIntegration.ps1')
 Initialize-RHBindingIntegration @{
@@ -102,7 +108,7 @@ try {
     $form.PerformLayout()
     $strip = $state.Single.Parent
     Assert-Test ($strip.Right -le ($panel.Width - 158)) 'Binding toolbar overlaps original copy button.'
-    Assert-Test ($state.Refresh.Right -le $strip.ClientSize.Width) 'Toolbar clipped at minimum width.'
+    Assert-Test ($state.Rekey.Right -le $strip.ClientSize.Width) 'Toolbar clipped at minimum width.'
     # An external change after review must be refused by the helper and clear the cached plan.
     [IO.File]::Delete((Join-Path $Directory 'bound-test.txt'))
     $preview.records[0].reviewSha256 = 'F' * 64
@@ -117,6 +123,46 @@ try {
     Refresh-RHIntegratedBindingPlan
     Assert-Test (-not $state.Single.Enabled -and -not $state.Batch.Enabled) 'Failed preview kept signing enabled.'
     Assert-Test ($grid.Rows[0].Cells['RHBindingState'].Value -eq '预检不可用') 'Failed preview reused old binding state.'
+    [IO.File]::Delete((Join-Path $Directory 'plan-failure'))
+    $null = Verify-RHP1Proof 'SYNTHETIC-PROOF-STDIN' 'NORMAL'
+    Refresh-RHIntegratedBindingPlan
+    $grid.ClearSelection(); $grid.Rows[2].Selected = $true
+    Assert-Test (-not $state.Single.Enabled -and $state.Rekey.Enabled) 'Key mismatch did not disable supplement and enable explicit review.'
+    $keyPlan = Invoke-RHIntegratedBinding @('rekey-plan', '--issuer-dir', $Directory, '--id', '0029')
+    $keyDialog = New-RHIntegratedKeyReview $keyPlan
+    try {
+        $keyDialog.Show()
+        [Windows.Forms.Application]::DoEvents()
+        $bitmap = New-Object Drawing.Bitmap($keyDialog.Width, $keyDialog.Height)
+        try {
+            $keyDialog.DrawToBitmap($bitmap, (New-Object Drawing.Rectangle(0, 0, $keyDialog.Width, $keyDialog.Height)))
+            $bitmap.Save(($PreviewImage + '.key-review.png'), [Drawing.Imaging.ImageFormat]::Png)
+        } finally { $bitmap.Dispose(); $keyDialog.Hide() }
+        Assert-Test (-not $keyDialog.Tag.Confirm.Enabled) 'Migration confirmation must start disabled.'
+        $keyDialog.Tag.Input.Text = '29'
+        Assert-Test (-not $keyDialog.Tag.Confirm.Enabled) 'Leading zeroes are required.'
+        $keyDialog.Tag.Input.Text = '0029'
+        Assert-Test $keyDialog.Tag.Confirm.Enabled 'Exact supporter ID must enable confirmation.'
+    } finally { $keyDialog.Dispose() }
+    function Confirm-RHIntegratedKeyReview($Plan) { return '' }
+    Start-RHIntegratedKeyMigration
+    Assert-Test (@((Read-Commands) | Where-Object { $_[0] -eq 'rekey' }).Count -eq 0) 'Cancelled review migrated a key.'
+    function Confirm-RHIntegratedKeyReview($Plan) { return '0030' }
+    Start-RHIntegratedKeyMigration
+    Assert-Test (@((Read-Commands) | Where-Object { $_[0] -eq 'rekey' }).Count -eq 0) 'Wrong ID migrated a key.'
+    function Confirm-RHIntegratedKeyReview($Plan) { return '0029' }
+    Start-RHIntegratedKeyMigration
+    Assert-Test (@((Read-Commands) | Where-Object { $_[0] -eq 'rekey' }).Count -eq 1) 'Confirmed key migration missing.'
+    Assert-Test ($state.Single.Enabled -and -not $state.Rekey.Enabled) 'Migrated user did not return to supplement review.'
+    Assert-Test ((Count-Issues) -eq 3) 'Key migration must not automatically sign.'
+    [IO.File]::WriteAllText((Join-Path $Directory 'review-failure'), 'TEST ONLY')
+    try { $null = Verify-RHP1Proof 'SYNTHETIC-PROOF-STDIN' 'NORMAL'; throw 'Expected receipt failure' }
+    catch { Assert-Test ($_.Exception.Message -match '复核记录保存失败') 'Receipt failure was not explained.' }
+    Refresh-RHIntegratedBindingPlan
+    Assert-Test (-not $state.Single.Enabled -and -not $state.Batch.Enabled -and -not $state.Rekey.Enabled) 'Receipt failure must latch closed even after refresh.'
+    Assert-Test ($state.ById['0029'].status -eq 'REVERIFY_REQUIRED') 'Receipt failure did not persist a reverify marker.'
+    Assert-Test ($script:ProofLoads -ge 3) 'Proof guard and migration must reload original binding memory.'
+    Assert-Test (@((Read-Commands) | Where-Object { ($_ -join ' ') -match 'SYNTHETIC-PROOF-STDIN' }).Count -eq 0) 'Proof must travel by stdin, not command arguments.'
     [pscustomobject]@{ Checked = $true; ReviewRows = 2; CanSignAfterFailure = $state.Single.Enabled
         OriginalProofEvents = $script:ProofEvents; RealClipboardTouched = $false } | ConvertTo-Json -Compress
 } finally { $form.Close(); $form.Dispose() }
