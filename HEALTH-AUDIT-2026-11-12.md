@@ -522,3 +522,8 @@ users only. No production data, private key or real clipboard used in tests.
 This changes the desktop issuer only. The tested mobile package remains
 Dopamine-rh-rc9-e725865.tipa; no new TIPA is required. Real operator interaction
 and real issuance through the newly integrated UI remain owner-controlled.
+
+Pushed integration commit `f0ff47bc933ec7d9826f134c4c3902bd778ac211`.
+GitHub Linux source checks run `43155171248` succeeded: 148 tests, 134 passed,
+0 failed, 14 platform/optional-source skips. Windows integration behavior is
+covered by the local real-Forms/synthetic-data tests above, not by Linux CI.
