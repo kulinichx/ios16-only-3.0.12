@@ -327,8 +327,8 @@ test('native Foundation mount removal preserves copies on save failure and keeps
 ${read('BaseBin/libjailbreak/src/custom_mount.h')}
 #include <sys/stat.h>
 #include <errno.h>
-static NSString *root;
-#define JBROOT_PATH(p) [root stringByAppendingString:p]
+static NSString *fixtureRoot;
+#define JBROOT_PATH(p) [fixtureRoot stringByAppendingString:p]
 static bool mounted;
 static bool custom_mount_path_is_valid(const char *p) { return p && p[0] == '/'; }
 static bool fake_path_is_mounted(const char *p) { return mounted; }
@@ -364,7 +364,7 @@ ${method('- (BOOL)saveCustomMountPaths:', '- (int)mountCustomDirectory:').replac
 }
 ${method('- (void)finishCustomMountRemovalAtPath:', '// 根据注入配置')}
 @end
-#define CHECK(...) do { if (!(__VA_ARGS__)) { fprintf(stderr, "check failed at line %d\\n", __LINE__); return 1; } } while (0)
+#define CHECK(...) do { if (!(__VA_ARGS__)) { fprintf(stderr, "check failed at line %d: %s\\n", __LINE__, #__VA_ARGS__); return 1; } } while (0)
 static DOCustomMountRemovalResult finish(TestEnvironment *env, NSString *path) {
   __block BOOL completed = NO;
   __block DOCustomMountRemovalResult result;
@@ -388,7 +388,7 @@ static NSString *makeCopy(NSString *path) {
   return font;
 }
 int main(int argc, char **argv) { @autoreleasepool {
-  root = [[NSString stringWithUTF8String:argv[1]] stringByResolvingSymlinksInPath];
+  fixtureRoot = [[NSString stringWithUTF8String:argv[1]] stringByResolvingSymlinksInPath];
   TestEnvironment *env = [TestEnvironment new];
   NSString *parent = @"/System/Library/Fonts", *child = @"/System/Library/Fonts/Cache";
   CHECK([env saveCustomMountPaths:@[parent]]);
@@ -441,7 +441,7 @@ int main(int argc, char **argv) { @autoreleasepool {
   CHECK(cleanup_mount_copy(parent.fileSystemRepresentation) == 0);
   // A redirected intermediate copy directory must not delete outside its tree.
   NSString *library = JBROOT_PATH(@"/mnt/System/Library");
-  NSString *outside = [root stringByAppendingPathComponent:@"outside"];
+  NSString *outside = [fixtureRoot stringByAppendingPathComponent:@"outside"];
   CHECK([NSFileManager.defaultManager createDirectoryAtPath:outside withIntermediateDirectories:YES attributes:nil error:nil]);
   NSString *outsideFont = [outside stringByAppendingPathComponent:@"Fonts"];
   CHECK([NSFileManager.defaultManager createDirectoryAtPath:outsideFont withIntermediateDirectories:YES attributes:nil error:nil]);

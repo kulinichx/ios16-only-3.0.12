@@ -220,3 +220,9 @@ storage residual; this change does not broadly clean user media.
 
 Native validation of this follow-up is pending. Previous package success above
 does not prove the new code compiled or passed its native tests.
+
+Initial follow-up native run `43138754655` passed 123/124 tests, including the
+cross-translation-unit render snapshot. The removal fixture's `JBROOT_PATH`
+macro expanded its global `root` name inside the production helper's local
+`root` declaration, giving that test a nil copy root. Renamed the fixture global
+to `fixtureRoot`; no production cleanup protection was relaxed.
