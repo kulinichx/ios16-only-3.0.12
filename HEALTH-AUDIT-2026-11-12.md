@@ -218,11 +218,31 @@ identity. Mandatory binding remains disabled for that compatibility path.
 Media staging orphans after process termination also remain an acknowledged
 storage residual; this change does not broadly clean user media.
 
-Native validation of this follow-up is pending. Previous package success above
-does not prove the new code compiled or passed its native tests.
+Native validation was pending when these changes were first committed. The
+results for the follow-up are recorded below, separately from the older package.
 
 Initial follow-up native run `43138754655` passed 123/124 tests, including the
 cross-translation-unit render snapshot. The removal fixture's `JBROOT_PATH`
 macro expanded its global `root` name inside the production helper's local
 `root` declaration, giving that test a nil copy root. Renamed the fixture global
 to `fixtureRoot`; no production cleanup protection was relaxed.
+
+### Follow-up validation completed
+
+- Built commit: `13daa5ec215d62bcd93ee495a2bb5b8b10d555a1`.
+- Local Windows: 124 total, 114 passed, 0 failed, 10 platform skips.
+- Linux source run `43139322782`: 124 total, 117 passed, 0 failed,
+  7 macOS-only skips.
+- macOS build run `43139413247`: success, build job 4 minutes 54 seconds.
+- macOS native tests: 124 total, 124 passed, 0 failed, 0 skipped.
+- App compilation, Verify TIPA/resources and upload all passed.
+- Package: `Dopamine-rh-rc9-13daa5e.tipa`.
+- Artifact: `RootHide_iOS16_TIPA`, ID `13908519452`; uploaded artifact ZIP
+  SHA256 `17dfd99c0a30313f5d8e96d7e6811579dda8b987c8281bd30ac9aa2841840fc8`.
+- Package was not downloaded locally by this pass. Existing XPF edits and TIPA
+  directory contents remain untouched.
+
+These results close the explicit synchronous-cleanup and material/layout
+verification performance repairs, not the legacy RH1 migration policy or media
+staging-orphan residuals. Device bindfs, UIKit appearance and physical Secure
+Enclave behavior still require device validation; native mocks are not that proof.
