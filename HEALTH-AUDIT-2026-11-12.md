@@ -363,3 +363,25 @@ No app/runtime files changed and no new TIPA is needed for this launcher repair.
 This is a computer-tool-only change; no mobile TIPA rebuild is needed.
 Local full suite: 140 tests, 130 passed, 0 failed, 10 platform skips. Includes
 actual Windows Forms note-cell/tooltips integration and visible VBS startup.
+
+## Separate User Field And Original Dark Palette
+
+The preceding note-only repair was incomplete: the issuer stores the user name
+in `DisplayName`, independently of `Note`. Read-only inspection of its record
+writer and grid projection confirmed the exact fields. No real database or key
+was opened to establish this mapping.
+
+- Preview now carries `DisplayName`, verified license device code and
+  `LastIssuedAt` alongside `Note`. The grid matches the original five information
+  columns and adds binding state. Confirmation includes name, ID, device and note.
+- Reused original issuer background, surface, alternate-row, input, text,
+  selection and button palette values; no original tool files were modified.
+- Review digest includes name/date as well as notes; changes require renewed
+  review but do not change signed RH1/RHB1 formats or issuer records.
+- Extended disposable-data tests check independent names/notes, device and date,
+  optional-field fallback, stale-name refusal, actual Windows Forms cells and
+  dark palette values. Rendered a synthetic-data preview and visually inspected
+  all six columns and the dark surface/buttons; no real user data in the image.
+
+No mobile runtime changes and no TIPA rebuild required.
+Local validation: 140 tests, 130 passed, 0 failed, 10 platform skips.

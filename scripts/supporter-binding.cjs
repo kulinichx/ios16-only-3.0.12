@@ -80,7 +80,9 @@ function plan(records, bindings, publicKey = issuerPublicKey) {
     requireValue(!ids.has(info.sid) && !devices.has(info.device), 'duplicate-supporter-or-device');
     ids.add(info.sid);
     devices.add(info.device);
-    return { id: info.sid, note: typeof record.Note === 'string' ? record.Note : '',
+    return { id: info.sid, displayName: typeof record.DisplayName === 'string' ? record.DisplayName : '',
+      deviceCode: info.device, lastIssuedAt: typeof record.LastIssuedAt === 'string' ? record.LastIssuedAt : '',
+      note: typeof record.Note === 'string' ? record.Note : '',
       license, binding: byDevice.get(info.device) || null };
   });
   return { rows, orphanBindings: bindings.filter(binding => !devices.has(binding.DeviceCode)).length };
@@ -119,7 +121,8 @@ function issue(row, privateKey, publicKey = issuerPublicKey, now = Math.floor(Da
 }
 
 function reviewSha256(rows) {
-  const snapshot = rows.map(row => ({ id: row.id, note: row.note || '', license: row.license, binding: row.binding ? {
+  const snapshot = rows.map(row => ({ id: row.id, displayName: row.displayName || '', lastIssuedAt: row.lastIssuedAt || '',
+    note: row.note || '', license: row.license, binding: row.binding ? {
     DeviceCode: row.binding.DeviceCode, HardwareHash: row.binding.HardwareHash,
     KeyFingerprint: row.binding.KeyFingerprint, PublicKey: row.binding.PublicKey,
   } : null })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -224,7 +227,8 @@ function main(argv, publicKey = issuerPublicKey) {
     requireValue(Object.keys(options).length === 1, 'plan-does-not-accept-output-options');
     console.log(JSON.stringify({ total: result.rows.length, eligible: eligible.length, reviewSha256: reviewSha256(eligible),
       needsProof: result.rows.length - eligible.length, orphanBindings: result.orphanBindings,
-      records: result.rows.map(row => ({ id: row.id, note: row.note, status: row.binding ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND',
+      records: result.rows.map(row => ({ id: row.id, displayName: row.displayName, deviceCode: row.deviceCode,
+        lastIssuedAt: row.lastIssuedAt, note: row.note, status: row.binding ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND',
         reviewSha256: reviewSha256([row]) })),
     }, null, 2));
     return;
