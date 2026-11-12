@@ -344,3 +344,22 @@ passed because they had not exercised the hidden VBS launch path.
   title and process/path checks. No issuer database or key was read or changed.
 
 No app/runtime files changed and no new TIPA is needed for this launcher repair.
+
+## Migration preview contact notes
+
+- Read-only inspection of the original issuer's PowerShell source confirmed
+  that names/contact remarks are saved as `Note`. No real records or key read.
+- The helper now passes this original string through the preview, and the grid
+  adds a contact/note column with full-text tooltips. Multiline notes display on
+  one row without changing their original value. Missing/non-string notes show
+  as empty; no guessed names, database writes or new license fields.
+- Single-user confirmation includes both ID and note. Review digests now cover
+  the displayed note too, so a changed name/contact requires renewed review.
+- Disposable-key tests cover exact note preservation, unchanged records and
+  RH1, no note in RHB1, legacy empty notes and refusal after a note changes.
+  Windows Forms integration uses a mock preview, including Chinese and multiline
+  text, and checks both displayed cells and original tooltips.
+
+This is a computer-tool-only change; no mobile TIPA rebuild is needed.
+Local full suite: 140 tests, 130 passed, 0 failed, 10 platform skips. Includes
+actual Windows Forms note-cell/tooltips integration and visible VBS startup.

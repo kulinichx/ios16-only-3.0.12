@@ -76,7 +76,15 @@ $grid.RowHeadersVisible = $false
 $grid.AutoSizeColumnsMode = 'Fill'
 $grid.BackgroundColor = [Drawing.Color]::White
 [void]$grid.Columns.Add('id', 'Supporter ID')
+[void]$grid.Columns.Add('note', '联系方式 / 备注')
 [void]$grid.Columns.Add('state', '绑定状态')
+$grid.Columns['id'].FillWeight = 14
+$grid.Columns['id'].MinimumWidth = 80
+$grid.Columns['note'].FillWeight = 40
+$grid.Columns['note'].MinimumWidth = 160
+$grid.Columns['state'].FillWeight = 46
+$grid.Columns['state'].MinimumWidth = 240
+$grid.ShowCellToolTips = $true
 $form.Controls.Add($grid)
 
 $issue = New-Object Windows.Forms.Button
@@ -114,7 +122,9 @@ function Load-BindingPlan([string]$Directory) {
     $plan = Invoke-BindingHelper @('plan', '--issuer-dir', $Directory)
     foreach ($record in @($plan.records)) {
         $state = if ($record.status -eq 'READY_FOR_REVIEW') { '已有历史绑定 · 可复核后补发' } else { '旧授权 · 待补设备证明' }
-        $index = $grid.Rows.Add([string]$record.id, $state)
+        $note = [string]$record.note
+        $index = $grid.Rows.Add([string]$record.id, ($note -replace '[\r\n]+', ' '), $state)
+        $grid.Rows[$index].Cells['note'].ToolTipText = $note
         $grid.Rows[$index].Tag = $record
     }
     $pathBox.Text = [IO.Path]::GetFullPath($Directory)
@@ -140,9 +150,11 @@ $choose.Add_Click({
 $issue.Add_Click({
     if ($grid.SelectedRows.Count -eq 0 -or $null -eq $grid.SelectedRows[0].Tag -or $grid.SelectedRows[0].Tag.status -ne 'READY_FOR_REVIEW') { return }
     $id = [string]$grid.SelectedRows[0].Cells['id'].Value
+    $note = [string]$grid.SelectedRows[0].Tag.note
+    if ([string]::IsNullOrWhiteSpace($note)) { $note = '未填写备注' }
     $review = [string]$grid.SelectedRows[0].Tag.reviewSha256
     $confirm = [Windows.Forms.MessageBox]::Show($form,
-        "确认已复核用户 #$id 的历史绑定？将使用现有签发私钥生成绑定凭证，不修改原数据库。", '确认补发', 'YesNo', 'Question')
+        "用户 #$id`r`n备注：$note`r`n`r`n确认已复核该用户的历史绑定？将使用现有签发私钥生成绑定凭证，不修改原数据库。", '确认补发', 'YesNo', 'Question')
     if ($confirm -ne 'Yes') { return }
     $dialog = New-Object Windows.Forms.SaveFileDialog
     try {
@@ -211,7 +223,12 @@ public static class BindingStartupVisibility {
         } finally { $timer.Stop(); $timer.Dispose() }
         if (-not $script:startupVisible) { $form.Dispose(); throw 'Launcher created a hidden main window.' }
     }
+    $previewRecords = @($grid.Rows | ForEach-Object {
+        [pscustomobject]@{ Id = [string]$_.Cells['id'].Value; Note = [string]$_.Cells['note'].Value;
+            NoteTooltip = [string]$_.Cells['note'].ToolTipText }
+    })
     [pscustomobject]@{ Rows = $grid.Rows.Count; CanIssue = $issue.Enabled; CanBatch = $batch.Enabled;
+        PreviewRecords = $previewRecords;
         Summary = $summary.Text; Width = $form.ClientSize.Width; Height = $form.ClientSize.Height } | ConvertTo-Json
     $form.Dispose()
     return

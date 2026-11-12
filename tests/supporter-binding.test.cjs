@@ -117,6 +117,31 @@ function issuerFixture(run) {
   finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
+test('migration preview preserves original Note text without changing identity, licenses or source records', () => {
+  issuerFixture(({ directory, recordsFile, records }) => {
+    const note = '\u6d4b\u8bd5\u7528\u6237 / contact\r\nsecond line';
+    const beforePlan = captureMain(['plan', '--issuer-dir', directory]);
+    fs.writeFileSync(recordsFile, JSON.stringify([{ ...records[0], Note: note }]));
+    const before = fs.readFileSync(recordsFile);
+    const preview = captureMain(['plan', '--issuer-dir', directory]);
+    assert.equal(preview.records[0].id, '0027');
+    assert.equal(preview.records[0].note, note);
+    assert.notEqual(preview.records[0].reviewSha256, beforePlan.records[0].reviewSha256);
+    assert.deepEqual(fs.readFileSync(recordsFile), before);
+    const { proof } = fixture();
+    const row = binding.plan([{ ...records[0], Note: note }], [proof], issuer.publicKey).rows[0];
+    const [license, certificate] = binding.issue(row, issuer.privateKey, issuer.publicKey).trim().split('\n');
+    assert.equal(license, records[0].License);
+    const info = binding.verifyCertificate(certificate, license, issuer.publicKey);
+    assert.equal(Object.hasOwn(info, 'note'), false);
+    assert.equal(Object.hasOwn(info, 'Note'), false);
+    for (const value of [undefined, null, 42, { name: 'not-a-note' }]) {
+      const legacy = binding.plan([{ ...records[0], Note: value }], [proof], issuer.publicKey);
+      assert.equal(legacy.rows[0].note, '');
+    }
+  });
+});
+
 test('review digests bind selected signed licenses and exact device bindings, independent of record order', () => {
   const { row } = fixture();
   const digest = binding.reviewSha256([row]);
@@ -124,16 +149,20 @@ test('review digests bind selected signed licenses and exact device bindings, in
   assert.notEqual(binding.reviewSha256([{ ...row, binding: null }]), digest);
   assert.notEqual(binding.reviewSha256([{ ...row, binding: { ...row.binding, HardwareHash: 'B'.repeat(64) } }]), digest);
   assert.notEqual(binding.reviewSha256([{ ...row, license: row.license + 'x' }]), digest);
+  assert.notEqual(binding.reviewSha256([{ ...row, note: 'changed contact' }]), digest);
   const other = { ...row, id: '0028' };
   assert.equal(binding.reviewSha256([row, other]), binding.reviewSha256([other, row]));
 });
 
 test('issuance requires the reviewed snapshot and rejects stale bindings before opening any private key', () => {
-  issuerFixture(({ directory, bindingsFile, proof }) => {
+  issuerFixture(({ directory, recordsFile, bindingsFile, records, proof }) => {
     const plan = captureMain(['plan', '--issuer-dir', directory]);
     const argv = ['issue', '--issuer-dir', directory, '--id', '0027', '--out', path.join(directory, 'out.txt')];
     assert.throws(() => captureMain([...argv]), /review-sha256-required/);
     assert.throws(() => captureMain([...argv, '--review-sha256', 'A'.repeat(64)]), /review-stale/);
+    fs.writeFileSync(recordsFile, JSON.stringify([{ ...records[0], Note: 'changed after review' }]));
+    assert.throws(() => captureMain([...argv, '--review-sha256', plan.records[0].reviewSha256]), /review-stale/);
+    fs.writeFileSync(recordsFile, JSON.stringify(records));
     fs.writeFileSync(bindingsFile, JSON.stringify([{ ...proof, HardwareHash: 'B'.repeat(64) }]));
     assert.throws(() => captureMain([...argv, '--review-sha256', plan.records[0].reviewSha256]), /review-stale/);
     assert.equal(fs.existsSync(path.join(directory, 'out.txt')), false);
@@ -292,6 +321,32 @@ test('Windows migration preview smoke test uses empty temporary databases and ne
     assert.equal(result.CanIssue, false);
     assert.equal(result.CanBatch, false);
     assert.deepEqual(fs.readdirSync(directory).sort(), ['supporter-device-proof-bindings.json', 'supporters.json']);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('Windows migration grid displays contact notes, keeps full multiline tooltips and accepts empty legacy notes', {
+  skip: process.platform !== 'win32' ? 'Requires Windows Forms; the plan helper is a test double here.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-note-ui-'));
+  try {
+    const note = '\u6d4b\u8bd5\u5907\u6ce8 / contact\r\nsecond line';
+    const preview = { total: 2, eligible: 1, needsProof: 1, orphanBindings: 0, reviewSha256: 'A'.repeat(64), records: [
+      { id: '0027', note, status: 'READY_FOR_REVIEW', reviewSha256: 'B'.repeat(64) },
+      { id: '0028', note: '', status: 'LEGACY_UNBOUND', reviewSha256: 'C'.repeat(64) },
+    ] };
+    const script = path.join(directory, 'SupporterBindingTool.ps1');
+    fs.copyFileSync(path.join(root, 'scripts/SupporterBindingTool.ps1'), script);
+    fs.writeFileSync(path.join(directory, 'supporter-binding.cjs'),
+      `if (process.argv[2] !== 'plan') process.exit(44);\nconsole.log(${JSON.stringify(JSON.stringify(preview))});\n`);
+    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass',
+      '-File', script, '-IssuerDirectory', directory, '-SmokeTest'], { encoding: 'utf8', timeout: 30000 }));
+    assert.equal(result.Rows, 2);
+    assert.equal(result.CanIssue, true);
+    assert.equal(result.CanBatch, true);
+    assert.deepEqual(result.PreviewRecords, [
+      { Id: '0027', Note: note.replace(/[\r\n]+/g, ' '), NoteTooltip: note },
+      { Id: '0028', Note: '', NoteTooltip: '' },
+    ]);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
