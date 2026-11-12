@@ -338,6 +338,54 @@ test('Windows migration preview smoke test uses empty temporary databases and ne
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('Windows migration tool remembers only a validated directory across launches and safely handles stale or corrupt settings', {
+  skip: process.platform !== 'win32' ? 'Requires Windows Forms and isolated local settings.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-binding-settings-'));
+  try {
+    const state = path.join(directory, 'state');
+    const config = path.join(state, 'settings.json');
+    const makeIssuer = name => {
+      const target = path.join(directory, name);
+      fs.mkdirSync(target);
+      fs.writeFileSync(path.join(target, 'supporters.json'), '[]');
+      fs.writeFileSync(path.join(target, 'supporter-device-proof-bindings.json'), '[]');
+      return target;
+    };
+    const first = makeIssuer('issuer one');
+    const second = makeIssuer('issuer two');
+    const run = (...args) => JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA',
+      '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts/SupporterBindingTool.ps1'),
+      '-SmokeTest', '-TestSettingsDirectory', state, ...args], { encoding: 'utf8', timeout: 30000 }));
+    assert.equal(run().LoadedDirectory, '');
+    assert.equal(fs.existsSync(config), false);
+    assert.equal(run('-IssuerDirectory', first).LoadedDirectory, first);
+    assert.deepEqual(JSON.parse(fs.readFileSync(config, 'utf8')), { version: 1, issuerDirectory: first });
+    assert.equal(run().LoadedDirectory, first);
+    assert.equal(run('-IssuerDirectory', second).LoadedDirectory, second);
+    assert.equal(run().LoadedDirectory, second);
+    const saved = fs.readFileSync(config);
+    fs.renameSync(path.join(second, 'supporters.json'), path.join(second, 'supporters.offline'));
+    const unavailable = run();
+    assert.equal(unavailable.LoadedDirectory, '');
+    assert.equal(unavailable.CanIssue, false);
+    assert.equal(unavailable.CanBatch, false);
+    assert.deepEqual(fs.readFileSync(config), saved);
+    for (const content of ['not json', JSON.stringify({ version: 2, issuerDirectory: first }),
+      JSON.stringify({ version: 1, issuerDirectory: 'relative-path' }), 'x'.repeat(32769)]) {
+      fs.writeFileSync(config, content);
+      const result = run();
+      assert.equal(result.LoadedDirectory, '');
+      assert.equal(result.CanIssue, false);
+      assert.equal(result.CanBatch, false);
+    }
+    assert.equal(run('-IssuerDirectory', first).LoadedDirectory, first);
+    assert.equal(run().LoadedDirectory, first);
+    assert.deepEqual(fs.readdirSync(state), ['settings.json']);
+    assert.deepEqual(fs.readdirSync(first).sort(), ['supporter-device-proof-bindings.json', 'supporters.json']);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('Windows dark migration grid displays original users separately from notes, devices and issued dates', {
   skip: process.platform !== 'win32' ? 'Requires Windows Forms; the plan helper is a test double here.' : false,
 }, () => {

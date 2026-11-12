@@ -385,3 +385,26 @@ was opened to establish this mapping.
 
 No mobile runtime changes and no TIPA rebuild required.
 Local validation: 140 tests, 130 passed, 0 failed, 10 platform skips.
+
+## Remember Last Issuer Directory
+
+- Store only the validated absolute issuer path and settings format version in
+  the current user's LocalAppData/RootHideSupporterBinding/settings.json.
+  Write a unique temporary file and replace the prior settings; leave source
+  issuer records and keys untouched. Saving failure does not prevent using an
+  already validated directory, and clearly states it will not be remembered.
+- Normal startup restores that path and runs only `plan`, not issue commands.
+  Missing/invalid databases or corrupt/unsupported settings keep issue buttons
+  disabled and prompt directory reselection. A successful new selection replaces
+  stale settings. The folder picker starts at the currently loaded path.
+- Smoke tests ignore real LocalAppData settings. An explicit test-only directory
+  isolates cross-launch persistence checks from real issuer data. Tests cover
+  initial selection, reopening, replacement with another directory, unavailable
+  source databases, corrupt/oversized/relative/unsupported settings and recovery.
+- Initial persistence test caught Windows PowerShell binding an empty backup
+  argument incorrectly for File.Replace. Use a unique explicit backup path and
+  remove it after replacement; the multi-launch update test now passes.
+
+Only the desktop helper changed. The reported mobile lookup/-34018 failure
+remains separate and is not fixed by remembering the desktop directory.
+Local full suite: 141 tests, 131 passed, 0 failed, 10 platform skips.

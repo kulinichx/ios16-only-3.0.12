@@ -1,13 +1,49 @@
-﻿param([string]$IssuerDirectory = '', [switch]$SmokeTest, [switch]$VerifyVisible, [string]$PreviewImage = '')
+﻿param([string]$IssuerDirectory = '', [switch]$SmokeTest, [switch]$VerifyVisible, [string]$PreviewImage = '', [string]$TestSettingsDirectory = '')
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 if ($VerifyVisible -and -not $SmokeTest) { throw 'VerifyVisible requires SmokeTest.' }
 if ($PreviewImage -and -not $SmokeTest) { throw 'PreviewImage requires SmokeTest.' }
+if ($TestSettingsDirectory -and -not $SmokeTest) { throw 'TestSettingsDirectory requires SmokeTest.' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $node = (Get-Command node -ErrorAction Stop).Source
 $helper = Join-Path $PSScriptRoot 'supporter-binding.cjs'
+$settingsPath = $null
+if ($TestSettingsDirectory) {
+    $settingsPath = Join-Path ([IO.Path]::GetFullPath($TestSettingsDirectory)) 'settings.json'
+} elseif (-not $SmokeTest) {
+    $settingsPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'RootHideSupporterBinding\settings.json'
+}
+
+function Read-RememberedIssuerDirectory {
+    if (-not $settingsPath -or -not [IO.File]::Exists($settingsPath)) { return '' }
+    $file = Get-Item -LiteralPath $settingsPath
+    if ($file.Length -gt 32768) { throw '目录记录过大，请重新选择签发工具目录。' }
+    $saved = [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json
+    if ($null -eq $saved -or $saved.version -ne 1 -or $saved.issuerDirectory -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($saved.issuerDirectory) -or -not [IO.Path]::IsPathRooted($saved.issuerDirectory)) {
+        throw '目录记录无效，请重新选择签发工具目录。'
+    }
+    return $saved.issuerDirectory
+}
+
+function Save-RememberedIssuerDirectory([string]$Directory) {
+    if (-not $settingsPath) { return }
+    $parent = [IO.Path]::GetDirectoryName($settingsPath)
+    [void][IO.Directory]::CreateDirectory($parent)
+    $temporary = Join-Path $parent ([Guid]::NewGuid().ToString('N') + '.tmp')
+    $backup = $temporary + '.bak'
+    try {
+        $json = @{ version = 1; issuerDirectory = [IO.Path]::GetFullPath($Directory) } | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($temporary, $json, (New-Object Text.UTF8Encoding($false)))
+        if ([IO.File]::Exists($settingsPath)) { [IO.File]::Replace($temporary, $settingsPath, $backup) }
+        else { [IO.File]::Move($temporary, $settingsPath) }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+        if ([IO.File]::Exists($backup)) { [IO.File]::Delete($backup) }
+    }
+}
 
 # Match the original issuer palette without changing its files.
 $colorBackground = [Drawing.ColorTranslator]::FromHtml('#191C21')
@@ -194,6 +230,8 @@ function Load-BindingPlan([string]$Directory) {
     $batch.Enabled = $plan.eligible -gt 0
     $batch.Tag = [string]$plan.reviewSha256
     $issue.Enabled = $grid.SelectedRows.Count -gt 0 -and $null -ne $grid.SelectedRows[0].Tag -and $grid.SelectedRows[0].Tag.status -eq 'READY_FOR_REVIEW'
+    try { Save-RememberedIssuerDirectory $pathBox.Text }
+    catch { $summary.Text = ($summary.Text -split "`r?`n")[0] + "`r`n目录未能保存，下次需重新选择。" }
 }
 
 $grid.Add_SelectionChanged({
@@ -204,6 +242,7 @@ $choose.Add_Click({
     $dialog = New-Object Windows.Forms.FolderBrowserDialog
     try {
         $dialog.Description = '选择包含 supporters.json 和历史设备绑定的签发工具目录'
+        if ($pathBox.Text) { $dialog.SelectedPath = $pathBox.Text }
         if ($dialog.ShowDialog($form) -eq 'OK') { Load-BindingPlan $dialog.SelectedPath }
     } catch { Show-BindingError $_.Exception.Message }
     finally { $dialog.Dispose() }
@@ -261,6 +300,15 @@ if ($IssuerDirectory) {
         try { Load-BindingPlan $IssuerDirectory }
         catch { Show-BindingError $_.Exception.Message }
     }
+} else {
+    try {
+        $rememberedDirectory = Read-RememberedIssuerDirectory
+        if ($rememberedDirectory) { Load-BindingPlan $rememberedDirectory }
+    } catch {
+        $summary.Text = '上次目录无法恢复或预检失败，请重新选择签发工具目录。'
+        $issue.Enabled = $false
+        $batch.Enabled = $false
+    }
 }
 if ($SmokeTest) {
     $form.CreateControl()
@@ -305,6 +353,7 @@ public static class BindingStartupVisibility {
     })
     [pscustomobject]@{ Rows = $grid.Rows.Count; CanIssue = $issue.Enabled; CanBatch = $batch.Enabled;
         PreviewRecords = $previewRecords;
+        LoadedDirectory = $pathBox.Text;
         FormColor = $form.BackColor.ToArgb(); GridColor = $grid.BackgroundColor.ToArgb();
         HeaderColor = $grid.ColumnHeadersDefaultCellStyle.BackColor.ToArgb();
         ImageWidth = $form.Width; ImageHeight = $form.Height;
