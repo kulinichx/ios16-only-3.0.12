@@ -267,6 +267,20 @@ Enclave behavior still require device validation; native mocks are not that proo
   and container discovery are test doubles; filesystem operations are real in
   a temporary directory.
 
-Local verification: 125 total, 115 passed, 0 failed, 10 Windows platform skips.
-Native verification and TIPA build for this follow-up are pending. Legacy RH1
-binding migration remains open and the real issuer tool/data remain untouched.
+Validation completed for commit `41d6df6e31d154d2f48095cc6b9414be59fbbda4`:
+
+- Local Windows: 125 total, 115 passed, 0 failed, 10 platform skips.
+- Linux source run `43141326339`: success.
+- macOS run `43141411466`: 125 tests, 125 passed, 0 failed, 0 skipped.
+- Build job: success, 4 minutes 39 seconds. Actual app compilation, Verify TIPA,
+  resource checks and artifact upload passed.
+- Package: `Dopamine-rh-rc9-41d6df6.tipa`.
+- Artifact: `RootHide_iOS16_TIPA`, ID `13909782087`; uploaded artifact ZIP
+  SHA256 `3be911719810efec75db3f33d14c111d1ea81005c881df88e80ef70bb08c4e58`.
+- No package downloaded locally; existing XPF edits and TIPA contents preserved.
+
+This closes bounded recovery of old generated media orphans, not arbitrary
+temporary files or unknown user files. References remain subject to the normal
+theme bootstrap/recovery policy. Real device appearance/storage behavior is not
+proven by native codec/container test doubles. Legacy RH1 binding migration
+remains open and the real issuer tool/data remain untouched.
