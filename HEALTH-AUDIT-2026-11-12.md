@@ -441,3 +441,22 @@ Local Windows suite: 143 tests, 133 passed, 0 failed, 10 platform skips.
 The new native XML-parser check and entitlement rejection cases passed. Native
 macOS app compilation, final signature verification and device proof testing
 are still pending at this point.
+
+Follow-up CI evidence for runtime commit
+`e725865e860f9dd188ca9ff54c34648e168137b3`:
+
+- Push source checks run `43151323499`: success.
+- Manual macOS build run `43151400215`: success, build job 7m1s.
+- macOS suite: 143 tests, 139 passed, 0 failed, 4 Windows-only skips. Native
+  Foundation/Security tests passed, still using mock hardware/key lookup.
+- Final packaged executable passed ldid/plutil entitlement verification for
+  cn.zqbb.dopaRH; no wildcard access group or fabricated signing team.
+- Package `Dopamine-rh-rc9-e725865.tipa`, artifact `RootHide_iOS16_TIPA`,
+  ID `13914690452`. Artifact ZIP SHA256 (not the inner TIPA hash):
+  `9fd65f485a1429a32d4428ce85032797914e3e6c19bcaa5820533b0ed28178b6`.
+- Added the non-destructive 0028 proof/binding test procedure to
+  SUPPORTER-BINDING-MIGRATION.md. No real issuer records or private key opened,
+  no credentials issued, and no files in the original issuer tool modified.
+
+Device proof generation and subsequent RHB1 activation still require the
+owner's phone validation; CI success alone does not establish device success.
