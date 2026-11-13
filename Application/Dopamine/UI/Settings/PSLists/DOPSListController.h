@@ -16,6 +16,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (void)setupViewControllerStyle:(UIViewController*)vc;
 
+// Subclasses supply their viewport; the shared layout pass applies it once.
+- (CGRect)preferencesTableFrame;
+
 @end
 
 NS_ASSUME_NONNULL_END

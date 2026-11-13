@@ -2,10 +2,18 @@
 
 ## Reports And Comparison
 
+- Follow-up report: owner's iPad M2 on iOS 16.5 also has misaligned Settings
+  and Credits in landscape; another user's iPad mini 6 has the same issue.
+  The owner explicitly identified `Dopamine-rh-rc9-9a6c3ce.tipa` as the affected
+  package. That package is present at `TIPA/11-12/`; its named source revision
+  precedes candidate repair `5bef17ce`, so this is not a report against the repair.
+- The iOS 16.5 report supersedes the earlier assumption that the owner's M2
+  was unaffected. The mini 6 OS version was not reconfirmed in this follow-up.
 - iPad mini 6, iOS 16.2: Settings and Credits compress rows horizontally;
   the supplied screenshots show landscape. The reporter says an earlier package
   worked, possibly `50c98f6` or `da4f0da`; the exact package is not confirmed.
-- Owner's iPad Pro M2, iOS 16.6: both orientations work normally.
+- Earlier report: owner's iPad Pro M2, iOS 16.6, both orientations working;
+  do not treat this earlier observation as validation of the current report.
 - Compared both earlier commits with `9a6c3ce6`. Settings/Credits table-frame
   arithmetic, the Preferences base controller and custom cell constraints are
   unchanged across those commits. No particular recent commit is established
@@ -33,10 +41,36 @@
   OS-version guesses, trait overrides or private Preferences method overrides.
 - No menu options, authorization, jailbreak or mount behavior changed.
 
+## Official Source Recheck And Shared Layout
+
+- Read `https://github.com/roothide/Dopamine-roothide.git` with `git ls-remote`
+  during this follow-up. Official HEAD and `refs/heads/3.x` both resolve to
+  `9617d75f476423fdfd33477299c8a1349eb6f375`, matching the local Git object used
+  for source comparison. No merge of unrelated upstream changes is needed.
+- Official `DOPSListController` applies its table frame in the common layout
+  callback, using controller width minus 24 points. Official Credits inherits
+  this layout. Its navigation controller sizes secondary pages as compact
+  modals; our glass Settings/Credits intentionally use full-screen controllers,
+  so copying the official modal size alone would change their presentation.
+- Retain the official width policy and the prior contentView constraint repair.
+  Introduce `preferencesTableFrame` so our common controller applies the final
+  frame once, instead of first applying the compact-page frame and then having
+  Settings/Credits overwrite it. The default frame remains exactly the official
+  `(12, 5, width - 24, height - 10)`; the two full-screen pages reserve their
+  existing safe area and fixed back row. Glass refresh follows that frame.
+- This shared-layout adjustment is local adaptation for the glass UI, not a
+  claim that official RootHide contains this new method or guarantees a fix.
+- Follow-up verification: UI and iOS 16 suites total 95 tests, 89 passed,
+  0 failed, 6 platform skips. Git ownership checks initially blocked XPF
+  fixtures; rerun passed with process-local safe-directory entries for the
+  existing XPF checkout and its Git directory, without global Git changes.
+- `git diff --check` passes. A native Xcode build and actual landscape/portrait
+  checks on the affected devices remain pending; no new TIPA was produced.
+
 The double-constrained table viewport is a compatibility hypothesis, not a
 confirmed runtime diagnosis. A successful build or arithmetic test does not
-prove iOS 16.2 Preferences row layout is fixed. Need mini 6 confirmation and
-regression checks on the already-working Pro M2 and iPhone.
+prove iOS 16.x Preferences row layout is fixed. Need confirmation on the affected
+M2 running iOS 16.5 and mini 6, plus portrait and iPhone regression checks.
 
 ## Verification
 
@@ -49,3 +83,12 @@ regression checks on the already-working Pro M2 and iPhone.
 - Source contracts guard contentView anchoring, upper-only Credits glass,
   fixed return controls and unchanged core behavior.
 - `git diff --check` passed. Native build and real-device confirmation pending.
+
+## Build Preparation
+
+- Current chat confirmation: owner's iPad Pro M2 on iOS 16.6 works in both
+  orientations. The separate iOS 16.5 report above must not replace that result.
+  No affected-device success is claimed for this candidate.
+- Reran the complete Windows suite against the shared final-frame layout:
+  166 tests, 156 passed, 0 failed, 10 platform skips. Optional original-issuer
+  tests used synthetic fixtures; no production signing records were modified.

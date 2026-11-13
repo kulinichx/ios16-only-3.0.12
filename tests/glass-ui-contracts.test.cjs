@@ -921,13 +921,12 @@ test('settings uses one RC9 glass surface per section without replacing controls
 
 test('Preferences table viewport follows phone, mini, Pro and split-view bounds without a second width cap', () => {
   // Execute the production frame arithmetic, not UIKit's private row layout.
-  // This guards the viewport contract; actual iOS 16.2 row layout needs a device.
+  // This guards the viewport contract; actual iOS 16.x row layout needs a device.
   for (const source of [settings, credits]) {
-    const layout = section(source, '- (void)viewDidLayoutSubviews', '[self customGlassRefreshPageAppearance]');
-    const arithmetic = layout.match(/CGFloat availableWidth =[\s\S]*?_table\.frame = CGRectMake\([\s\S]*?\);/)[0]
+    const layout = section(source, '- (CGRect)preferencesTableFrame', '\n- (void)');
+    const arithmetic = layout.match(/CGFloat availableWidth =[\s\S]*?return CGRectMake\([\s\S]*?\);/)[0]
       .replace(/CGFloat /g, 'const ')
-      .replace(/self\.view\.bounds/g, 'bounds')
-      .replace(/_table\.frame = /, 'return ');
+      .replace(/self\.view\.bounds/g, 'bounds');
     const frame = new Function('bounds', 'safeArea', 'MAX', 'MIN', 'CGRectGetWidth', 'CGRectGetHeight', 'CGRectMake', arithmetic);
     for (const [width, height, safeArea] of [
       [320, 568, { left: 0, right: 0, top: 20, bottom: 0 }],
@@ -951,6 +950,19 @@ test('Preferences table viewport follows phone, mini, Pro and split-view bounds 
       assert.equal(actual.height, Math.max(0, height - actual.y - safeArea.bottom - (source === credits ? 5 : 0)));
     }
     assert.doesNotMatch(layout, /620|UIScreen|setContentOffset:|reloadData|layoutIfNeeded/);
+  }
+});
+
+test('Preferences base layout applies the final viewport once and retains the official modal frame', () => {
+  const base = read(ui + 'Settings/PSLists/DOPSListController.m');
+  const layout = section(base, '- (void)viewDidLayoutSubviews', '- (CGRect)preferencesTableFrame');
+  assert.match(layout, /\[super viewDidLayoutSubviews\];\s*_table\.frame = \[self preferencesTableFrame\]/);
+  assert.equal((base.match(/_table\.frame\s*=/g) || []).length, 1);
+  assert.match(base, /return CGRectMake\(12, 5, self\.view\.bounds\.size\.width - 24, self\.view\.bounds\.size\.height - 10\)/);
+  for (const source of [settings, credits]) {
+    assert.doesNotMatch(source, /_table\.frame\s*=/);
+    const refresh = section(source, '- (void)viewDidLayoutSubviews', '- (CGRect)preferencesTableFrame');
+    assert.match(refresh, /\[super viewDidLayoutSubviews\];\s*\[self customGlassRefreshPageAppearance\]/);
   }
 });
 
@@ -1107,6 +1119,7 @@ test('ported Objective-C files have balanced delimiters and no duplicate method 
     'DOCustomGlassView.h', 'DOCustomGlassView.m',
     'DOCustomGlassMediaStore.h', 'DOCustomGlassThemeSync.h', 'DOHeaderView.m',
     'Settings/DOSettingsController.m', 'Settings/DOCreditsViewController.m',
+    'Settings/PSLists/DOPSListController.h', 'Settings/PSLists/DOPSListController.m',
   ]) {
     const source = read(ui + file).replace(
       /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '',

@@ -243,18 +243,21 @@
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
-    // The base class lays out a compact modal. Reserve a fixed navigation row
-    // here so scrolling settings can never cover the back button.
+    [self customGlassRefreshPageAppearance];
+}
+
+- (CGRect)preferencesTableFrame
+{
+    // Follow the official table width, reserving space for our fixed back row.
     UIEdgeInsets safeArea = self.view.safeAreaInsets;
     CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
     // Preferences already centers regular-width iPad rows. Narrowing the table
     // again applies that horizontal inset to an already constrained viewport.
     CGFloat width = MAX(0.0, availableWidth - 24.0);
     CGFloat top = safeArea.top + 56.0;
-    _table.frame = CGRectMake(safeArea.left + (availableWidth - width) * 0.5,
+    return CGRectMake(safeArea.left + (availableWidth - width) * 0.5,
                              top, width,
                              MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom));
-    [self customGlassRefreshPageAppearance];
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath

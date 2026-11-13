@@ -41,7 +41,13 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _table.frame = CGRectMake(12, 5, self.view.bounds.size.width - 24, self.view.bounds.size.height - 10);
+    _table.frame = [self preferencesTableFrame];
+}
+
+- (CGRect)preferencesTableFrame
+{
+    // Keep the official RootHide modal viewport for pages without a custom one.
+    return CGRectMake(12, 5, self.view.bounds.size.width - 24, self.view.bounds.size.height - 10);
 }
 
 #pragma mark - Status Bar

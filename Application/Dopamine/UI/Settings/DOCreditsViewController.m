@@ -95,16 +95,20 @@
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
+    [self customGlassRefreshPageAppearance];
+    if (self.backButton)
+        [self.view bringSubviewToFront:self.backButton];
+}
+
+- (CGRect)preferencesTableFrame
+{
     UIEdgeInsets safeArea = self.view.safeAreaInsets;
     CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
     // Keep the viewport wide enough for Preferences' own iPad row insets.
     CGFloat width = MAX(0.0, availableWidth - 24.0);
     CGFloat top = safeArea.top + 56.0;
-    _table.frame = CGRectMake(safeArea.left + (availableWidth - width) * 0.5, top, width,
+    return CGRectMake(safeArea.left + (availableWidth - width) * 0.5, top, width,
                              MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom - 5.0));
-    [self customGlassRefreshPageAppearance];
-    if (self.backButton)
-        [self.view bringSubviewToFront:self.backButton];
 }
 
 - (void)customGlassStyleContent:(UIView *)view
