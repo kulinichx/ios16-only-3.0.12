@@ -226,3 +226,15 @@ First native attempt (`889909a2`, run `43423347449`):
 - Use asynchronous simulator commands with bounded cleanup so timeouts do not
   block Node's test timer or hide the original error; publish environment and
   command diagnostics alongside available UI evidence. Production code unchanged.
+
+Second native attempt (`0475ceb3`, run `43425575697`):
+
+- The iOS 18.5 harness compiled. Intel simulator boot took about 170 seconds;
+  installation then exceeded its timeout and the 300-second overall test limit.
+  No application assertions or rendering checks ran; the dependent TIPA build
+  was skipped. Downloaded diagnostics confirm runtime 18.5 and x86_64 support.
+- Use the officially listed `macos-15` Apple Silicon runner for UIKit only,
+  retaining Xcode 16.4/iOS 18.5, with an eight-minute test bound and two-minute
+  install bound. Native TIPA compilation retains macOS 26 Intel/Xcode 26.6.
+  Production UI/jailbreak/authorization implementation is unchanged by this
+  environment adjustment. No simulator success is claimed before execution.

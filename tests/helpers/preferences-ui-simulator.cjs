@@ -85,7 +85,7 @@ async function run() {
     assert.match(device, /^[A-F0-9-]{36}$/i);
     await command(['simctl', 'boot', device]);
     await command(['simctl', 'bootstatus', device, '-b'], 180000);
-    await command(['simctl', 'install', device, app]);
+    await command(['simctl', 'install', device, app], 120000);
     await command(['simctl', 'launch', device, 'test.roothide.preferences-layout']);
     const data = await command(['simctl', 'get_app_container', device, 'test.roothide.preferences-layout', 'data']);
     const documents = path.join(data, 'Documents');

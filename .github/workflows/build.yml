@@ -39,8 +39,8 @@ jobs:
 
   uikit-layout:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: macos-15-intel
-    timeout-minutes: 10
+    runs-on: macos-15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
