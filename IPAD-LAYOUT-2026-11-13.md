@@ -165,3 +165,19 @@ Build follow-up for header repair `a143b1d524270b58e233828b8ecc86cacf06e8f8`:
   resize and empty/restored sections for redundant geometry writes. The parent
   layout, table and views are test doubles, so this does not reproduce UIKit,
   Preferences or real scroll physics and cannot certify the device fix.
+- Local verification before push: focused UI suite 52 tests, 48 passed,
+  0 failed, 4 macOS-only skips; full Windows suite 168 tests, 157 passed,
+  0 failed, 11 platform skips. `git diff --check` passed. Optional issuer
+  integration tests used synthetic fixtures; production records were untouched.
+
+Build evidence for scroll repair `49cb1b9cbc1100c464a6273cd8f7d7064e304c56`:
+
+- Pushed to the owner's branch; source-check run `43419121266` succeeded.
+- macOS build `43419239365` succeeded in 8m4s. Tests: 168 total,
+  160 passed, 0 failed, 8 platform/optional skips. New native repeated-geometry
+  fixture executed and passed (not skipped).
+- Package verification and upload passed. Package:
+  `Dopamine-rh-rc9-49cb1b9.tipa`, artifact `RootHide_iOS16_TIPA`, ID `14033443451`.
+- Owner downloads the package; no automatic local download was performed.
+  Real-device repeated drag/deceleration and portrait/landscape checks remain
+  pending. No assertion of fully resolved on-device rebound is made.
