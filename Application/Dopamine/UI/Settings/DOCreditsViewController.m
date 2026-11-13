@@ -31,7 +31,10 @@
     self.view.layer.masksToBounds = NO;
     _table.backgroundColor = UIColor.clearColor;
     _table.opaque = NO;
-    _table.backgroundView = nil;
+    UIView *glassBackground = [[UIView alloc] initWithFrame:CGRectZero];
+    glassBackground.backgroundColor = UIColor.clearColor;
+    glassBackground.userInteractionEnabled = NO;
+    _table.backgroundView = glassBackground;
     _table.separatorStyle = UITableViewCellSeparatorStyleNone;
 
     DOCustomLiquidGlassView *pageBackdrop =
@@ -39,7 +42,7 @@
     pageBackdrop.materialScale = 0.94;
     pageBackdrop.userInteractionEnabled = NO;
     self.customGlassPageBackdrop = pageBackdrop;
-    [_table insertSubview:pageBackdrop atIndex:0];
+    [glassBackground addSubview:pageBackdrop];
     [pageBackdrop reloadMaterial];
 
     // The shared navigation bar is hidden, so Credits needs its own return
@@ -101,15 +104,16 @@
     [self customGlassRefreshPageBackdrop];
 }
 
-- (CGRect)preferencesTableFrame
+- (BOOL)preferencesUsesNativeTableLayout
 {
-    UIEdgeInsets safeArea = self.view.safeAreaInsets;
-    CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
-    // Keep the viewport wide enough for Preferences' own iPad row insets.
-    CGFloat width = MAX(0.0, availableWidth - 24.0);
-    CGFloat top = safeArea.top + 56.0;
-    return CGRectMake(safeArea.left + (availableWidth - width) * 0.5, top, width,
-                             MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom - 5.0));
+    return YES;
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+    [super scrollViewDidScroll:scrollView];
+    if (scrollView == _table)
+        [self customGlassRefreshPageBackdrop];
 }
 
 - (void)customGlassStyleContent:(UIView *)view
@@ -168,7 +172,8 @@
 
 - (void)customGlassRefreshPageBackdrop
 {
-    if (!self.customGlassPageBackdrop || CGRectIsEmpty(_table.frame))
+    UIView *background = _table.backgroundView;
+    if (!self.customGlassPageBackdrop || !background || CGRectIsEmpty(_table.bounds))
         return;
 
     if (_table.numberOfSections <= 0 || [_table numberOfRowsInSection:0] <= 0) {
@@ -186,8 +191,9 @@
     }
 
     self.customGlassPageBackdrop.hidden = NO;
-    if (!CGRectEqualToRect(self.customGlassPageBackdrop.frame, sectionRect))
-        self.customGlassPageBackdrop.frame = sectionRect;
+    CGRect frame = [_table convertRect:sectionRect toView:background];
+    if (!CGRectEqualToRect(self.customGlassPageBackdrop.frame, frame))
+        self.customGlassPageBackdrop.frame = frame;
 }
 
 - (void)customGlassRefreshPageAppearance

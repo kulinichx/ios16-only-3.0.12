@@ -44,7 +44,10 @@
     self.view.layer.masksToBounds = NO;
     _table.backgroundColor = UIColor.clearColor;
     _table.opaque = NO;
-    _table.backgroundView = nil;
+    UIView *glassBackground = [[UIView alloc] initWithFrame:CGRectZero];
+    glassBackground.backgroundColor = UIColor.clearColor;
+    glassBackground.userInteractionEnabled = NO;
+    _table.backgroundView = glassBackground;
     _table.separatorStyle = UITableViewCellSeparatorStyleNone;
     _table.layer.cornerRadius = 0.0;
     _table.layer.borderWidth = 0.0;
@@ -177,6 +180,9 @@
 
 - (void)customGlassRefreshSectionBackdrops
 {
+    UIView *background = _table.backgroundView;
+    if (!background)
+        return;
     NSMutableSet<NSNumber *> *activeSections = [NSMutableSet set];
     for (NSInteger section = 0; section < _table.numberOfSections; section++) {
         NSInteger rows = [_table numberOfRowsInSection:section];
@@ -195,11 +201,10 @@
             glass.materialScale = 0.88;
             glass.userInteractionEnabled = NO;
             self.customGlassSectionBackdrops[key] = glass;
-            [_table insertSubview:glass atIndex:0];
+            [background addSubview:glass];
             [glass reloadMaterial];
-            [_table sendSubviewToBack:glass];
         }
-        CGRect frame = CGRectInset(rect, 1.0, 0.5);
+        CGRect frame = [_table convertRect:CGRectInset(rect, 1.0, 0.5) toView:background];
         if (!CGRectEqualToRect(glass.frame, frame))
             glass.frame = frame;
     }
@@ -255,18 +260,16 @@
     [self customGlassRefreshSectionBackdrops];
 }
 
-- (CGRect)preferencesTableFrame
+- (BOOL)preferencesUsesNativeTableLayout
 {
-    // Follow the official table width, reserving space for our fixed back row.
-    UIEdgeInsets safeArea = self.view.safeAreaInsets;
-    CGFloat availableWidth = MAX(0.0, CGRectGetWidth(self.view.bounds) - safeArea.left - safeArea.right);
-    // Preferences already centers regular-width iPad rows. Narrowing the table
-    // again applies that horizontal inset to an already constrained viewport.
-    CGFloat width = MAX(0.0, availableWidth - 24.0);
-    CGFloat top = safeArea.top + 56.0;
-    return CGRectMake(safeArea.left + (availableWidth - width) * 0.5,
-                             top, width,
-                             MAX(0.0, CGRectGetHeight(self.view.bounds) - top - safeArea.bottom));
+    return YES;
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+    [super scrollViewDidScroll:scrollView];
+    if (scrollView == _table)
+        [self customGlassRefreshSectionBackdrops];
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath

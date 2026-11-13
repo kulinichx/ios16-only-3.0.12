@@ -181,3 +181,35 @@ Build evidence for scroll repair `49cb1b9cbc1100c464a6273cd8f7d7064e304c56`:
 - Owner downloads the package; no automatic local download was performed.
   Real-device repeated drag/deceleration and portrait/landscape checks remain
   pending. No assertion of fully resolved on-device rebound is made.
+
+## Blur Regression and Native Table Layout
+
+- Owner's screenshots of `49cb1b9` show blurred labels/switches inside Settings
+  glass, blurred Credits action rows, and clear titles/developer content outside
+  those backdrops. Owner also reports that repeated rebound remains unresolved.
+  The earlier candidate is therefore not a successful device fix.
+- The preceding patch removed repeated backdrop ordering, while still inserting
+  glass directly amongst UITableView's private content containers. Move glass
+  into the table's dedicated backgroundView so UIKit owns its ordering below
+  cells/headers. Convert section rectangles into background coordinates on
+  layout and scroll; preserve Settings groups and Credits' upper-only glass.
+- Settings/Credits now opt into native Preferences table geometry. The shared
+  layout calls its parent and returns without overwriting the table frame for
+  these two pages. Other compact Preferences pages keep their existing frame.
+  Use guarded vertical insets for fixed return controls, and a nonanimated layer
+  mask that follows scroll bounds for clipping. Only initial layout or a changed
+  safe area at the resting top can position the content; ordinary callbacks
+  never force a scroll offset. UIView-based section-header fixes are retained.
+- The earlier Foundation test had an empty parent layout and could not detect
+  parent/child frame churn or UIKit content-container ordering. Replace it with
+  a real UIKit simulator harness: extract production geometry/scroll methods and
+  glass material; a synthetic Preferences parent deliberately reapplies its
+  native frame on every layout. Check 12 page/viewport cases, 2400 offset/layout
+  cycles, actual UIKit layer order after cell reload, backdrop alignment, and
+  mask geometry. Save rendered portrait/landscape evidence as a CI artifact.
+  This still does not execute the real iOS 16 Preferences implementation or
+  finger-driven deceleration, and cannot certify affected-device behavior.
+- Local full Windows suite: 169 tests, 158 passed, 0 failed, 11 platform skips;
+  focused UI suite: 53 tests, 49 passed, 0 failed, 4 platform skips. Native UIKit
+  execution/build pending. Original issuer integration uses synthetic fixtures;
+  production authorization records/keys and the installed jailbreak are untouched.

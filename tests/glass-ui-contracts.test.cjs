@@ -890,10 +890,8 @@ test('settings and credits gain full-screen framing without changing other Prefe
   assert.match(classification, /isKindOfClass:DOCreditsViewController\.class/);
   assert.doesNotMatch(classification, /DOPSListController\.class|DOLicenseViewController\.class/);
   assert.match(section(navigation, '-(CGRect)_frameForViewController:(id)viewController', '\n@end'), /isCustomGlassFullScreenViewController:viewController/);
-  const layout = section(settings, '- (void)viewDidLayoutSubviews', '- (void)tableView:');
-  assert.match(layout, /safeArea\.top \+ 56\.0/);
-  assert.match(layout, /CGFloat width = MAX\(0\.0, availableWidth - 24\.0\)/);
-  assert.match(layout, /- top - safeArea\.bottom/);
+  for (const source of [settings, credits])
+    assert.match(source, /- \(BOOL\)preferencesUsesNativeTableLayout\s*\{\s*return YES;/);
   // Existing Preferences selection pages retain their own return path.
   const items = read(ui + 'Settings/PSLists/DOPSListItemsController.m');
   assert.match(items, /addTarget:target action:@selector\(dismiss\)/);
@@ -905,30 +903,29 @@ test('settings uses one RC9 glass surface per section without replacing controls
   assert.match(settings, /self\.view\.backgroundColor = UIColor\.clearColor/);
   assert.match(settings, /self\.view\.layer\.masksToBounds = NO/);
   assert.match(settings, /_table\.opaque = NO/);
-  assert.match(settings, /_table\.backgroundView = nil/);
+  assert.match(settings, /_table\.backgroundView = glassBackground/);
   assert.match(settings, /UITableViewCellSeparatorStyleNone/);
   assert.match(settings, /self\.customGlassSectionBackdrops\[key\]/);
   assert.match(settings, /CGRectUnion\(firstRect, lastRect\)/);
   assert.match(settings, /initWithCornerRadius:18\.0 baseTintAlpha:0\.038/);
   assert.match(settings, /glass\.materialScale = 0\.88/);
   assert.match(settings, /glass\.userInteractionEnabled = NO/);
-  assert.match(settings, /\[_table sendSubviewToBack:glass\]/);
+  assert.match(settings, /\[background addSubview:glass\]/);
+  assert.doesNotMatch(settings, /\[_table (?:insertSubview|addSubview|sendSubviewToBack):/);
   assert.match(settings, /removeObjectForKey:key/);
   assert.match(settings, /isKindOfClass:UISwitch\.class/);
   assert.match(settings, /isKindOfClass:UISlider\.class/);
   assert.doesNotMatch(settings, /_table\.(?:delegate|dataSource)\s*=/);
 });
 
-test('Preferences table viewport follows phone, mini, Pro and split-view bounds without a second width cap', () => {
-  // Execute the production frame arithmetic, not UIKit's private row layout.
-  // This guards the viewport contract; actual iOS 16.x row layout needs a device.
-  for (const source of [settings, credits]) {
-    const layout = section(source, '- (CGRect)preferencesTableFrame', '\n- (void)');
-    const arithmetic = layout.match(/CGFloat availableWidth =[\s\S]*?return CGRectMake\([\s\S]*?\);/)[0]
-      .replace(/CGFloat /g, 'const ')
-      .replace(/self\.view\.bounds/g, 'bounds');
-    const frame = new Function('bounds', 'safeArea', 'MAX', 'MIN', 'CGRectGetWidth', 'CGRectGetHeight', 'CGRectMake', arithmetic);
-    for (const [width, height, safeArea] of [
+test('native table insets reserve the back row on phone, mini, Pro and split-view bounds', () => {
+  const base = read(ui + 'Settings/PSLists/DOPSListController.m');
+  const layout = section(base, '- (void)updatePreferencesTableInsets', '- (void)updatePreferencesTableMask');
+  const arithmetic = layout.match(/UIEdgeInsets insets = UIEdgeInsetsMake\([\s\S]*?\);/)[0]
+    .replace('UIEdgeInsets insets =', 'return')
+    .replace(/self\.view\.bounds/g, 'bounds');
+  const insets = new Function('bounds', 'viewport', 'safeArea', 'MAX', 'CGRectGetMinY', 'CGRectGetMaxY', 'CGRectGetHeight', 'UIEdgeInsetsMake', arithmetic);
+  for (const [width, height, safeArea] of [
       [320, 568, { left: 0, right: 0, top: 20, bottom: 0 }],
       [393, 852, { left: 0, right: 0, top: 59, bottom: 34 }],
       [852, 393, { left: 59, right: 59, top: 0, bottom: 21 }],
@@ -939,30 +936,33 @@ test('Preferences table viewport follows phone, mini, Pro and split-view bounds 
       [375, 744, { left: 0, right: 0, top: 24, bottom: 20 }],
       [507, 744, { left: 0, right: 0, top: 24, bottom: 20 }],
       [0, 0, { left: 0, right: 0, top: 0, bottom: 0 }],
-    ]) {
-      const actual = frame({ width, height }, safeArea, Math.max, Math.min,
-        rect => rect.width, rect => rect.height,
-        (x, y, width, height) => ({ x, y, width, height }));
-      const availableWidth = Math.max(0, width - safeArea.left - safeArea.right);
-      assert.equal(actual.width, Math.max(0, availableWidth - 24));
-      assert.equal(actual.x, safeArea.left + (availableWidth - actual.width) / 2);
-      assert.equal(actual.y, safeArea.top + 56);
-      assert.equal(actual.height, Math.max(0, height - actual.y - safeArea.bottom - (source === credits ? 5 : 0)));
+  ]) {
+    // Preferences may already inset its viewport on some OS/device combinations.
+    for (const y of [0, safeArea.top]) {
+      const actual = insets({ width, height }, { y, height: height - y }, safeArea, Math.max,
+        rect => rect.y, rect => rect.y + rect.height, rect => rect.height,
+        (top, left, bottom, right) => ({ top, left, bottom, right }));
+      assert.equal(actual.top + y, safeArea.top + 56);
+      assert.equal(actual.bottom, safeArea.bottom + 5);
+      assert.equal(actual.left, 0);
+      assert.equal(actual.right, 0);
     }
-    assert.doesNotMatch(layout, /620|UIScreen|setContentOffset:|reloadData|layoutIfNeeded/);
   }
+  assert.doesNotMatch(layout, /620|UIScreen|reloadData|layoutIfNeeded|_table\.frame\s*=/);
+  assert.match(layout, /firstLayout \|\| \(insetsChanged && restingAtTop\)/);
+  assert.match(layout, /!_table\.dragging && !_table\.tracking && !_table\.decelerating/);
 });
 
-test('Preferences base layout applies the final viewport once and retains the official modal frame', () => {
+test('native pages never overwrite the parent table frame; compact selection pages retain their frame', () => {
   const base = read(ui + 'Settings/PSLists/DOPSListController.m');
-  const layout = section(base, '- (void)viewDidLayoutSubviews', '- (CGRect)preferencesTableFrame');
-  assert.match(layout, /\[super viewDidLayoutSubviews\];\s*CGRect frame = \[self preferencesTableFrame\]/);
+  const layout = section(base, '- (void)viewDidLayoutSubviews', '- (BOOL)preferencesUsesNativeTableLayout');
+  assert.match(layout, /\[super viewDidLayoutSubviews\];\s*if \(\[self preferencesUsesNativeTableLayout\]\) \{[\s\S]*?return;\s*\}\s*CGRect frame/);
   assert.match(layout, /if \(!CGRectEqualToRect\(_table\.frame, frame\)\)\s*_table\.frame = frame/);
   assert.equal((base.match(/_table\.frame\s*=/g) || []).length, 1);
-  assert.match(base, /return CGRectMake\(12, 5, self\.view\.bounds\.size\.width - 24, self\.view\.bounds\.size\.height - 10\)/);
+  assert.match(base, /CGRectMake\(12, 5, self\.view\.bounds\.size\.width - 24, self\.view\.bounds\.size\.height - 10\)/);
   for (const source of [settings, credits]) {
     assert.doesNotMatch(source, /_table\.frame\s*=/);
-    const refresh = section(source, '- (void)viewDidLayoutSubviews', '- (CGRect)preferencesTableFrame');
+    const refresh = section(source, '- (void)viewDidLayoutSubviews', '- (BOOL)preferencesUsesNativeTableLayout');
     assert.match(refresh, /\[super viewDidLayoutSubviews\];[\s\S]*\[self customGlassRefresh(?:SectionBackdrops|PageBackdrop)\]/);
     assert.doesNotMatch(refresh, /customGlassRefreshPageAppearance|customGlassStyle|reloadMaterial|setContentOffset|reloadData|bringSubviewToFront/);
   }
@@ -995,114 +995,36 @@ test('scroll refresh keeps exact heights and does not rewrite unchanged glass ge
   }
   const sections = section(settings, '- (void)customGlassRefreshSectionBackdrops', '- (void)customGlassRefreshPageAppearance');
   assert.match(sections, /if \(!CGRectEqualToRect\(glass\.frame, frame\)\)\s*glass\.frame = frame/);
-  assert.match(sections, /if \(!glass\) \{[\s\S]*sendSubviewToBack:glass\];\s*\}/);
-  assert.equal((sections.match(/sendSubviewToBack:/g) || []).length, 1);
+  assert.match(sections, /\[_table convertRect:CGRectInset\(rect, 1\.0, 0\.5\) toView:background\]/);
   const backdrop = section(credits, '- (void)customGlassRefreshPageBackdrop', '- (void)customGlassRefreshPageAppearance');
-  assert.match(backdrop, /if \(!CGRectEqualToRect\(self\.customGlassPageBackdrop\.frame, sectionRect\)\)\s*self\.customGlassPageBackdrop\.frame = sectionRect/);
+  assert.match(backdrop, /\[_table convertRect:sectionRect toView:background\]/);
+  assert.match(backdrop, /if \(!CGRectEqualToRect\(self\.customGlassPageBackdrop\.frame, frame\)\)\s*self\.customGlassPageBackdrop\.frame = frame/);
   assert.doesNotMatch(backdrop, /sendSubviewToBack|reloadMaterial|reloadData|setContentOffset/);
 });
 
-test('native layout fixture executes production callbacks without repeated geometry writes', {
-  skip: process.platform !== 'darwin' && 'Requires macOS Foundation; this is not a UIKit scroll simulation.',
-}, () => {
-  const os = require('node:os');
-  const { execFileSync } = require('node:child_process');
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-scroll-native-'));
+test('scrolling updates only mask and background geometry while preserving the parent delegate', () => {
   const base = read(ui + 'Settings/PSLists/DOPSListController.m');
-  const baseLayout = section(base, '- (void)viewDidLayoutSubviews', '- (CGRect)preferencesTableFrame');
-  const backdrop = section(credits, '- (void)customGlassRefreshPageBackdrop', '- (void)customGlassRefreshPageAppearance');
-  const source = `
-#import <Foundation/Foundation.h>
-#include <assert.h>
-typedef NSRect CGRect;
-#define CGRectEqualToRect NSEqualRects
-#define CGRectIsEmpty NSIsEmptyRect
-#define CGRectGetWidth NSWidth
-@interface NSIndexPath (Row)
-+ (instancetype)indexPathForRow:(NSInteger)row inSection:(NSInteger)section;
-@end
-@implementation NSIndexPath (Row)
-+ (instancetype)indexPathForRow:(NSInteger)row inSection:(NSInteger)section { return [self indexPathWithIndex:row]; }
-@end
-@interface Geometry : NSObject
-@property CGRect frame;
-@property BOOL hidden;
-@property NSUInteger writes;
-@end
-@implementation Geometry
-- (void)setFrame:(CGRect)frame { _frame = frame; ++_writes; }
-@end
-@interface Table : Geometry
-@property NSInteger numberOfSections;
-@property NSInteger rows;
-@property CGRect sectionRect;
-@property CGRect rowRect;
-- (NSInteger)numberOfRowsInSection:(NSInteger)section;
-- (CGRect)rectForSection:(NSInteger)section;
-- (CGRect)rectForRowAtIndexPath:(NSIndexPath *)index;
-@end
-@implementation Table
-- (NSInteger)numberOfRowsInSection:(NSInteger)section { return self.rows; }
-- (CGRect)rectForSection:(NSInteger)section { return self.sectionRect; }
-- (CGRect)rectForRowAtIndexPath:(NSIndexPath *)index { return self.rowRect; }
-@end
-@interface Parent : NSObject
-- (void)viewDidLayoutSubviews;
-@end
-@implementation Parent
-- (void)viewDidLayoutSubviews {}
-@end
-@interface Controller : Parent { @public Table *_table; }
-@property(nonatomic, strong) Geometry *customGlassPageBackdrop;
-@property CGRect target;
-- (CGRect)preferencesTableFrame;
-- (void)customGlassRefreshPageBackdrop;
-@end
-@implementation Controller
-${baseLayout}
-- (CGRect)preferencesTableFrame { return self.target; }
-${backdrop}
-@end
-int main(void) { @autoreleasepool {
-  Controller *controller = [Controller new];
-  controller->_table = [Table new];
-  controller.target = NSMakeRect(12, 80, 1109, 644);
-  controller.customGlassPageBackdrop = [Geometry new];
-  Table *table = controller->_table;
-  table.numberOfSections = 1; table.rows = 3;
-  table.sectionRect = NSMakeRect(0, 0, 1109, 204);
-  table.rowRect = NSMakeRect(220, 60, 669, 44);
-  [controller viewDidLayoutSubviews];
-  [controller customGlassRefreshPageBackdrop];
-  assert(table.writes == 1 && controller.customGlassPageBackdrop.writes == 1);
-  for (int i = 0; i < 200; i++) {
-    [controller viewDidLayoutSubviews];
-    [controller customGlassRefreshPageBackdrop];
+  const scroll = section(base, '- (void)scrollViewDidScroll:', '#pragma mark');
+  assert.match(scroll, /\[PSListController instancesRespondToSelector:_cmd\]/);
+  assert.match(scroll, /\[super scrollViewDidScroll:scrollView\]/);
+  assert.match(scroll, /updatePreferencesTableMask/);
+  assert.doesNotMatch(scroll, /contentInset\s*=|contentOffset|_table\.frame\s*=/);
+  const mask = section(base, '- (void)updatePreferencesTableMask', '- (void)scrollViewDidScroll:');
+  assert.match(mask, /CGRectGetMinY\(bounds\) \+ insets\.top/);
+  assert.match(mask, /setDisableActions:YES/);
+  for (const source of [settings, credits]) {
+    const scroll = section(source, '- (void)scrollViewDidScroll:', '\n- (void)');
+    assert.match(scroll, /\[super scrollViewDidScroll:scrollView\]/);
+    assert.match(scroll, /customGlassRefresh(?:SectionBackdrops|PageBackdrop)/);
+    assert.doesNotMatch(scroll, /contentInset\s*=|contentOffset|reloadData|reloadMaterial/);
   }
-  assert(table.writes == 1 && controller.customGlassPageBackdrop.writes == 1);
-  assert(NSEqualRects(controller.customGlassPageBackdrop.frame, NSMakeRect(220, 0, 669, 204)));
-  controller.target = NSMakeRect(12, 80, 720, 1033);
-  table.sectionRect = NSMakeRect(0, 0, 720, 204);
-  table.rowRect = NSMakeRect(20, 60, 680, 44);
-  [controller viewDidLayoutSubviews];
-  [controller customGlassRefreshPageBackdrop];
-  assert(table.writes == 2 && controller.customGlassPageBackdrop.writes == 2);
-  table.rows = 0; [controller customGlassRefreshPageBackdrop];
-  assert(controller.customGlassPageBackdrop.hidden);
-  table.rows = 3; [controller customGlassRefreshPageBackdrop];
-  assert(!controller.customGlassPageBackdrop.hidden);
-  assert(controller.customGlassPageBackdrop.writes == 2);
-} return 0; }
-`;
-  try {
-    const file = path.join(directory, 'scroll.m');
-    const binary = path.join(directory, 'scroll');
-    fs.writeFileSync(file, source);
-    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
-    execFileSync(binary);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+});
+
+test('UIKit simulator exercises production layout, background layering and scroll offsets', {
+  skip: process.platform !== 'darwin' && 'Requires an iOS Simulator and UIKit on macOS.',
+  timeout: 300000,
+}, async () => {
+  await require('./helpers/preferences-ui-simulator.cjs').run();
 });
 
 test('settings refreshes reused cells, layout and theme changes without retaining its controller', () => {
@@ -1136,8 +1058,7 @@ test('credits has an accessible fixed back button and an edge return independent
   assert.doesNotMatch(back, /NSUserDefaults|DORHSupporter|reloadMaterial/);
   const layout = section(credits, '- (void)viewDidLayoutSubviews', '- (id)specifiers');
   assert.match(layout, /\[super viewDidLayoutSubviews\]/);
-  assert.match(layout, /safeArea\.top \+ 56\.0/);
-  assert.match(layout, /- top - safeArea\.bottom - 5\.0/);
+  assert.match(layout, /preferencesUsesNativeTableLayout/);
   assert.match(layout, /customGlassRefreshPageBackdrop/);
 });
 
@@ -1188,10 +1109,11 @@ test('credits uses shared glass without replacing its content or collection dele
   assert.match(credits, /initWithCornerRadius:24\.0 baseTintAlpha:0\.044/);
   assert.match(credits, /pageBackdrop\.materialScale = 0\.94/);
   assert.match(credits, /pageBackdrop\.userInteractionEnabled = NO/);
-  assert.match(credits, /\[_table insertSubview:pageBackdrop atIndex:0\]/);
+  assert.match(credits, /\[glassBackground addSubview:pageBackdrop\]/);
+  assert.match(credits, /_table\.backgroundView = glassBackground/);
+  assert.doesNotMatch(credits, /\[_table (?:insertSubview|addSubview|sendSubviewToBack):/);
   assert.match(credits, /rectForSection:0/);
-  assert.match(credits, /self\.customGlassPageBackdrop\.frame = sectionRect/);
-  assert.match(credits, /CGFloat width = MAX\(0\.0, availableWidth - 24\.0\)/);
+  assert.match(credits, /self\.customGlassPageBackdrop\.frame = frame/);
   assert.match(credits, /sectionRect\.origin\.x = rowRect\.origin\.x/);
   assert.match(credits, /sectionRect\.size\.width = CGRectGetWidth\(rowRect\)/);
   assert.doesNotMatch(credits, /customGlassSectionBackdrops|rectForHeaderInSection:/);

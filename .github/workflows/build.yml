@@ -82,6 +82,14 @@ jobs:
             plutil -lint "$plist"
           done
 
+      - name: Upload UIKit layout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UIKit_layout_evidence
+          path: .audit-artifacts/preferences-ui/
+          if-no-files-found: ignore
+
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
         with:
