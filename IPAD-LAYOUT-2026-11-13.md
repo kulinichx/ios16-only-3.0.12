@@ -92,3 +92,19 @@ M2 running iOS 16.5 and mini 6, plus portrait and iPhone regression checks.
 - Reran the complete Windows suite against the shared final-frame layout:
   166 tests, 156 passed, 0 failed, 10 platform skips. Optional original-issuer
   tests used synthetic fixtures; no production signing records were modified.
+
+## Published Test Build
+
+- Source commit `faa47ee86a830f3a9cc8b3aee25bb93520d252be` pushed to the
+  owner's `rc9-ios16-next` branch (remote `ios16-target`).
+- Push source checks `43363409823` succeeded: 166 tests, 150 passed,
+  0 failed, 16 platform/optional/shallow-checkout skips.
+- Manual macOS build `43363479172` succeeded; build job duration 5m28s.
+  macOS tests: 166 total, 158 passed, 0 failed, 8 skips.
+- `Verify TIPA` passed, including archive integrity, packaged menu/locales
+  and application/keychain entitlement checks.
+- Artifact `RootHide_iOS16_TIPA` (ID `14010055278`) uploaded successfully,
+  containing `Dopamine-rh-rc9-faa47ee.tipa`. Artifact ZIP is 29,105,194 bytes;
+  this is not a measurement of the unwrapped TIPA itself.
+- No automatic local TIPA download. Real mini 6 / iOS 16.2 Settings/Credits
+  confirmation and regression checks on the owner's M2 remain pending.
