@@ -41,7 +41,9 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _table.frame = [self preferencesTableFrame];
+    CGRect frame = [self preferencesTableFrame];
+    if (!CGRectEqualToRect(_table.frame, frame))
+        _table.frame = frame;
 }
 
 - (CGRect)preferencesTableFrame

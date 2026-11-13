@@ -141,3 +141,27 @@ Build follow-up for header repair `a143b1d524270b58e233828b8ecc86cacf06e8f8`:
 - No local package download or real UIKit/device layout verification claimed.
   Verify both page titles and developer collections in portrait and landscape;
   existing jailbreak data and authorization do not need removal for this test.
+
+## Repeated Scroll Rebound Follow-up
+
+- Owner reports repeated rebound when scrolling Settings and Credits in the
+  header-repair package. No device-side layout/offset trace is available.
+- Found unnecessary mutations in each viewDidLayoutSubviews: full recursive
+  appearance refresh replaces UIButton configurations and selected backgrounds,
+  while glass frames/z-order are written even if unchanged. These are plausible
+  layout invalidation sources; not a measured sole runtime cause.
+- Limit layout callbacks to backdrop geometry updates. Keep styling in existing
+  theme, appearance and will-display paths. Guard identical table/glass frames;
+  order new Settings backdrops once on insertion. Credits already inserts its
+  single backdrop behind the content, so do not reorder it on every refresh.
+- Disable estimated row, header and footer heights in these two pages, whose
+  Preferences delegates/custom headers already supply heights. This avoids
+  estimate replacement during scrolling. Ordinary scrolling and edge bounce
+  remain enabled; no contentOffset writes or forced scroll positions added.
+- Retain UIView-based section headers and the prior horizontal frame fixes.
+  No changes to low-power page, jailbreak, authorization or mount behavior.
+- Add source checks plus a macOS Foundation fixture executing the production
+  base layout and Credits backdrop callbacks. It checks 200 stable repeats,
+  resize and empty/restored sections for redundant geometry writes. The parent
+  layout, table and views are test doubles, so this does not reproduce UIKit,
+  Preferences or real scroll physics and cannot certify the device fix.

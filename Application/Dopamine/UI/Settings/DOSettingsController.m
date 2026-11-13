@@ -49,6 +49,11 @@
     _table.layer.cornerRadius = 0.0;
     _table.layer.borderWidth = 0.0;
     _table.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    // Preferences supplies exact row/header heights; estimates can move the
+    // scroll offset as offscreen groups enter the viewport.
+    _table.estimatedRowHeight = 0.0;
+    _table.estimatedSectionHeaderHeight = 0.0;
+    _table.estimatedSectionFooterHeight = 0.0;
     self.customGlassSectionBackdrops = [NSMutableDictionary dictionary];
 
     // Navigation must work independently of appearance or future authorization.
@@ -192,9 +197,11 @@
             self.customGlassSectionBackdrops[key] = glass;
             [_table insertSubview:glass atIndex:0];
             [glass reloadMaterial];
+            [_table sendSubviewToBack:glass];
         }
-        glass.frame = CGRectInset(rect, 1.0, 0.5);
-        [_table sendSubviewToBack:glass];
+        CGRect frame = CGRectInset(rect, 1.0, 0.5);
+        if (!CGRectEqualToRect(glass.frame, frame))
+            glass.frame = frame;
     }
     for (NSNumber *key in self.customGlassSectionBackdrops.allKeys) {
         if (![activeSections containsObject:key]) {
@@ -243,7 +250,9 @@
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
-    [self customGlassRefreshPageAppearance];
+    // Scrolling lays out the table repeatedly. Restyling button configurations
+    // here invalidates layout again; style only on display or theme changes.
+    [self customGlassRefreshSectionBackdrops];
 }
 
 - (CGRect)preferencesTableFrame

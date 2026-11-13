@@ -63,6 +63,9 @@
         [backButton.heightAnchor constraintEqualToConstant:44.0]
     ]];
     _table.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    _table.estimatedRowHeight = 0.0;
+    _table.estimatedSectionHeaderHeight = 0.0;
+    _table.estimatedSectionFooterHeight = 0.0;
 
     UIScreenEdgePanGestureRecognizer *edgeGesture =
         [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(edgeBackGesture:)];
@@ -95,9 +98,7 @@
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
-    [self customGlassRefreshPageAppearance];
-    if (self.backButton)
-        [self.view bringSubviewToFront:self.backButton];
+    [self customGlassRefreshPageBackdrop];
 }
 
 - (CGRect)preferencesTableFrame
@@ -185,8 +186,8 @@
     }
 
     self.customGlassPageBackdrop.hidden = NO;
-    self.customGlassPageBackdrop.frame = sectionRect;
-    [_table sendSubviewToBack:self.customGlassPageBackdrop];
+    if (!CGRectEqualToRect(self.customGlassPageBackdrop.frame, sectionRect))
+        self.customGlassPageBackdrop.frame = sectionRect;
 }
 
 - (void)customGlassRefreshPageAppearance
