@@ -111,13 +111,14 @@
         self.collectionView.delegate = self;
         self.collectionView.dataSource = self;
         
-        [self.contentView addSubview:self.collectionView];
+        // A section header must not inherit UITableViewCell's row content insets.
+        [self addSubview:self.collectionView];
 
         [NSLayoutConstraint activateConstraints:@[
-            [self.collectionView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-            [self.collectionView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-            [self.collectionView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
-            [self.collectionView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor],
+            [self.collectionView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:20],
+            [self.collectionView.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-20],
+            [self.collectionView.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [self.collectionView.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
         ]];
         
     }

@@ -966,15 +966,22 @@ test('Preferences base layout applies the final viewport once and retains the of
   }
 });
 
-test('custom Preferences contents use their contentView coordinate space, not the outer cell', () => {
-  for (const name of ['DOHeaderCell', 'DOButtonCell', 'DOCreditsCell']) {
-    const cell = read(ui + `Settings/Specifiers/${name}.m`);
-    assert.doesNotMatch(cell, /constraint(?:EqualTo|GreaterThanOrEqualTo|LessThanOrEqualTo)Anchor:self\.(?:leading|trailing|top|bottom|centerX|centerY)Anchor/);
-    assert.match(cell, /constraintEqualToAnchor:self\.contentView\./);
+test('Preferences section headers are ordinary views without table-cell content insets', () => {
+  for (const name of ['DOHeaderCell', 'DOCreditsCell']) {
+    assert.match(read(ui + `Settings/Specifiers/${name}.h`), new RegExp(`@interface ${name} : UIView`));
+    const implementation = read(ui + `Settings/Specifiers/${name}.m`);
+    const wrapper = section(implementation, `@implementation ${name}\n`, '\n@end');
+    assert.doesNotMatch(wrapper, /self\.contentView|layoutMarginsGuide|safeAreaLayoutGuide/);
+    assert.match(wrapper, /constraintEqualToAnchor:self\.leadingAnchor constant:20/);
+    assert.match(wrapper, /constraintEqualToAnchor:self\.trailingAnchor constant:-20/);
+    assert.match(wrapper, /preferredHeightForWidth:/);
   }
   const title = read(ui + 'Settings/Specifiers/DOHeaderCell.m');
-  assert.match(title, /titleLabel\.leadingAnchor constraintGreaterThanOrEqualToAnchor:self\.contentView\.leadingAnchor/);
-  assert.match(title, /titleLabel\.trailingAnchor constraintLessThanOrEqualToAnchor:self\.contentView\.trailingAnchor/);
+  assert.match(title, /titleLabel\.textAlignment = NSTextAlignmentCenter/);
+  assert.match(title, /titleLabel\.adjustsFontSizeToFitWidth = YES/);
+  const button = read(ui + 'Settings/Specifiers/DOButtonCell.m');
+  assert.match(button, /button\.leadingAnchor constraintEqualToAnchor:self\.contentView\.leadingAnchor/);
+  assert.match(button, /button\.trailingAnchor constraintEqualToAnchor:self\.contentView\.trailingAnchor/);
 });
 
 test('settings refreshes reused cells, layout and theme changes without retaining its controller', () => {
@@ -1120,6 +1127,8 @@ test('ported Objective-C files have balanced delimiters and no duplicate method 
     'DOCustomGlassMediaStore.h', 'DOCustomGlassThemeSync.h', 'DOHeaderView.m',
     'Settings/DOSettingsController.m', 'Settings/DOCreditsViewController.m',
     'Settings/PSLists/DOPSListController.h', 'Settings/PSLists/DOPSListController.m',
+    'Settings/Specifiers/DOHeaderCell.h', 'Settings/Specifiers/DOHeaderCell.m',
+    'Settings/Specifiers/DOCreditsCell.h', 'Settings/Specifiers/DOCreditsCell.m',
   ]) {
     const source = read(ui + file).replace(
       /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '',

@@ -6,12 +6,11 @@
 //
 
 #import <UIKit/UIKit.h>
-#import <Preferences/PSTableCell.h>
 #import <Preferences/PSSpecifier.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface DOCreditsCell : UITableViewCell
+@interface DOCreditsCell : UIView
 
 @end
 

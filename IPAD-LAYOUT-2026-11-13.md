@@ -108,3 +108,25 @@ M2 running iOS 16.5 and mini 6, plus portrait and iPhone regression checks.
   this is not a measurement of the unwrapped TIPA itself.
 - No automatic local TIPA download. Real mini 6 / iOS 16.2 Settings/Credits
   confirmation and regression checks on the owner's M2 remain pending.
+
+## Landscape Header Follow-up
+
+- User supplied a screenshot of `faa47ee`: the Credits action rows are centered,
+  but the title and custom developer collections are displaced to the right.
+  Thus the earlier viewport change is insufficient for custom section headers.
+- Both `DOHeaderCell` and `DOCreditsCell` are registered as `headerCellClass`,
+  but inherited `UITableViewCell`. Their custom children depended on the cell's
+  internally laid-out contentView even though Preferences uses them as headers.
+  The screenshot is consistent with that mismatch; no iOS 16 runtime inspection
+  was performed to measure the internal contentView frame.
+- Convert these two custom headers to UIView while preserving initWithSpecifier,
+  preferredHeightForWidth, class names, data sources and collection height.
+  Pin header contents to their own view bounds, removing table-cell content
+  layout from this path. Ordinary DOButtonCell rows remain table cells.
+- Bound and center the title label, with font shrinking for long version text.
+  Credits remains two columns, without internal collection scrolling. No changes
+  to menu options, table viewport, authorization or jailbreak functionality.
+- Focused UI tests: 50 total, 47 passed, 0 failed, 3 platform skips. Full Windows
+  suite: 166 total, 156 passed, 0 failed, 10 skips; optional issuer tests use
+  synthetic fixtures. Source checks are not UIKit rendering verification.
+- Native build and actual portrait/landscape confirmation pending for this fix.
