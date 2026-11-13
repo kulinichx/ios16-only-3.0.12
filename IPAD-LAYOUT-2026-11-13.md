@@ -130,3 +130,14 @@ M2 running iOS 16.5 and mini 6, plus portrait and iPhone regression checks.
   suite: 166 total, 156 passed, 0 failed, 10 skips; optional issuer tests use
   synthetic fixtures. Source checks are not UIKit rendering verification.
 - Native build and actual portrait/landscape confirmation pending for this fix.
+
+Build follow-up for header repair `a143b1d524270b58e233828b8ecc86cacf06e8f8`:
+
+- Pushed to the owner's branch; source-check run `43365395229` succeeded.
+- macOS build `43365493236` succeeded in 4m45s. Tests: 166 total,
+  158 passed, 0 failed, 8 platform/optional skips.
+- `Verify TIPA` and artifact upload passed. Package:
+  `Dopamine-rh-rc9-a143b1d.tipa`, artifact `RootHide_iOS16_TIPA`, ID `14009653731`.
+- No local package download or real UIKit/device layout verification claimed.
+  Verify both page titles and developer collections in portrait and landscape;
+  existing jailbreak data and authorization do not need removal for this test.
