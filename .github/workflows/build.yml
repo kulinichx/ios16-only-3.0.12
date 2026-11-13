@@ -37,7 +37,30 @@ jobs:
       - run: node scripts/prepare-xpf-ios16.cjs
       - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
 
+  uikit-layout:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+      - name: Verify UIKit table geometry and layering
+        env:
+          DORH_RUN_UIKIT_SIMULATOR: '1'
+          DORH_SIMULATOR_RUNTIME: '18.5'
+        run: node --test --test-name-pattern='UIKit simulator exercises' tests/glass-ui-contracts.test.cjs
+      - name: Upload UIKit layout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UIKit_layout_evidence
+          path: .audit-artifacts/preferences-ui/
+          if-no-files-found: ignore
+
   build:
+    needs: uikit-layout
     if: github.event_name == 'workflow_dispatch'
     # Keep the tested macOS/Xcode generation without the ARM64 capacity queue.
     runs-on: macos-26-intel
@@ -81,14 +104,6 @@ jobs:
           for plist in Application/Dopamine/Exploits/*/Info.plist; do
             plutil -lint "$plist"
           done
-
-      - name: Upload UIKit layout evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: UIKit_layout_evidence
-          path: .audit-artifacts/preferences-ui/
-          if-no-files-found: ignore
 
       - name: Install Procursus
         uses: dhinakg/procursus-action@main

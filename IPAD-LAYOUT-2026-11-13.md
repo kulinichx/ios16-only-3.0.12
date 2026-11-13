@@ -213,3 +213,16 @@ Build evidence for scroll repair `49cb1b9cbc1100c464a6273cd8f7d7064e304c56`:
   focused UI suite: 53 tests, 49 passed, 0 failed, 4 platform skips. Native UIKit
   execution/build pending. Original issuer integration uses synthetic fixtures;
   production authorization records/keys and the installed jailbreak are untouched.
+
+First native attempt (`889909a2`, run `43423347449`):
+
+- Harness compilation succeeded under Xcode 26.6. Simulator bootstatus timed out
+  during initial data migration; the UIKit app was never launched. This is not
+  a passing UI check or evidence about the device fix. No TIPA was built.
+- Move UIKit execution to a required `uikit-layout` job with macOS 15 Intel,
+  Xcode 16.4 and installed iOS 18.5 runtime. The existing macOS 26 Intel/Xcode
+  26.6 app build waits for it. Source/native Foundation checks run normally in
+  the build job; the simulator test runs explicitly only in its required job.
+- Use asynchronous simulator commands with bounded cleanup so timeouts do not
+  block Node's test timer or hide the original error; publish environment and
+  command diagnostics alongside available UI evidence. Production code unchanged.

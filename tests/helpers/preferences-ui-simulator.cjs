@@ -2,7 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
+const execFileAsync = require('node:util').promisify(execFile);
 
 const root = path.resolve(__dirname, '../..');
 const ui = 'Application/Dopamine/UI/';
@@ -39,13 +40,24 @@ function harnessSource() {
 async function run() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-uikit-'));
   const output = path.join(root, '.audit-artifacts/preferences-ui');
-  const command = args => execFileSync('xcrun', args, { encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 * 1024 }).trim();
+  fs.mkdirSync(output, { recursive: true });
+  const command = async (args, timeout = 60000) => {
+    console.log('[UIKit]', args.join(' '));
+    try {
+      const { stdout } = await execFileAsync('xcrun', args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+      return stdout.trim();
+    } catch (error) {
+      fs.appendFileSync(path.join(output, 'commands.log'), `${args.join(' ')}\n${error.stdout || ''}\n${error.stderr || ''}\n${error.message}\n`);
+      throw error;
+    }
+  };
   let device;
   try {
-    const runtime = JSON.parse(command(['simctl', 'list', 'runtimes', '-j'])).runtimes
-      .find(item => item.isAvailable && item.identifier.includes('.iOS-'));
+    const runtimes = JSON.parse(await command(['simctl', 'list', 'runtimes', '-j'])).runtimes;
+    const runtime = runtimes.find(item => item.isAvailable && item.identifier.includes('.iOS-') &&
+      (!process.env.DORH_SIMULATOR_RUNTIME || item.version === process.env.DORH_SIMULATOR_RUNTIME));
     assert.ok(runtime, 'No available iOS Simulator runtime; UIKit check cannot be replaced with source checks.');
-    const miniTypes = JSON.parse(command(['simctl', 'list', 'devicetypes', '-j'])).devicetypes
+    const miniTypes = JSON.parse(await command(['simctl', 'list', 'devicetypes', '-j'])).devicetypes
       .filter(item => item.name.startsWith('iPad mini'));
     const type = miniTypes.find(item => item.name === 'iPad mini (6th generation)') || miniTypes.at(-1);
     assert.ok(type, 'No iPad mini simulator device type.');
@@ -53,10 +65,11 @@ async function run() {
     fs.mkdirSync(app);
     const file = path.join(directory, 'harness.m');
     fs.writeFileSync(file, harnessSource());
-    const sdk = command(['--sdk', 'iphonesimulator', '--show-sdk-path']);
-    command(['--sdk', 'iphonesimulator', 'clang', '-fobjc-arc', '-fmodules', '-isysroot', sdk,
+    const sdk = await command(['--sdk', 'iphonesimulator', '--show-sdk-path']);
+    fs.writeFileSync(path.join(output, 'environment.json'), JSON.stringify({ runtime, type, sdk, arch: process.arch }, null, 2));
+    await command(['--sdk', 'iphonesimulator', 'clang', '-fobjc-arc', '-fmodules', '-isysroot', sdk,
       '-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios16.0-simulator`,
-      '-framework', 'UIKit', '-framework', 'QuartzCore', file, '-o', path.join(app, 'RHLayout')]);
+      '-framework', 'UIKit', '-framework', 'QuartzCore', file, '-o', path.join(app, 'RHLayout')], 120000);
     fs.writeFileSync(path.join(app, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>test.roothide.preferences-layout</string>
@@ -68,13 +81,13 @@ async function run() {
 <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
 <key>UILaunchScreen</key><dict/>
 </dict></plist>`);
-    device = command(['simctl', 'create', `RHLayout-${process.pid}`, type.identifier, runtime.identifier]);
+    device = await command(['simctl', 'create', `RHLayout-${process.pid}`, type.identifier, runtime.identifier]);
     assert.match(device, /^[A-F0-9-]{36}$/i);
-    command(['simctl', 'boot', device]);
-    command(['simctl', 'bootstatus', device, '-b']);
-    command(['simctl', 'install', device, app]);
-    command(['simctl', 'launch', device, 'test.roothide.preferences-layout']);
-    const data = command(['simctl', 'get_app_container', device, 'test.roothide.preferences-layout', 'data']);
+    await command(['simctl', 'boot', device]);
+    await command(['simctl', 'bootstatus', device, '-b'], 180000);
+    await command(['simctl', 'install', device, app]);
+    await command(['simctl', 'launch', device, 'test.roothide.preferences-layout']);
+    const data = await command(['simctl', 'get_app_container', device, 'test.roothide.preferences-layout', 'data']);
     const documents = path.join(data, 'Documents');
     const report = path.join(documents, 'report.json');
     const deadline = Date.now() + 90000;
@@ -92,8 +105,8 @@ async function run() {
     console.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks; evidence: ${output}`);
   } finally {
     if (device) {
-      try { command(['simctl', 'shutdown', device]); } catch {}
-      command(['simctl', 'delete', device]);
+      try { await command(['simctl', 'shutdown', device], 15000); } catch {}
+      try { await command(['simctl', 'delete', device], 15000); } catch {}
     }
     fs.rmSync(directory, { recursive: true, force: true });
   }

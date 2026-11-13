@@ -1021,7 +1021,8 @@ test('scrolling updates only mask and background geometry while preserving the p
 });
 
 test('UIKit simulator exercises production layout, background layering and scroll offsets', {
-  skip: process.platform !== 'darwin' && 'Requires an iOS Simulator and UIKit on macOS.',
+  skip: (process.platform !== 'darwin' || process.env.DORH_RUN_UIKIT_SIMULATOR !== '1') &&
+    'Runs in the required uikit-layout job with its pinned simulator runtime.',
   timeout: 300000,
 }, async () => {
   await require('./helpers/preferences-ui-simulator.cjs').run();

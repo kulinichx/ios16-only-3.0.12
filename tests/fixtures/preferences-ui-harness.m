@@ -30,7 +30,15 @@ static BOOL DORHSupporterRenderIsVerified(void) { return YES; }
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(24, 24)];
+    UIImage *pattern = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [[UIColor colorWithWhite:0.06 alpha:1.0] setFill];
+        UIRectFill(CGRectMake(0, 0, 24, 24));
+        [[UIColor colorWithWhite:0.25 alpha:1.0] setFill];
+        UIRectFill(CGRectMake(0, 0, 12, 12));
+        UIRectFill(CGRectMake(12, 12, 12, 12));
+    }];
+    self.view.backgroundColor = [UIColor colorWithPatternImage:pattern];
     _table = [[CountingTable alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     _table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _table.backgroundColor = UIColor.clearColor;
