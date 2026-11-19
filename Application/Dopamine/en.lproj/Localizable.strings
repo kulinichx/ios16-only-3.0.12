@@ -11,6 +11,11 @@
 
 // Action Menu
 "Home_Uptime_Format" = "Uptime: %@";
+"Home_Thermal_State_Format" = "Thermal: %@";
+"Thermal_State_Nominal" = "Normal";
+"Thermal_State_Fair" = "Warm";
+"Thermal_State_Serious" = "Hot";
+"Thermal_State_Critical" = "Overheated";
 "Button_Back" = "Back";
 "Menu_Settings_Title" = "Settings";
 "Menu_Restart_SpringBoard_Title" = "Restart SpringBoard";

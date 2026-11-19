@@ -138,6 +138,43 @@ test('home uses the RC9 safe-area layout instead of stretching or scaling a whol
   assert.doesNotMatch(main, /self\.contentView|MAX\(size\.height, availableHeight\)|systemLayoutSizeFittingSize:/);
 });
 
+test('home thermal state uses four localized levels and a foreground-only breathing avatar halo', () => {
+  const thermal = section(main, '- (void)displayHomeThermalState:', '- (void)homeThermalStateDidChange:');
+  for (const [systemState, localizedState] of [
+    ['Nominal', 'Thermal_State_Nominal'],
+    ['Fair', 'Thermal_State_Fair'],
+    ['Serious', 'Thermal_State_Serious'],
+    ['Critical', 'Thermal_State_Critical'],
+  ]) {
+    assert.match(thermal, new RegExp(`NSProcessInfoThermalState${systemState}[\\s\\S]*?DOLocalizedString\\(@"${localizedState}"\\)`));
+  }
+  assert.match(thermal, /revealHomeThermalStateInAvatar:animate/);
+  assert.match(thermal, /self\.homeThermalHalo playBreath/);
+
+  const avatar = section(main, 'UILabel *thermalOverlay =', 'avatarGlass.userInteractionEnabled = YES;');
+  assert.match(avatar, /thermalOverlay\.alpha = 0\.0/);
+  assert.match(avatar, /self\.homeThermalAvatarOverlay = thermalOverlay/);
+  assert.match(avatar, /thermalOverlay\.leadingAnchor constraintEqualToAnchor:avatarGlass\.leadingAnchor/);
+
+  const reveal = section(main, '- (void)revealHomeThermalStateInAvatar:', '- (void)startHomeThermalUpdates');
+  assert.match(reveal, /activationState != UISceneActivationStateForegroundActive/);
+  assert.match(reveal, /overlay\.alpha = 1\.0/);
+  assert.match(reveal, /overlay\.alpha = 0\.0/);
+  assert.match(reveal, /self\.customGlassAvatarPhotoView\.alpha = photoRestAlpha/);
+  assert.match(main, /breath\.repeatCount = HUGE_VALF/);
+
+  const stop = section(main, '\n- (void)stopHomeThermalUpdates\n{', '- (void)homeThermalStateDidChange:');
+  assert.match(stop, /\[self\.homeThermalHalo stopBreath\]/);
+  assert.match(stop, /self\.homeThermalAvatarOverlay\.alpha = 0\.0/);
+  assert.match(stop, /self\.customGlassAvatarPhotoView\.alpha = self\.customGlassProfileFocusEnabled \? 0\.34 : 1\.0/);
+
+  for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
+    const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
+    for (const key of ['Home_Thermal_State_Format', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical'])
+      assert.match(strings, new RegExp(`"${key}"\\s*=`));
+  }
+});
+
 test('RC9 action-panel dimensions and jailbreak-bar offsets are retained', () => {
   for (const declaration of [
     'CGFloat mainSpacing = compactLayout ? 8.0 : 12.0;',

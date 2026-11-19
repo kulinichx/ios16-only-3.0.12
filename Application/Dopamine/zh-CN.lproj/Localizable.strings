@@ -11,6 +11,11 @@
 
 // Action Menu
 "Home_Uptime_Format" = "已运行 %@";
+"Home_Thermal_State_Format" = "热状态：%@";
+"Thermal_State_Nominal" = "正常";
+"Thermal_State_Fair" = "略热";
+"Thermal_State_Serious" = "偏热";
+"Thermal_State_Critical" = "严重过热";
 "Button_Back" = "返回";
 "Menu_Settings_Title" = "设置";
 "Menu_Restart_SpringBoard_Title" = "重启 SpringBoard";
