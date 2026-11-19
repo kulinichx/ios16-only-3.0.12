@@ -35,7 +35,7 @@ jobs:
         with:
           submodules: recursive
       - run: node scripts/prepare-xpf-ios16.cjs
-      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
+      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/preferences-ui-simulator.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
 
   uikit-layout:
     if: github.event_name == 'workflow_dispatch'
@@ -50,7 +50,9 @@ jobs:
         env:
           DORH_RUN_UIKIT_SIMULATOR: '1'
           DORH_SIMULATOR_RUNTIME: '18.5'
-        run: node --test --test-name-pattern='UIKit simulator exercises' tests/glass-ui-contracts.test.cjs
+        run: |
+          node --test tests/preferences-ui-simulator.test.cjs
+          node --test --test-name-pattern='UIKit simulator exercises' tests/glass-ui-contracts.test.cjs
       - name: Upload UIKit layout evidence
         if: always()
         uses: actions/upload-artifact@v4

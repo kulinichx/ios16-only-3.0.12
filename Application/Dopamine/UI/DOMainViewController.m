@@ -664,6 +664,13 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
     self.customGlassProfileFocusEnabled = enabled;
     self.customGlassProfileFocusDockRight = dockRight;
 
+    // A pending temperature reveal must not restore the old focus-mode opacity.
+    self.homeThermalRevealGeneration++;
+    [self.homeThermalAvatarOverlay.layer removeAllAnimations];
+    [self.customGlassAvatarPhotoView.layer removeAllAnimations];
+    [self.customGlassAvatarFallbackIconView.layer removeAllAnimations];
+    self.homeThermalAvatarOverlay.alpha = 0.0;
+
     if (persist) {
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         [defaults setBool:enabled forKey:DOCustomGlassProfileFocusEnabledKey];
@@ -716,6 +723,7 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
         self.customGlassAvatarContainerView.layer.shadowOpacity = enabled ? 0.035 : 0.16;
         self.customGlassAvatarContainerView.layer.shadowRadius = enabled ? 4.0 : 6.0;
         self.customGlassAvatarPhotoView.layer.cornerRadius = MAX(0.0, (avatarSize - 2.0) / 2.0);
+        self.homeThermalAvatarOverlay.layer.cornerRadius = MAX(0.0, (avatarSize - 4.0) / 2.0);
         self.customGlassAvatarPhotoView.alpha = enabled ? 0.34 : 1.0;
         self.customGlassAvatarFallbackIconView.alpha = enabled ? 0.44 : 1.0;
 
@@ -1332,6 +1340,7 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
         jailbreakMaterialGlass.hidden = YES;
         self.jailbreakBtn.backgroundColor = jailbreakExpandedBackgroundColor;
         self.informationVisible = NO;
+        [self stopHomeThermalUpdates];
         [self stopUptimeTimer];
         [(DONavigationController *)self.navigationController customGlassPauseForJailbreak];
         CGRect buttonFrame = [self.jailbreakBtn convertRect:self.jailbreakBtn.bounds toView:self.view];
