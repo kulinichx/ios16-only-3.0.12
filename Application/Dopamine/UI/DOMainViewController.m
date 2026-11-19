@@ -136,6 +136,9 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIStackView *textStack;
 @property(nonatomic, strong) CAGradientLayer *backdropLayer;
+@property(nonatomic, strong) CAGradientLayer *breathingLayer;
+- (void)playBreath;
+- (void)stopBreath;
 @end
 
 @implementation DOHomeThermalStatusView
@@ -151,6 +154,15 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         self.backdropLayer.startPoint = CGPointMake(0.1, 0.0);
         self.backdropLayer.endPoint = CGPointMake(0.9, 1.0);
         [self.layer addSublayer:self.backdropLayer];
+        // A separate color wash breathes behind the text; the dark base and
+        // foreground stay steady so the status remains readable at every phase.
+        self.breathingLayer = [CAGradientLayer layer];
+        self.breathingLayer.type = kCAGradientLayerRadial;
+        self.breathingLayer.startPoint = CGPointMake(0.35, 0.30);
+        self.breathingLayer.endPoint = CGPointMake(1.0, 1.0);
+        self.breathingLayer.locations = @[@0.0, @0.55, @1.0];
+        self.breathingLayer.opacity = 0.45;
+        [self.layer addSublayer:self.breathingLayer];
         self.temperatureIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"thermometer"]];
         self.temperatureIcon.contentMode = UIViewContentModeScaleAspectFit;
         self.temperatureIcon.tintColor = [UIColor colorWithWhite:1.0 alpha:0.72];
@@ -185,11 +197,30 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     self.backdropLayer.frame = self.bounds;
+    self.breathingLayer.frame = self.bounds;
     self.layer.cornerRadius = diameter / 2.0;
     [CATransaction commit];
     CGFloat statusSize = MIN(24.0, MAX(12.0, diameter * 0.24));
     if (self.statusLabel.font.pointSize != statusSize)
         self.statusLabel.font = [UIFont systemFontOfSize:statusSize weight:UIFontWeightSemibold];
+}
+
+- (void)playBreath
+{
+    if ([self.breathingLayer animationForKey:DOHomeThermalBreathKey]) return;
+    CAKeyframeAnimation *breath = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
+    breath.values = @[@0.45, @1.0, @0.45];
+    breath.keyTimes = @[@0.0, @0.5, @1.0];
+    CAMediaTimingFunction *ease = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    breath.timingFunctions = @[ease, ease];
+    breath.duration = 4.8;
+    breath.repeatCount = HUGE_VALF;
+    [self.breathingLayer addAnimation:breath forKey:DOHomeThermalBreathKey];
+}
+
+- (void)stopBreath
+{
+    [self.breathingLayer removeAnimationForKey:DOHomeThermalBreathKey];
 }
 
 @end
@@ -238,6 +269,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic) NSProcessInfoThermalState homeThermalState;
 @property(nonatomic) BOOL observingHomeThermalState;
 @property(nonatomic) NSUInteger homeThermalRevealGeneration;
+@property(nonatomic) BOOL homeThermalRevealActive;
 @property(nonatomic, strong) UIView *customGlassJailbreakDisabledOverlay;
 @property(nonatomic, strong) NSProgress *customGlassAvatarImport;
 
@@ -250,6 +282,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)stopHomeThermalUpdates;
 - (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate;
 - (void)applyHomeAvatarDisplayMode;
+- (void)updateHomeThermalInteriorBreath;
 - (void)applyCustomGlassFocusProgress:(CGFloat)progress;
 
 @end
@@ -1574,6 +1607,11 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         (id)[UIColor colorWithRed:0.06 green:0.07 blue:0.12 alpha:0.96].CGColor,
         (id)[rim colorWithAlphaComponent:0.32].CGColor
     ];
+    self.homeThermalAvatarOverlay.breathingLayer.colors = @[
+        (id)[highlight colorWithAlphaComponent:0.38].CGColor,
+        (id)[rim colorWithAlphaComponent:0.22].CGColor,
+        (id)[rim colorWithAlphaComponent:0.0].CGColor
+    ];
     [CATransaction commit];
     self.customGlassAvatarContainerView.accessibilityValue = description;
     [self revealHomeThermalStateInAvatar:animate];
@@ -1583,6 +1621,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     } else {
         [self.homeThermalHalo stopBreath];
     }
+    [self updateHomeThermalInteriorBreath];
 }
 
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated
@@ -1597,6 +1636,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     }
     if (DOHomeThermalLaunchRevealConsumed) return;
     DOHomeThermalLaunchRevealConsumed = YES;
+    self.homeThermalRevealActive = YES;
 
     NSUInteger generation = ++self.homeThermalRevealGeneration;
     DOHomeThermalStatusView *overlay = self.homeThermalAvatarOverlay;
@@ -1626,7 +1666,11 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
                     overlay.alpha = 0.0;
                     self.customGlassAvatarPhotoView.alpha = photoRestAlpha;
                     self.customGlassAvatarFallbackIconView.alpha = fallbackRestAlpha;
-                } completion:nil];
+                } completion:^(BOOL finished) {
+                    if (generation != self.homeThermalRevealGeneration) return;
+                    self.homeThermalRevealActive = NO;
+                    [self updateHomeThermalInteriorBreath];
+                }];
             });
         }];
     };
@@ -1637,6 +1681,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)applyHomeAvatarDisplayMode
 {
     self.homeThermalRevealGeneration++;
+    self.homeThermalRevealActive = NO;
     [self.homeThermalAvatarOverlay.layer removeAllAnimations];
     [self.customGlassAvatarPhotoView.layer removeAllAnimations];
     [self.customGlassAvatarFallbackIconView.layer removeAllAnimations];
@@ -1645,6 +1690,16 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self.customGlassAvatarFallbackIconView.alpha = self.homeAvatarShowsTemperature ? 0.0 : 1.0;
     self.customGlassAvatarContainerView.accessibilityLabel = DOLocalizedString(self.homeAvatarShowsTemperature ?
         @"Home_Avatar_Show_Temperature" : @"Home_Avatar_Show_Photo");
+    [self updateHomeThermalInteriorBreath];
+}
+
+- (void)updateHomeThermalInteriorBreath
+{
+    BOOL visible = self.homeAvatarShowsTemperature || self.homeThermalRevealActive;
+    if (visible && self.informationVisible && self.observingHomeThermalState && !UIAccessibilityIsReduceMotionEnabled())
+        [self.homeThermalAvatarOverlay playBreath];
+    else
+        [self.homeThermalAvatarOverlay stopBreath];
 }
 
 - (void)startHomeThermalUpdates
@@ -1699,6 +1754,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         } else if (self.observingHomeThermalState) {
             [self.homeThermalHalo playBreath];
         }
+        [self updateHomeThermalInteriorBreath];
     });
 }
 

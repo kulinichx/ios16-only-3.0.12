@@ -50,10 +50,13 @@
 @property(nonatomic) CGPoint customGlassAvatarPressOrigin;
 @property(nonatomic) BOOL homeAvatarShowsTemperature;
 @property(nonatomic) BOOL informationVisible;
+@property(nonatomic) BOOL observingHomeThermalState;
+@property(nonatomic) BOOL homeThermalRevealActive;
 @property(nonatomic) NSUInteger homeThermalRevealGeneration;
 @property(nonatomic) NSProcessInfoThermalState homeThermalState;
 @property(nonatomic, strong) UIViewController *testPresentedController;
 - (void)applyHomeAvatarDisplayMode;
+- (void)updateHomeThermalInteriorBreath;
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated;
 @end
 
@@ -145,6 +148,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home.updateButton.bottomAnchor constraintEqualToAnchor:home.customGlassJailbreakPlaceholder.topAnchor constant:-12]
         ]];
         home.informationVisible = YES;
+        home.observingHomeThermalState = YES;
         for (NSValue *size in sizes) {
             home.view.frame = (CGRect){CGPointZero, size.CGSizeValue};
             [home.view setNeedsLayout];
@@ -229,12 +233,39 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 [home applyHomeAvatarDisplayMode];
                 CHECK(home.homeThermalAvatarOverlay.alpha == (mode.boolValue ? 1 : 0));
                 CHECK(home.customGlassAvatarPhotoView.alpha == (mode.boolValue ? 0 : 1));
+                CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
+                    (mode.boolValue && !UIAccessibilityIsReduceMotionEnabled()));
             }
+            home.homeAvatarShowsTemperature = YES;
+            [home applyHomeAvatarDisplayMode];
             for (NSInteger state = 0; state < 4; state++) {
                 [home displayHomeThermalState:(NSProcessInfoThermalState)state animate:YES];
                 CHECK(home.homeThermalAvatarOverlay.statusLabel.text.length > 0);
                 if (!UIAccessibilityIsReduceMotionEnabled()) CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] != nil);
+                CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
+                    !UIAccessibilityIsReduceMotionEnabled());
+                CHECK(home.homeThermalAvatarOverlay.textStack.layer.animationKeys.count == 0);
+                CHECK(home.homeThermalAvatarOverlay.statusLabel.layer.animationKeys.count == 0);
             }
+            // Leaving the page or stopping thermal observation must stop the
+            // interior effect, even when the persistent temperature mode is on.
+            home.informationVisible = NO;
+            [home updateHomeThermalInteriorBreath];
+            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            home.informationVisible = YES;
+            [home updateHomeThermalInteriorBreath];
+            home.observingHomeThermalState = NO;
+            [home applyHomeAvatarDisplayMode];
+            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            home.observingHomeThermalState = YES;
+            home.homeAvatarShowsTemperature = NO;
+            home.homeThermalRevealActive = YES;
+            [home updateHomeThermalInteriorBreath];
+            CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
+                !UIAccessibilityIsReduceMotionEnabled());
+            [home applyHomeAvatarDisplayMode];
+            CHECK(!home.homeThermalRevealActive);
+            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
             [home.homeThermalHalo stopBreath];
             CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
             cases++;
