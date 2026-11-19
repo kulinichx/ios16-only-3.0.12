@@ -27,14 +27,17 @@ const launchd = read('BaseBin/launchdhook/src/roothider.m');
 const jbsettings = read('BaseBin/launchdhook/src/jbserver/jbsettings.c');
 const info = read('BaseBin/libjailbreak/src/info.h');
 const workflow = read('.github/workflows/build.yml');
+const uiWorkflow = read('.github/workflows/uikit-layout.yml');
 
-test('native builds pin Intel macOS and the previously tested Xcode generation', () => {
-  assert.match(workflow, /runs-on: macos-26-intel/);
-  assert.doesNotMatch(workflow, /runs-on: macos-latest|xcode-version: latest-stable/);
-  assert.match(workflow, /XCODE_VERSION: '26\.6'/);
-  assert.match(workflow, /xcode-version: \$\{\{ env\.XCODE_VERSION \}\}/);
-  assert.match(workflow, /test "\$RUNNER_ARCH" = 'X64'/);
-  assert.match(workflow, /test "\$actual_xcode" = "\$XCODE_VERSION"/);
+test('manual TIPA builds use one standard macOS job without simulator gating', () => {
+  assert.match(workflow, /build:\n\s+if: github\.event_name == 'workflow_dispatch'\n\s+runs-on: macos-latest/);
+  assert.match(workflow, /xcode-version: latest-stable/);
+  assert.doesNotMatch(workflow, /macos-26-intel|needs: uikit-layout|DORH_RUN_UIKIT_SIMULATOR/);
+  assert.match(workflow, /test -n "\$actual_xcode"/);
+  assert.match(uiWorkflow, /runs-on: macos-15/);
+  assert.match(uiWorkflow, /xcode-version: '16\.4'/);
+  assert.match(uiWorkflow, /DORH_RUN_UIKIT_SIMULATOR: '1'/);
+  assert.doesNotMatch(uiWorkflow, /\n\s+build:/);
 });
 
 test('Titan selects the iOS 16 proc-name offset matching the XNU generation', () => {
