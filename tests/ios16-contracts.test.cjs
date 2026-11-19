@@ -29,11 +29,15 @@ const info = read('BaseBin/libjailbreak/src/info.h');
 const workflow = read('.github/workflows/build.yml');
 const uiWorkflow = read('.github/workflows/uikit-layout.yml');
 
-test('manual TIPA builds use one standard macOS job without simulator gating', () => {
-  assert.match(workflow, /build:\n\s+if: github\.event_name == 'workflow_dispatch'\n\s+runs-on: macos-latest/);
-  assert.match(workflow, /xcode-version: latest-stable/);
-  assert.doesNotMatch(workflow, /macos-26-intel|needs: uikit-layout|DORH_RUN_UIKIT_SIMULATOR/);
-  assert.match(workflow, /test -n "\$actual_xcode"/);
+test('manual TIPA builds use one Intel macOS job without simulator gating', () => {
+  const buildJob = workflow.slice(workflow.indexOf('\n  build:'));
+  assert.match(buildJob, /if: github\.event_name == 'workflow_dispatch'/);
+  assert.match(buildJob, /runs-on: macos-26-intel/);
+  assert.match(workflow, /XCODE_VERSION: '26\.6'/);
+  assert.match(buildJob, /xcode-version: \$\{\{ env\.XCODE_VERSION \}\}/);
+  assert.doesNotMatch(buildJob, /\bneeds:|DORH_RUN_UIKIT_SIMULATOR|macos-latest|latest-stable/);
+  assert.match(buildJob, /test "\$RUNNER_ARCH" = 'X64'/);
+  assert.match(buildJob, /test "\$actual_xcode" = "\$XCODE_VERSION"/);
   assert.match(uiWorkflow, /runs-on: macos-15/);
   assert.match(uiWorkflow, /xcode-version: '16\.4'/);
   assert.match(uiWorkflow, /DORH_RUN_UIKIT_SIMULATOR: '1'/);
