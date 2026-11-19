@@ -6,7 +6,7 @@ const test = require('node:test');
 const { run } = require('./helpers/preferences-ui-simulator.cjs');
 
 // Exercise the runner's control flow on every platform. This does not replace UIKit.
-function fixture(t, { launchError, diagnosticError, failedReport = false, outputUnavailable = false,
+function fixture(t, { launchError, diagnosticError, plistError, failedReport = false, outputUnavailable = false,
   runtimeErrors = [], runtimeOutput } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-simulator-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -25,6 +25,11 @@ function fixture(t, { launchError, diagnosticError, failedReport = false, output
     if (file === '/usr/bin/log') {
       if (diagnosticError) throw diagnosticError;
       return { stdout: 'CoreSimulator host diagnostics', stderr: 'host diagnostic stderr' };
+    }
+    if (file === '/usr/bin/plutil') {
+      assert.ok(fs.existsSync(args[1]), 'validate the actual generated bundle');
+      if (plistError) throw plistError;
+      return { stdout: `${args[1]}: OK`, stderr: '' };
     }
     assert.equal(file, 'xcrun');
     let stdout = '';
@@ -79,6 +84,41 @@ test('cold CoreSimulator discovery retries its timeout once and then runs the re
   assert.match(fs.readFileSync(path.join(context.output, 'commands.log'), 'utf8'), /retrying once/);
   assert.ok(context.calls.some(call => call.args[1] === 'launch'));
   assert.equal(JSON.parse(fs.readFileSync(path.join(context.output, 'report.json'))).status, 'passed');
+});
+
+test('installed harness declares phone and iPad orientations and validates its plist before boot', async t => {
+  const context = fixture(t);
+  let installedPlist;
+  const execute = async (file, args, options) => {
+    if (file === 'xcrun' && args[1] === 'install')
+      installedPlist = fs.readFileSync(path.join(args[3], 'Info.plist'), 'utf8');
+    return context.execute(file, args, options);
+  };
+  await run({ ...context, execute });
+  const orientations = key => {
+    const array = installedPlist.match(new RegExp(`<key>${key}</key><array>([\\s\\S]*?)</array>`));
+    assert.ok(array, `missing ${key}`);
+    return [...array[1].matchAll(/<string>([^<]+)<\/string>/g)].map(match => match[1]);
+  };
+  assert.deepEqual(orientations('UISupportedInterfaceOrientations'), [
+    'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight',
+  ]);
+  assert.deepEqual(orientations('UISupportedInterfaceOrientations~ipad'), [
+    'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown',
+    'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight',
+  ]);
+  assert.equal(fs.readFileSync(path.join(context.output, 'harness-Info.plist'), 'utf8'), installedPlist);
+  const validation = context.calls.findIndex(call => call.file === '/usr/bin/plutil');
+  const creation = context.calls.findIndex(call => call.args[1] === 'create');
+  assert.ok(validation >= 0 && validation < creation);
+});
+
+test('invalid bundle plist fails before creating a simulator and retains the validation error', async t => {
+  const error = new Error('invalid harness Info.plist');
+  const context = fixture(t, { plistError: error });
+  await assert.rejects(run(context), caught => caught === error);
+  assert.ok(!context.calls.some(call => ['create', 'install', 'launch'].includes(call.args[1])));
+  assert.ok(fs.existsSync(path.join(context.output, 'harness-Info.plist')));
 });
 
 test('repeated discovery timeouts fail after two attempts and collect host logs without a device', async t => {

@@ -45,11 +45,11 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
     try { fs.appendFileSync(path.join(output, name), contents); }
     catch (error) { logger.error('[UIKit] Cannot save evidence:', error.message); }
   };
-  const command = async (args, timeout = 60000) => {
+  const command = async (args, timeout = 60000, executable = 'xcrun') => {
     logger.log('[UIKit]', args.join(' '));
     const started = Date.now();
     try {
-      const { stdout, stderr } = await execute('xcrun', args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+      const { stdout, stderr } = await execute(executable, args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
       save('commands.log', `${args.join(' ')}\nelapsedMs=${Date.now() - started}, timeoutMs=${timeout}, code=0\n${stdout || ''}\n${stderr || ''}\n`);
       return stdout.trim();
     } catch (error) {
@@ -110,11 +110,27 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
 <key>CFBundleExecutable</key><string>RHLayout</string>
 <key>CFBundleName</key><string>RHLayout</string>
 <key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>MinimumOSVersion</key><string>16.0</string>
 <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+<key>UISupportedInterfaceOrientations</key><array>
+<string>UIInterfaceOrientationPortrait</string>
+<string>UIInterfaceOrientationLandscapeLeft</string>
+<string>UIInterfaceOrientationLandscapeRight</string>
+</array>
+<key>UISupportedInterfaceOrientations~ipad</key><array>
+<string>UIInterfaceOrientationPortrait</string>
+<string>UIInterfaceOrientationPortraitUpsideDown</string>
+<string>UIInterfaceOrientationLandscapeLeft</string>
+<string>UIInterfaceOrientationLandscapeRight</string>
+</array>
 <key>UILaunchScreen</key><dict/>
 </dict></plist>`);
+    // This bundle is assembled without Xcode's generated Info.plist defaults.
+    // Validate it before spending time booting/installing, and retain it as evidence.
+    fs.copyFileSync(path.join(app, 'Info.plist'), path.join(output, 'harness-Info.plist'));
+    await command(['-lint', path.join(app, 'Info.plist')], 15000, '/usr/bin/plutil');
     device = await command(['simctl', 'create', `RHLayout-${process.pid}`, type.identifier, runtime.identifier]);
     assert.match(device, /^[A-F0-9-]{36}$/i);
     await command(['simctl', 'boot', device]);
@@ -143,7 +159,8 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
     try {
       const args = device ? [
         'simctl', 'spawn', device, 'log', 'show', '--last', '5m', '--style', 'compact',
-        '--predicate', 'eventMessage CONTAINS[c] "test.roothide.preferences-layout" OR eventMessage CONTAINS[c] "RHLayout" OR process == "RHLayout"'
+        // Launch-service failures do not necessarily contain our bundle identifier.
+        '--predicate', 'eventMessage CONTAINS[c] "test.roothide.preferences-layout" OR eventMessage CONTAINS[c] "RHLayout" OR process == "RHLayout" OR process == "SpringBoard" OR process == "runningboardd" OR process == "CoreSimulatorBridge"'
       ] : [
         'show', '--last', '5m', '--style', 'compact', '--predicate',
         'process CONTAINS[c] "CoreSimulator" OR process == "simctl" OR subsystem CONTAINS[c] "CoreSimulator"'
