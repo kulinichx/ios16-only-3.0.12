@@ -13,6 +13,11 @@
 "Home_Uptime_Format" = "已运行 %@";
 "Home_Thermal_State_Format" = "热状态：%@";
 "Home_Thermal_State_Title" = "热状态";
+"Home_Avatar_Display_Title" = "圆形显示";
+"Home_Avatar_Show_Photo" = "显示头像";
+"Home_Avatar_Show_Temperature" = "显示温度";
+"Home_Avatar_Collapse_Hint" = "向下拖动收起菜单，长按后松手选择头像或温度。";
+"Home_Avatar_Expand_Hint" = "向上拖动或轻点恢复菜单，长按后松手选择头像或温度。";
 "Thermal_State_Nominal" = "正常";
 "Thermal_State_Fair" = "略热";
 "Thermal_State_Serious" = "偏热";

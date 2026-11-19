@@ -253,3 +253,8 @@
 "CustomMount_SharedCopyPreserved" = "The directory was unmounted and removed from the list. Its copy was preserved because another saved mount uses the same directory tree. Copy:";
 "Maintenance_Failed" = "The system operation failed (error %d). You can try again.";
 "CustomMount_Working" = "Updating mount";
+"Home_Avatar_Display_Title" = "Circle display";
+"Home_Avatar_Show_Photo" = "Show avatar";
+"Home_Avatar_Show_Temperature" = "Show thermal state";
+"Home_Avatar_Collapse_Hint" = "Drag down to hide menus. Hold and release to choose avatar or thermal state.";
+"Home_Avatar_Expand_Hint" = "Drag up or tap to restore menus. Hold and release to choose avatar or thermal state.";

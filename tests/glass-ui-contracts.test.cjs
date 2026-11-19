@@ -165,12 +165,15 @@ test('home thermal state uses four localized levels and a foreground-only breath
 
   const stop = section(main, '\n- (void)stopHomeThermalUpdates\n{', '- (void)homeThermalStateDidChange:');
   assert.match(stop, /\[self\.homeThermalHalo stopBreath\]/);
-  assert.match(stop, /self\.homeThermalAvatarOverlay\.alpha = 0\.0/);
-  assert.match(stop, /self\.customGlassAvatarPhotoView\.alpha = self\.customGlassProfileFocusEnabled \? 0\.34 : 1\.0/);
+  assert.match(stop, /\[self applyHomeAvatarDisplayMode\]/);
+  assert.match(reveal, /if \(DOHomeThermalLaunchRevealConsumed\) return/);
+  assert.match(reveal, /DOHomeThermalLaunchRevealConsumed = YES/);
+  assert.doesNotMatch(reveal, /customGlassProfileFocusEnabled/);
 
   for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
-    for (const key of ['Home_Thermal_State_Format', 'Home_Thermal_State_Title', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical'])
+    for (const key of ['Home_Thermal_State_Format', 'Home_Thermal_State_Title', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical',
+      'Home_Avatar_Display_Title', 'Home_Avatar_Show_Photo', 'Home_Avatar_Show_Temperature', 'Home_Avatar_Collapse_Hint', 'Home_Avatar_Expand_Hint'])
       assert.match(strings, new RegExp(`"${key}"\\s*=`));
   }
 });
@@ -245,20 +248,26 @@ test('username and motto editors use saved user input rather than treating place
   assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassMottoEditor\)/);
 });
 
-test('avatar focus retains root-edge docking, alpha-based hiding and restoration hooks', () => {
-  // These source hooks do not establish frame invariance. The health audit
-  // identifies a separate profile-height dependency that requires a layout fix.
-  const focus = section(main, '- (void)setCustomGlassProfileFocusEnabled:', '- (void)configureCustomGlassHeaderView:');
-  assert.match(focus, /for \(UIView \*label in self\.customGlassHeaderSubtitleLabels\)[\s\S]*?label\.alpha = detailAlpha/);
-  assert.match(focus, /self\.customGlassUsernameLabel\.alpha = detailAlpha/);
-  assert.match(focus, /self\.customGlassMottoLabel\.alpha = detailAlpha/);
-  assert.match(focus, /CGRect screenFrame = self\.view\.bounds/);
+test('avatar focus uses vertical travel with stable layout and disables faded menus', () => {
+  const focus = section(main, '- (CGFloat)customGlassFocusTravel', '- (void)configureCustomGlassHeaderView:');
+  assert.match(focus, /detail\.transform = CGAffineTransformMakeTranslation\(0\.0, menuTravel \* progress\)/);
+  assert.match(focus, /detail\.userInteractionEnabled = progress < 0\.001/);
+  assert.match(focus, /detail\.accessibilityElementsHidden = progress > 0\.001/);
   assert.match(focus, /translationInView:self\.view/);
-  assert.match(focus, /fabs\(translation\.x\) >= 28\.0/);
-  assert.match(focus, /if \(self\.customGlassProfileFocusEnabled\)/);
-  assert.match(main, /avatarGlass\.centerXAnchor constraintEqualToAnchor:self\.view\.leadingAnchor/);
-  assert.match(main, /avatarGlass\.centerXAnchor constraintEqualToAnchor:self\.view\.trailingAnchor/);
-  assert.doesNotMatch(focus, /mainStack|setCustomSpacing|\.hidden\s*=/);
+  assert.match(focus, /fabs\(velocity\.y\) > fabs\(velocity\.x\)/);
+  assert.match(focus, /translation\.y \/ \[self customGlassFocusTravel\]/);
+  assert.match(main, /usernameLabel\.topAnchor constraintEqualToAnchor:profileView\.topAnchor constant:avatarSize \+ avatarToUsernameSpacing/);
+  assert.doesNotMatch(main, /customGlassProfileFocusDockRight|customGlassAvatarFocusSize|LeadingDockConstraint|TrailingDockConstraint/);
+});
+
+test('avatar mode is remembered and long press cannot open its menu after dragging', () => {
+  const gesture = section(main, '- (void)customGlassAvatarLongPressed:', '- (void)configureCustomGlassHeaderView:');
+  assert.match(gesture, /gesture\.state != UIGestureRecognizerStateEnded \|\| self\.customGlassAvatarWasDragged/);
+  assert.match(gesture, /setBool:temperature forKey:DOHomeAvatarTemperatureModeKey/);
+  assert.match(gesture, /popoverPresentationController\.sourceView = self\.customGlassAvatarContainerView/);
+  assert.match(main, /avatarTap requireGestureRecognizerToFail:self\.customGlassAvatarLongPress/);
+  assert.match(main, /boolForKey:DOHomeAvatarTemperatureModeKey/);
+  assert.doesNotMatch(main, /captionLabel/);
 });
 
 test('shared wallpaper handles images, video and Live Photo with persisted speed', () => {

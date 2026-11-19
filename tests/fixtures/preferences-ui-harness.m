@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 
 // The real Preferences framework is unavailable in the simulator. This parent
 // supplies rows and deliberately reapplies its native frame on every layout.
@@ -192,6 +193,8 @@ static void Snapshot(DOPSListController *page, NSString *name, NSString *documen
     CHECK([UIImagePNGRepresentation(image) writeToFile:[documents stringByAppendingPathComponent:name] atomically:YES]);
 }
 
+/* HOME_FOCUS_FIXTURE */
+
 static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
 {
     NSUInteger checks = 0, viewports = 0;
@@ -242,7 +245,8 @@ static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
         [page.view removeFromSuperview];
         [page removeFromParentViewController];
     }
-    return @{@"status": @"passed", @"viewports": @(viewports), @"scrollChecks": @(checks),
+    NSUInteger homeFocusCases = CheckHomeFocus(host);
+    return @{@"status": @"passed", @"viewports": @(viewports), @"scrollChecks": @(checks), @"homeFocusCases": @(homeFocusCases),
         @"note": @"Real UIKit and production callbacks/material; synthetic Preferences parent. Not an iOS 16 device test."};
 }
 

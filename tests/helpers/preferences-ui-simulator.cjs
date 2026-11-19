@@ -20,6 +20,7 @@ function harnessSource() {
   const settings = read(ui + 'Settings/DOSettingsController.m');
   const credits = read(ui + 'Settings/DOCreditsViewController.m');
   const material = read(ui + 'DOCustomGlassView.m');
+  const home = read(ui + 'DOMainViewController.m');
   const replacements = {
     MATERIAL_HEADER: read(ui + 'DOCustomGlassView.h'),
     MATERIAL: section(material, '@implementation DOCustomLiquidGlassView', '\n@end') + '\n@end',
@@ -30,8 +31,13 @@ function harnessSource() {
     CREDITS_BACKGROUND: section(credits, '    UIView *glassBackground =', '    // The shared navigation bar'),
     CREDITS_REFRESH: section(credits, '- (void)customGlassRefreshPageBackdrop', '- (void)customGlassRefreshPageAppearance'),
     CREDITS_LAYOUT: section(credits, '- (void)viewDidLayoutSubviews', '- (void)customGlassStyleContent:'),
+    HOME_VIEWS: section(home, 'static NSString * const DOHomeThermalBreathKey', '@interface DOMainViewController'),
+    HOME_FOCUS: section(home, '- (CGFloat)customGlassFocusTravel', '- (void)configureCustomGlassHeaderView:'),
+    HOME_THERMAL: section(home, '\n- (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate\n{', '\n- (void)startHomeThermalUpdates\n{'),
   };
-  return read('tests/fixtures/preferences-ui-harness.m').replace(/\/\* PRODUCTION_(\w+) \*\//g, (_, key) => {
+  return read('tests/fixtures/preferences-ui-harness.m')
+    .replace('/* HOME_FOCUS_FIXTURE */', read('tests/fixtures/home-focus-harness.m'))
+    .replace(/\/\* PRODUCTION_(\w+) \*\//g, (_, key) => {
     assert.ok(replacements[key], `Missing harness replacement ${key}`);
     return replacements[key];
   });
@@ -151,7 +157,8 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
     assert.equal(result.status, 'passed', JSON.stringify(result));
     assert.equal(result.viewports, 12);
     assert.equal(result.scrollChecks, 2400);
-    logger.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks; evidence: ${output}`);
+    assert.equal(result.homeFocusCases, 6);
+    logger.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks, 6 home gesture/layout cases; evidence: ${output}`);
   } catch (error) {
     save('failure.log', `${error.stack || error.message}\n`);
     // Preserve reports/screenshots even if launch acknowledgement or an assertion fails.
