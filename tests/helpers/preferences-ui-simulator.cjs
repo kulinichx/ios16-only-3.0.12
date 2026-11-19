@@ -37,16 +37,16 @@ function harnessSource() {
   });
 }
 
-async function run({ execute = execFileAsync, output = path.join(root, '.audit-artifacts/preferences-ui') } = {}) {
+async function run({ execute = execFileAsync, output = path.join(root, '.audit-artifacts/preferences-ui'), logger = console } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-uikit-'));
   fs.mkdirSync(output, { recursive: true });
   // Evidence collection must never replace the original command/assertion error.
   const save = (name, contents) => {
     try { fs.appendFileSync(path.join(output, name), contents); }
-    catch (error) { console.error('[UIKit] Cannot save evidence:', error.message); }
+    catch (error) { logger.error('[UIKit] Cannot save evidence:', error.message); }
   };
   const command = async (args, timeout = 60000) => {
-    console.log('[UIKit]', args.join(' '));
+    logger.log('[UIKit]', args.join(' '));
     const started = Date.now();
     try {
       const { stdout, stderr } = await execute('xcrun', args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
@@ -56,9 +56,24 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
       const metadata = JSON.stringify({ elapsedMs: Date.now() - started, timeoutMs: timeout,
         code: error.code ?? null, signal: error.signal ?? null, killed: !!error.killed });
       const details = `${args.join(' ')}\n${metadata}\n${error.stdout || ''}\n${error.stderr || ''}\n${error.message}\n`;
-      console.error('[UIKit] Command failed:\n' + details);
+      logger.error('[UIKit] Command failed:\n' + details);
       save('commands.log', details);
       throw error;
+    }
+  };
+  const initializeSimulator = async () => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        // The first simctl call initializes CoreSimulator, before a device exists.
+        return JSON.parse(await command(['simctl', 'list', 'runtimes', '-j'], 180000)).runtimes;
+      } catch (error) {
+        // Only retry our own timeout of this read-only discovery command.
+        // Nonzero exits, malformed JSON and later test failures remain failures.
+        if (attempt === 2 || !error.killed || error.signal !== 'SIGTERM' || error.code !== null) throw error;
+        const message = 'CoreSimulator discovery timed out; retrying once with a 180-second deadline.\n';
+        logger.error('[UIKit] ' + message);
+        save('commands.log', message);
+      }
     }
   };
   let device;
@@ -70,7 +85,9 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
         fs.copyFileSync(path.join(documents, name), path.join(output, name));
   };
   try {
-    const runtimes = JSON.parse(await command(['simctl', 'list', 'runtimes', '-j'])).runtimes;
+    save('runner.json', JSON.stringify({ arch: process.arch, node: process.version,
+      developerDir: process.env.DEVELOPER_DIR || null, requestedRuntime: process.env.DORH_SIMULATOR_RUNTIME || null }, null, 2));
+    const runtimes = await initializeSimulator();
     const runtime = runtimes.find(item => item.isAvailable && item.identifier.includes('.iOS-') &&
       (!process.env.DORH_SIMULATOR_RUNTIME || item.version === process.env.DORH_SIMULATOR_RUNTIME));
     assert.ok(runtime, 'No available iOS Simulator runtime; UIKit check cannot be replaced with source checks.');
@@ -118,23 +135,26 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
     assert.equal(result.status, 'passed', JSON.stringify(result));
     assert.equal(result.viewports, 12);
     assert.equal(result.scrollChecks, 2400);
-    console.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks; evidence: ${output}`);
+    logger.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks; evidence: ${output}`);
   } catch (error) {
     save('failure.log', `${error.stack || error.message}\n`);
     // Preserve reports/screenshots even if launch acknowledgement or an assertion fails.
-    try { copyEvidence(); } catch (copyError) { console.error('[UIKit] Cannot copy evidence:', copyError.message); }
-    if (device) {
-      try {
-        const { stdout, stderr } = await execute('xcrun', [
-          'simctl', 'spawn', device, 'log', 'show', '--last', '5m', '--style', 'compact',
-          '--predicate', 'eventMessage CONTAINS[c] "test.roothide.preferences-layout" OR eventMessage CONTAINS[c] "RHLayout" OR process == "RHLayout"'
-        ], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
-        const diagnostics = [stdout, stderr].filter(Boolean).join('\n');
-        save('launch-diagnostics.log', diagnostics);
-        console.error('[UIKit] Simulator log (last 24000 characters):\n' + diagnostics.slice(-24000));
-      } catch (diagnosticError) {
-        save('launch-diagnostics.log', `${diagnosticError.stdout || ''}\n${diagnosticError.stderr || ''}\n${diagnosticError.message}\n`);
-      }
+    try { copyEvidence(); } catch (copyError) { logger.error('[UIKit] Cannot copy evidence:', copyError.message); }
+    try {
+      const args = device ? [
+        'simctl', 'spawn', device, 'log', 'show', '--last', '5m', '--style', 'compact',
+        '--predicate', 'eventMessage CONTAINS[c] "test.roothide.preferences-layout" OR eventMessage CONTAINS[c] "RHLayout" OR process == "RHLayout"'
+      ] : [
+        'show', '--last', '5m', '--style', 'compact', '--predicate',
+        'process CONTAINS[c] "CoreSimulator" OR process == "simctl" OR subsystem CONTAINS[c] "CoreSimulator"'
+      ];
+      const { stdout, stderr } = await execute(device ? 'xcrun' : '/usr/bin/log', args,
+        { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+      const diagnostics = [stdout, stderr].filter(Boolean).join('\n');
+      save('launch-diagnostics.log', diagnostics);
+      logger.error('[UIKit] Simulator log (last 24000 characters):\n' + diagnostics.slice(-24000));
+    } catch (diagnosticError) {
+      save('launch-diagnostics.log', `${diagnosticError.stdout || ''}\n${diagnosticError.stderr || ''}\n${diagnosticError.message}\n`);
     }
     throw error;
   } finally {
@@ -143,7 +163,7 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
       try { await command(['simctl', 'delete', device], 15000); } catch {}
     }
     try { fs.rmSync(directory, { recursive: true, force: true }); }
-    catch (error) { console.error('[UIKit] Cannot remove temporary harness:', error.message); }
+    catch (error) { logger.error('[UIKit] Cannot remove temporary harness:', error.message); }
   }
 }
 

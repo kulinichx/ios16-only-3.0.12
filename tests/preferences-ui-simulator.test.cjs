@@ -6,21 +6,37 @@ const test = require('node:test');
 const { run } = require('./helpers/preferences-ui-simulator.cjs');
 
 // Exercise the runner's control flow on every platform. This does not replace UIKit.
-function fixture(t, { launchError, diagnosticError, failedReport = false, outputUnavailable = false } = {}) {
+function fixture(t, { launchError, diagnosticError, failedReport = false, outputUnavailable = false,
+  runtimeErrors = [], runtimeOutput } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-simulator-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const output = path.join(directory, 'evidence');
   const data = path.join(directory, 'data');
   fs.mkdirSync(path.join(data, 'Documents'), { recursive: true });
   const calls = [];
+  const messages = [];
+  const logger = {
+    log: (...args) => messages.push(args.join(' ')),
+    error: (...args) => messages.push(args.join(' ')),
+  };
+  let runtimeAttempts = 0;
   const execute = async (file, args, options) => {
+    calls.push({ file, args, options });
+    if (file === '/usr/bin/log') {
+      if (diagnosticError) throw diagnosticError;
+      return { stdout: 'CoreSimulator host diagnostics', stderr: 'host diagnostic stderr' };
+    }
     assert.equal(file, 'xcrun');
-    calls.push({ args, options });
     let stdout = '';
     let stderr = '';
     if (args[0] === 'simctl') {
       switch (args[1]) {
         case 'list':
+          if (args[2] === 'runtimes') {
+            const error = runtimeErrors[runtimeAttempts++];
+            if (error) throw error;
+            if (runtimeOutput !== undefined) return { stdout: runtimeOutput, stderr: '' };
+          }
           stdout = JSON.stringify(args[2] === 'runtimes' ? { runtimes: [{
             isAvailable: true, version: process.env.DORH_SIMULATOR_RUNTIME || '18.5',
             identifier: 'com.apple.CoreSimulator.SimRuntime.iOS-18-5'
@@ -50,8 +66,63 @@ function fixture(t, { launchError, diagnosticError, failedReport = false, output
     } else if (args.includes('--show-sdk-path')) stdout = '/test-sdk';
     return { stdout, stderr };
   };
-  return { output, execute, calls };
+  return { output, execute, calls, logger, messages };
 }
+
+test('cold CoreSimulator discovery retries its timeout once and then runs the real report checks', async t => {
+  const error = Object.assign(new Error('discovery timed out'), { killed: true, signal: 'SIGTERM', code: null });
+  const context = fixture(t, { runtimeErrors: [error] });
+  await run(context);
+  const queries = context.calls.filter(call => call.args[2] === 'runtimes');
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every(call => call.options.timeout === 180000));
+  assert.match(fs.readFileSync(path.join(context.output, 'commands.log'), 'utf8'), /retrying once/);
+  assert.ok(context.calls.some(call => call.args[1] === 'launch'));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(context.output, 'report.json'))).status, 'passed');
+});
+
+test('repeated discovery timeouts fail after two attempts and collect host logs without a device', async t => {
+  const errors = [1, 2].map(i => Object.assign(new Error(`discovery timeout ${i}`), { killed: true, signal: 'SIGTERM', code: null }));
+  const context = fixture(t, { runtimeErrors: errors });
+  await assert.rejects(run(context), caught => caught === errors[1]);
+  assert.equal(context.calls.filter(call => call.args[2] === 'runtimes').length, 2);
+  assert.equal(context.calls.at(-1).file, '/usr/bin/log');
+  assert.equal(context.calls.at(-1).options.timeout, 30000);
+  assert.ok(!context.calls.some(call => ['create', 'launch', 'delete'].includes(call.args[1])));
+  const diagnostic = fs.readFileSync(path.join(context.output, 'launch-diagnostics.log'), 'utf8');
+  assert.match(diagnostic, /CoreSimulator host diagnostics/);
+  assert.match(diagnostic, /host diagnostic stderr/);
+});
+
+test('recovering discovery does not turn a failed UIKit assertion into success', async t => {
+  const error = Object.assign(new Error('discovery timed out'), { killed: true, signal: 'SIGTERM', code: null });
+  const context = fixture(t, { runtimeErrors: [error], failedReport: true });
+  await assert.rejects(run(context), /geometry assertion failed/);
+  assert.equal(context.calls.filter(call => call.args[2] === 'runtimes').length, 2);
+  assert.equal(context.calls.filter(call => call.args[1] === 'launch').length, 1);
+});
+
+test('non-timeout discovery errors and malformed JSON fail immediately without retry', async t => {
+  for (const properties of [
+    { killed: false, code: 1, signal: null },
+    { killed: true, code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', signal: 'SIGTERM' },
+  ]) {
+    const error = Object.assign(new Error('discovery error'), properties);
+    const context = fixture(t, { runtimeErrors: [error] });
+    await assert.rejects(run(context), caught => caught === error);
+    assert.equal(context.calls.filter(call => call.args[2] === 'runtimes').length, 1);
+  }
+  const context = fixture(t, { runtimeOutput: 'invalid JSON' });
+  await assert.rejects(run(context), SyntaxError);
+  assert.equal(context.calls.filter(call => call.args[2] === 'runtimes').length, 1);
+});
+
+test('host diagnostic failure preserves the initialization error', async t => {
+  const error = Object.assign(new Error('CoreSimulator unavailable'), { code: 1 });
+  const context = fixture(t, { runtimeErrors: [error], diagnosticError: new Error('host logs unavailable') });
+  await assert.rejects(run(context), caught => caught === error);
+  assert.match(fs.readFileSync(path.join(context.output, 'launch-diagnostics.log'), 'utf8'), /host logs unavailable/);
+});
 
 test('simulator runner allows a bounded three-minute launch and still requires passing UIKit results', async t => {
   const context = fixture(t);
