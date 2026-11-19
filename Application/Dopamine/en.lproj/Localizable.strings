@@ -12,6 +12,7 @@
 // Action Menu
 "Home_Uptime_Format" = "Uptime: %@";
 "Home_Thermal_State_Format" = "Thermal: %@";
+"Home_Thermal_State_Title" = "Thermal status";
 "Thermal_State_Nominal" = "Normal";
 "Thermal_State_Fair" = "Warm";
 "Thermal_State_Serious" = "Hot";

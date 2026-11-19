@@ -28,11 +28,10 @@
 
 static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 
-// The avatar owns its gestures and photo. This overlay only draws the rim.
+// One cached feather mask; Core Animation only varies opacity while visible.
 @interface DOHomeThermalHaloView : UIView
-@property(nonatomic, strong) CAGradientLayer *rimLayer;
-@property(nonatomic, strong) CAShapeLayer *rimMask;
-@property(nonatomic, strong) CAShapeLayer *highlightLayer;
+@property(nonatomic, strong) CAGradientLayer *glowLayer;
+@property(nonatomic, strong) CALayer *featherMask;
 @property(nonatomic) CGRect renderedBounds;
 - (void)setRimColor:(UIColor *)rimColor highlightColor:(UIColor *)highlightColor;
 - (void)playBreath;
@@ -47,25 +46,16 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
     if (self) {
         self.userInteractionEnabled = NO;
         self.isAccessibilityElement = NO;
-        self.rimLayer = [CAGradientLayer layer];
-        self.rimLayer.startPoint = CGPointMake(0.15, 0.10);
-        self.rimLayer.endPoint = CGPointMake(0.88, 0.92);
-        self.rimMask = [CAShapeLayer layer];
-        self.rimMask.fillColor = nil;
-        self.rimMask.strokeColor = UIColor.whiteColor.CGColor;
-        self.rimMask.lineWidth = 1.35;
-        self.rimLayer.mask = self.rimMask;
-        [self.layer addSublayer:self.rimLayer];
-
-        self.highlightLayer = [CAShapeLayer layer];
-        self.highlightLayer.fillColor = nil;
-        self.highlightLayer.lineWidth = 1.20;
-        self.highlightLayer.lineCap = kCALineCapRound;
-        self.highlightLayer.shadowOffset = CGSizeZero;
-        self.highlightLayer.shadowRadius = 3.5;
-        self.highlightLayer.shadowOpacity = 0.85;
-        self.highlightLayer.opacity = 0.38;
-        [self.layer addSublayer:self.highlightLayer];
+        self.clipsToBounds = NO;
+        self.glowLayer = [CAGradientLayer layer];
+        self.glowLayer.type = kCAGradientLayerConic;
+        self.glowLayer.startPoint = CGPointMake(0.5, 0.5);
+        self.glowLayer.endPoint = CGPointMake(0.5, 0.0);
+        self.glowLayer.locations = @[@0.0, @0.22, @0.50, @0.78, @1.0];
+        self.glowLayer.opacity = 0.62;
+        self.featherMask = [CALayer layer];
+        self.glowLayer.mask = self.featherMask;
+        [self.layer addSublayer:self.glowLayer];
     }
     return self;
 }
@@ -79,21 +69,31 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    self.rimLayer.frame = bounds;
-    self.rimMask.frame = self.rimLayer.bounds;
-    self.highlightLayer.frame = bounds;
-    CGRect localBounds = self.highlightLayer.bounds;
-    CGRect ringRect = CGRectInset(localBounds, 0.8, 0.8);
-    self.rimMask.path = [UIBezierPath bezierPathWithOvalInRect:ringRect].CGPath;
-    CGPoint center = CGPointMake(CGRectGetMidX(ringRect), CGRectGetMidY(ringRect));
-    CGFloat radius = MIN(CGRectGetWidth(ringRect), CGRectGetHeight(ringRect)) / 2.0;
-    UIBezierPath *arc = [UIBezierPath bezierPathWithArcCenter:center radius:radius
-        startAngle:M_PI * 1.04 endAngle:M_PI * 1.70 clockwise:YES];
-    self.highlightLayer.path = arc.CGPath;
-    CGPathRef shadowPath = CGPathCreateCopyByStrokingPath(arc.CGPath, NULL, 1.6,
-        kCGLineCapRound, kCGLineJoinRound, 1.0);
-    self.highlightLayer.shadowPath = shadowPath;
-    CGPathRelease(shadowPath);
+    CGFloat feather = 14.0;
+    self.glowLayer.frame = CGRectInset(bounds, -feather, -feather);
+    self.featherMask.frame = self.glowLayer.bounds;
+    CGSize size = self.glowLayer.bounds.size;
+    CGFloat radius = MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds)) / 2.0;
+    CGFloat outerRadius = radius + feather;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+    UIImage *mask = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        // Transparent center, softly illuminated edge, then a long fade to zero.
+        CGFloat locations[] = {0.0, MAX(0.0, radius - 5.0) / outerRadius,
+            MAX(0.0, radius - 1.0) / outerRadius, (radius + 1.5) / outerRadius,
+            (radius + 5.0) / outerRadius, (radius + 9.0) / outerRadius, 1.0};
+        CGFloat components[] = {
+            1, 1, 1, 0,    1, 1, 1, 0,    1, 1, 1, 0.48,
+            1, 1, 1, 0.80, 1, 1, 1, 0.36, 1, 1, 1, 0.08, 1, 1, 1, 0
+        };
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGGradientRef gradient = CGGradientCreateWithColorComponents(space, components, locations, 7);
+        CGPoint center = CGPointMake(size.width / 2.0, size.height / 2.0);
+        CGContextDrawRadialGradient(context.CGContext, gradient, center, 0.0, center, outerRadius, 0);
+        CGGradientRelease(gradient);
+        CGColorSpaceRelease(space);
+    }];
+    self.featherMask.contents = (__bridge id)mask.CGImage;
+    self.featherMask.contentsScale = mask.scale;
     [CATransaction commit];
 }
 
@@ -101,29 +101,94 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    self.rimLayer.colors = @[(id)highlightColor.CGColor, (id)rimColor.CGColor,
-        (id)[rimColor colorWithAlphaComponent:CGColorGetAlpha(rimColor.CGColor) * 0.54].CGColor];
-    self.highlightLayer.strokeColor = highlightColor.CGColor;
-    self.highlightLayer.shadowColor = [highlightColor colorWithAlphaComponent:1.0].CGColor;
+    self.glowLayer.colors = @[(id)highlightColor.CGColor, (id)rimColor.CGColor,
+        (id)[rimColor colorWithAlphaComponent:0.24].CGColor, (id)rimColor.CGColor,
+        (id)highlightColor.CGColor];
     [CATransaction commit];
 }
 
 - (void)playBreath
 {
-    // Slow breathing pulse, including the critical palette. The model opacity stays at rest.
+    if ([self.glowLayer animationForKey:DOHomeThermalBreathKey]) return;
+    // All four palettes breathe gently; the feather texture is never redrawn per frame.
     CAKeyframeAnimation *breath = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
-    breath.values = @[@(self.highlightLayer.opacity), @0.95, @(self.highlightLayer.opacity)];
+    breath.values = @[@(self.glowLayer.opacity), @1.0, @(self.glowLayer.opacity)];
     breath.keyTimes = @[@0.0, @0.5, @1.0];
     CAMediaTimingFunction *ease = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
     breath.timingFunctions = @[ease, ease];
-    breath.duration = 3.0;
+    breath.duration = 4.8;
     breath.repeatCount = HUGE_VALF;
-    [self.highlightLayer addAnimation:breath forKey:DOHomeThermalBreathKey];
+    [self.glowLayer addAnimation:breath forKey:DOHomeThermalBreathKey];
 }
 
 - (void)stopBreath
 {
-    [self.highlightLayer removeAnimationForKey:DOHomeThermalBreathKey];
+    [self.glowLayer removeAnimationForKey:DOHomeThermalBreathKey];
+}
+
+@end
+
+@interface DOHomeThermalStatusView : UIView
+@property(nonatomic, strong) UILabel *captionLabel;
+@property(nonatomic, strong) UILabel *statusLabel;
+@property(nonatomic, strong) UIStackView *textStack;
+@property(nonatomic, strong) CAGradientLayer *backdropLayer;
+@end
+
+@implementation DOHomeThermalStatusView
+
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.userInteractionEnabled = NO;
+        self.clipsToBounds = YES;
+        self.accessibilityElementsHidden = YES;
+        self.backdropLayer = [CAGradientLayer layer];
+        self.backdropLayer.startPoint = CGPointMake(0.1, 0.0);
+        self.backdropLayer.endPoint = CGPointMake(0.9, 1.0);
+        [self.layer addSublayer:self.backdropLayer];
+        self.captionLabel = [UILabel new];
+        self.captionLabel.text = DOLocalizedString(@"Home_Thermal_State_Title");
+        self.captionLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.62];
+        self.statusLabel = [UILabel new];
+        self.statusLabel.textColor = UIColor.whiteColor;
+        for (UILabel *label in @[self.captionLabel, self.statusLabel]) {
+            label.textAlignment = NSTextAlignmentCenter;
+            label.numberOfLines = 1;
+            label.adjustsFontSizeToFitWidth = YES;
+            label.minimumScaleFactor = 0.55;
+        }
+        self.textStack = [[UIStackView alloc] initWithArrangedSubviews:@[self.captionLabel, self.statusLabel]];
+        self.textStack.translatesAutoresizingMaskIntoConstraints = NO;
+        self.textStack.axis = UILayoutConstraintAxisVertical;
+        self.textStack.alignment = UIStackViewAlignmentFill;
+        self.textStack.spacing = 6.0;
+        [self addSubview:self.textStack];
+        [NSLayoutConstraint activateConstraints:@[
+            [self.textStack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+            [self.textStack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [self.textStack.widthAnchor constraintEqualToAnchor:self.widthAnchor multiplier:0.80]
+        ]];
+    }
+    return self;
+}
+
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    CGFloat diameter = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.backdropLayer.frame = self.bounds;
+    self.layer.cornerRadius = diameter / 2.0;
+    [CATransaction commit];
+    CGFloat captionSize = MIN(11.0, MAX(8.0, diameter * 0.12));
+    CGFloat statusSize = MIN(24.0, MAX(12.0, diameter * 0.24));
+    if (self.captionLabel.font.pointSize != captionSize)
+        self.captionLabel.font = [UIFont systemFontOfSize:captionSize weight:UIFontWeightMedium];
+    if (self.statusLabel.font.pointSize != statusSize)
+        self.statusLabel.font = [UIFont systemFontOfSize:statusSize weight:UIFontWeightSemibold];
 }
 
 @end
@@ -160,8 +225,7 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 @property UIAlertController *customGlassMottoEditor;
 @property DOCustomLiquidGlassView *customGlassThemeCard;
 @property UILabel *customGlassSystemLabel;
-@property(nonatomic, strong) UILabel *homeThermalLabel;
-@property(nonatomic, strong) UILabel *homeThermalAvatarOverlay;
+@property(nonatomic, strong) DOHomeThermalStatusView *homeThermalAvatarOverlay;
 @property(nonatomic, strong) DOHomeThermalHaloView *homeThermalHalo;
 @property(nonatomic) NSProcessInfoThermalState homeThermalState;
 @property(nonatomic) BOOL observingHomeThermalState;
@@ -723,14 +787,12 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
         self.customGlassAvatarContainerView.layer.shadowOpacity = enabled ? 0.035 : 0.16;
         self.customGlassAvatarContainerView.layer.shadowRadius = enabled ? 4.0 : 6.0;
         self.customGlassAvatarPhotoView.layer.cornerRadius = MAX(0.0, (avatarSize - 2.0) / 2.0);
-        self.homeThermalAvatarOverlay.layer.cornerRadius = MAX(0.0, (avatarSize - 4.0) / 2.0);
         self.customGlassAvatarPhotoView.alpha = enabled ? 0.34 : 1.0;
         self.customGlassAvatarFallbackIconView.alpha = enabled ? 0.44 : 1.0;
 
         CGFloat detailAlpha = enabled ? 0.0 : 1.0;
         self.customGlassUsernameLabel.alpha = detailAlpha;
         self.customGlassSystemLabel.alpha = detailAlpha;
-        self.homeThermalLabel.alpha = detailAlpha;
         self.customGlassMottoLabel.alpha = detailAlpha;
         for (UIView *label in self.customGlassHeaderSubtitleLabels)
             label.alpha = detailAlpha;
@@ -970,6 +1032,7 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
     UIView *avatarGlass = [[UIView alloc] init];
     avatarGlass.translatesAutoresizingMaskIntoConstraints = NO;
     avatarGlass.backgroundColor = UIColor.clearColor;
+    avatarGlass.clipsToBounds = NO;
     avatarGlass.layer.cornerRadius = avatarSize / 2.0;
     avatarGlass.layer.cornerCurve = kCACornerCurveContinuous;
     avatarGlass.layer.shadowColor = UIColor.blackColor.CGColor;
@@ -1071,17 +1134,8 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
     ]];
     self.homeThermalHalo = thermalHalo;
 
-    UILabel *thermalOverlay = [[UILabel alloc] init];
+    DOHomeThermalStatusView *thermalOverlay = [[DOHomeThermalStatusView alloc] initWithFrame:CGRectZero];
     thermalOverlay.translatesAutoresizingMaskIntoConstraints = NO;
-    thermalOverlay.textAlignment = NSTextAlignmentCenter;
-    thermalOverlay.numberOfLines = 2;
-    thermalOverlay.adjustsFontSizeToFitWidth = YES;
-    thermalOverlay.minimumScaleFactor = 0.75;
-    thermalOverlay.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
-    thermalOverlay.textColor = UIColor.whiteColor;
-    thermalOverlay.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.68];
-    thermalOverlay.layer.cornerRadius = MAX(0.0, (avatarSize - 4.0) / 2.0);
-    thermalOverlay.clipsToBounds = YES;
     thermalOverlay.alpha = 0.0;
     [avatarGlass addSubview:thermalOverlay];
     [NSLayoutConstraint activateConstraints:@[
@@ -1128,26 +1182,9 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
     systemLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.72];
     systemLabel.textAlignment = NSTextAlignmentCenter;
     systemLabel.font = [UIFont systemFontOfSize:systemFontSize weight:UIFontWeightMedium];
+    [profileView addSubview:systemLabel];
     self.customGlassSystemLabel = systemLabel;
-    [systemLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow
-                                                 forAxis:UILayoutConstraintAxisHorizontal];
-
-    UILabel *thermalLabel = [[UILabel alloc] init];
-    thermalLabel.textColor = systemLabel.textColor;
-    thermalLabel.font = systemLabel.font;
-    thermalLabel.adjustsFontSizeToFitWidth = YES;
-    thermalLabel.minimumScaleFactor = 0.8;
-    thermalLabel.textAlignment = NSTextAlignmentCenter;
-    self.homeThermalLabel = thermalLabel;
     [self displayHomeThermalState:NSProcessInfo.processInfo.thermalState animate:NO];
-
-    // Reuse the existing system line so compact layouts don't gain another row.
-    UIStackView *systemRow = [[UIStackView alloc] initWithArrangedSubviews:@[systemLabel, thermalLabel]];
-    systemRow.translatesAutoresizingMaskIntoConstraints = NO;
-    systemRow.axis = UILayoutConstraintAxisHorizontal;
-    systemRow.alignment = UIStackViewAlignmentFirstBaseline;
-    systemRow.spacing = 8.0;
-    [profileView addSubview:systemRow];
 
     UILabel *mottoLabel = [[UILabel alloc] init];
     mottoLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1172,11 +1209,10 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
         [usernameLabel.topAnchor constraintEqualToAnchor:avatarGlass.bottomAnchor constant:avatarToUsernameSpacing],
         [usernameLabel.leadingAnchor constraintEqualToAnchor:profileView.leadingAnchor constant:12],
         [usernameLabel.trailingAnchor constraintEqualToAnchor:profileView.trailingAnchor constant:-12],
-        [systemRow.topAnchor constraintEqualToAnchor:usernameLabel.bottomAnchor constant:usernameToSystemSpacing],
-        [systemRow.centerXAnchor constraintEqualToAnchor:profileView.centerXAnchor],
-        [systemRow.leadingAnchor constraintGreaterThanOrEqualToAnchor:profileView.leadingAnchor constant:12],
-        [systemRow.trailingAnchor constraintLessThanOrEqualToAnchor:profileView.trailingAnchor constant:-12],
-        [mottoLabel.topAnchor constraintEqualToAnchor:systemRow.bottomAnchor constant:systemToMottoSpacing],
+        [systemLabel.topAnchor constraintEqualToAnchor:usernameLabel.bottomAnchor constant:usernameToSystemSpacing],
+        [systemLabel.leadingAnchor constraintEqualToAnchor:profileView.leadingAnchor constant:12],
+        [systemLabel.trailingAnchor constraintEqualToAnchor:profileView.trailingAnchor constant:-12],
+        [mottoLabel.topAnchor constraintEqualToAnchor:systemLabel.bottomAnchor constant:systemToMottoSpacing],
         [mottoLabel.centerXAnchor constraintEqualToAnchor:profileView.centerXAnchor],
         [mottoLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:profileView.leadingAnchor constant:18],
         [mottoLabel.trailingAnchor constraintLessThanOrEqualToAnchor:profileView.trailingAnchor constant:-18],
@@ -1548,7 +1584,15 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
             break;
     }
     NSString *description = [NSString stringWithFormat:DOLocalizedString(@"Home_Thermal_State_Format"), title];
-    self.homeThermalLabel.text = description;
+    self.homeThermalAvatarOverlay.statusLabel.text = title;
+    self.homeThermalAvatarOverlay.statusLabel.textColor = [highlight colorWithAlphaComponent:1.0];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.homeThermalAvatarOverlay.backdropLayer.colors = @[
+        (id)[UIColor colorWithRed:0.06 green:0.07 blue:0.12 alpha:0.96].CGColor,
+        (id)[rim colorWithAlphaComponent:0.32].CGColor
+    ];
+    [CATransaction commit];
     self.customGlassAvatarContainerView.accessibilityValue = description;
     [self revealHomeThermalStateInAvatar:animate];
     [self.homeThermalHalo setRimColor:rim highlightColor:highlight];
@@ -1562,15 +1606,14 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated
 {
     UIWindowScene *scene = self.viewIfLoaded.window.windowScene;
-    if (!self.homeThermalAvatarOverlay || !self.informationVisible ||
+    if (!self.homeThermalAvatarOverlay || !self.informationVisible || self.customGlassProfileFocusEnabled ||
         !scene || scene.activationState != UISceneActivationStateForegroundActive) return;
 
     NSUInteger generation = ++self.homeThermalRevealGeneration;
-    UILabel *overlay = self.homeThermalAvatarOverlay;
-    NSTimeInterval fadeDuration = (animated && !UIAccessibilityIsReduceMotionEnabled()) ? 0.42 : 0.0;
+    DOHomeThermalStatusView *overlay = self.homeThermalAvatarOverlay;
+    NSTimeInterval fadeDuration = (animated && !UIAccessibilityIsReduceMotionEnabled()) ? 1.0 : 0.0;
     CGFloat photoRestAlpha = self.customGlassProfileFocusEnabled ? 0.34 : 1.0;
     CGFloat fallbackRestAlpha = self.customGlassProfileFocusEnabled ? 0.44 : 1.0;
-    overlay.text = self.homeThermalLabel.text;
     [overlay.layer removeAllAnimations];
     [self.customGlassAvatarPhotoView.layer removeAllAnimations];
     [self.customGlassAvatarFallbackIconView.layer removeAllAnimations];
@@ -1580,28 +1623,26 @@ static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 
     void (^showThermalState)(void) = ^{
         if (generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-        [UIView animateWithDuration:fadeDuration animations:^{
-            self.customGlassAvatarPhotoView.alpha = photoRestAlpha * 0.10;
-            self.customGlassAvatarFallbackIconView.alpha = fallbackRestAlpha * 0.10;
+        [UIView animateWithDuration:fadeDuration delay:0.0
+            options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.customGlassAvatarPhotoView.alpha = 0.0;
+            self.customGlassAvatarFallbackIconView.alpha = 0.0;
             overlay.alpha = 1.0;
-        } completion:^(__unused BOOL finished) {
-            if (generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        } completion:^(BOOL finished) {
+            if (!finished || generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 if (generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-                [UIView animateWithDuration:fadeDuration animations:^{
+                [UIView animateWithDuration:fadeDuration * 1.2 delay:0.0
+                    options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{
                     overlay.alpha = 0.0;
                     self.customGlassAvatarPhotoView.alpha = photoRestAlpha;
                     self.customGlassAvatarFallbackIconView.alpha = fallbackRestAlpha;
-                }];
+                } completion:nil];
             });
         }];
     };
 
-    if (fadeDuration > 0.0) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), showThermalState);
-    } else {
-        showThermalState();
-    }
+    showThermalState();
 }
 
 - (void)startHomeThermalUpdates

@@ -151,7 +151,7 @@ test('home thermal state uses four localized levels and a foreground-only breath
   assert.match(thermal, /revealHomeThermalStateInAvatar:animate/);
   assert.match(thermal, /self\.homeThermalHalo playBreath/);
 
-  const avatar = section(main, 'UILabel *thermalOverlay =', 'avatarGlass.userInteractionEnabled = YES;');
+  const avatar = section(main, 'DOHomeThermalStatusView *thermalOverlay =', 'avatarGlass.userInteractionEnabled = YES;');
   assert.match(avatar, /thermalOverlay\.alpha = 0\.0/);
   assert.match(avatar, /self\.homeThermalAvatarOverlay = thermalOverlay/);
   assert.match(avatar, /thermalOverlay\.leadingAnchor constraintEqualToAnchor:avatarGlass\.leadingAnchor/);
@@ -170,7 +170,7 @@ test('home thermal state uses four localized levels and a foreground-only breath
 
   for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
-    for (const key of ['Home_Thermal_State_Format', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical'])
+    for (const key of ['Home_Thermal_State_Format', 'Home_Thermal_State_Title', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical'])
       assert.match(strings, new RegExp(`"${key}"\\s*=`));
   }
 });
