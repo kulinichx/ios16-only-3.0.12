@@ -72,6 +72,30 @@
 /* PRODUCTION_HOME_THERMAL */
 @end
 
+// The avatar moves through transform, which leaves its layout center unchanged.
+// Convert its bounds to the home coordinate system to measure the displayed
+// geometry; reading center (or frame with a nonidentity transform) is incorrect.
+static CGRect HomeAvatarRect(HomeFocusHarness *home)
+{
+    UIView *avatar = home.customGlassAvatarContainerView;
+    return [avatar convertRect:avatar.bounds toView:home.view];
+}
+
+static void CheckHomeAvatarRect(HomeFocusHarness *home, CGRect expected, NSString *stage)
+{
+    CGRect actual = HomeAvatarRect(home);
+    if (fabs(actual.origin.x - expected.origin.x) >= 0.5 ||
+        fabs(actual.origin.y - expected.origin.y) >= 0.5 ||
+        fabs(actual.size.width - expected.size.width) >= 0.5 ||
+        fabs(actual.size.height - expected.size.height) >= 0.5) {
+        NSString *reason = [NSString stringWithFormat:@"%@: avatar %@, expected %@, viewport %@, progress %.3f, transform %@",
+            stage, NSStringFromCGRect(actual), NSStringFromCGRect(expected),
+            NSStringFromCGSize(home.view.bounds.size), home.customGlassFocusProgress,
+            NSStringFromCGAffineTransform(home.customGlassAvatarContainerView.transform)];
+        @throw [NSException exceptionWithName:@"LayoutFailure" reason:reason userInfo:nil];
+    }
+}
+
 static NSUInteger CheckHomeFocus(UIViewController *host)
 {
     BOOL revealWasConsumed = DOHomeThermalLaunchRevealConsumed;
@@ -154,7 +178,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home.view setNeedsLayout];
             [home.view layoutIfNeeded];
             [home setCustomGlassProfileFocusEnabled:NO animated:NO persist:NO];
-            CGRect original = home.customGlassAvatarContainerView.frame;
+            CGRect original = HomeAvatarRect(home);
             CGRect profile = home.customGlassProfileView.frame;
             CGFloat travel = [home customGlassFocusTravel];
             CHECK(travel > 50);
@@ -169,8 +193,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             pan.testTranslation = CGPointMake(500, travel / 2.0);
             pan.testState = UIGestureRecognizerStateChanged;
             [home customGlassAvatarPanned:pan];
-            CHECK(fabs(home.customGlassAvatarContainerView.center.x - CGRectGetMidX(original)) < 0.5);
-            CHECK(fabs(home.customGlassAvatarContainerView.center.y - CGRectGetMidY(original) - travel / 2.0) < 0.5);
+            CheckHomeAvatarRect(home, CGRectOffset(original, 0, travel / 2.0), @"downward drag midpoint");
             CHECK(fabs(home.customGlassActionGrid.alpha - 0.5) < 0.01);
             CHECK(home.customGlassActionGrid.transform.ty > 0);
             CHECK(!home.customGlassActionGrid.userInteractionEnabled);
@@ -179,11 +202,11 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home customGlassAvatarPanned:pan];
             [home finishCustomGlassFocusAnimation];
             CHECK(home.customGlassProfileFocusEnabled);
+            CheckHomeAvatarRect(home, CGRectOffset(original, 0, travel), @"collapsed endpoint");
             CHECK(home.customGlassActionGrid.alpha == 0 && home.jailbreakBtn.alpha == 0 && home.updateButton.alpha == 0);
             CHECK(home.customGlassActionGrid.accessibilityElementsHidden);
             CHECK(CGSizeEqualToSize(home.customGlassAvatarContainerView.bounds.size, original.size));
-            CHECK(CGRectGetMaxY(home.customGlassAvatarContainerView.frame) <= CGRectGetMaxY(home.view.safeAreaLayoutGuide.layoutFrame));
-            CHECK(CGRectGetMaxY(home.customGlassAvatarContainerView.frame) + DOHomeThermalHaloExtent(84.0) <= CGRectGetMaxY(home.view.safeAreaLayoutGuide.layoutFrame));
+            CHECK(CGRectGetMaxY(HomeAvatarRect(home)) + DOHomeThermalHaloExtent(84.0) <= CGRectGetMaxY(home.view.safeAreaLayoutGuide.layoutFrame));
             CHECK(home.customGlassAvatarContainerView.userInteractionEnabled);
             for (NSNumber *end in @[@(UIGestureRecognizerStateCancelled), @(UIGestureRecognizerStateEnded)]) {
                 pan.testState = UIGestureRecognizerStateBegan;
@@ -196,8 +219,10 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 [home customGlassAvatarPanned:pan];
                 [home finishCustomGlassFocusAnimation];
                 CHECK(home.customGlassProfileFocusEnabled == (end.integerValue == UIGestureRecognizerStateCancelled));
+                CheckHomeAvatarRect(home, end.integerValue == UIGestureRecognizerStateCancelled ?
+                    CGRectOffset(original, 0, travel) : original, @"upward drag cancelled or completed");
             }
-            CHECK(CGRectEqualToRect(original, home.customGlassAvatarContainerView.frame));
+            CheckHomeAvatarRect(home, original, @"restored endpoint");
             CHECK(home.customGlassActionGrid.alpha == 1 && home.customGlassActionGrid.userInteractionEnabled);
             CHECK(!home.customGlassActionGrid.accessibilityElementsHidden);
             CHECK(home.updateButton.alpha == 1);
@@ -210,6 +235,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home customGlassAvatarPanned:pan];
             [home finishCustomGlassFocusAnimation];
             CHECK(!home.customGlassProfileFocusEnabled);
+            CheckHomeAvatarRect(home, original, @"short drag restored");
             // Holding still opens the selector; moving while held must never open it.
             pan.testState = UIGestureRecognizerStatePossible;
             for (NSNumber *move in @[@YES, @NO]) {
