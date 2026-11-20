@@ -113,6 +113,24 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 }
 @end
 
+// Self-sizing rows can settle after the controller's layout/display callbacks.
+// Update decorations only after UITableView has positioned its own content.
+@interface DOScheduleTableView : UITableView
+@property(nonatomic, copy) void (^didLayoutContent)(void);
+@property(nonatomic) BOOL updatingBackdrop;
+@end
+
+@implementation DOScheduleTableView
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    if (self.updatingBackdrop || !self.didLayoutContent) return;
+    self.updatingBackdrop = YES;
+    self.didLayoutContent();
+    self.updatingBackdrop = NO;
+}
+@end
+
 @interface DOPowerScheduleController ()
 @property(nonatomic, strong) NSArray<DOLowPowerScheduleController *> *pages;
 @property(nonatomic, strong) DOLowPowerScheduleController *selectedPage;
@@ -383,10 +401,14 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.timePicker = [self timePickerForMinute:self.lastStartMinute];
     self.timePicker.accessibilityLabel = DOLocalizedString(self.scheduleMode == 0 ? @"LowPowerSchedule_OnTime" : @"BatteryRecord_StartTime");
 
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+    DOScheduleTableView *tableView = [[DOScheduleTableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+    self.tableView = tableView;
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.backgroundColor = UIColor.clearColor;
-    self.tableView.backgroundView = nil;
+    UIView *background = [UIView new];
+    background.backgroundColor = UIColor.clearColor;
+    background.userInteractionEnabled = NO;
+    self.tableView.backgroundView = background;
     self.tableView.opaque = NO;
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     self.tableView.bounces = YES;
@@ -424,6 +446,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self.tableView.panGestureRecognizer requireGestureRecognizerToFail:edge];
 
     __weak typeof(self) weakSelf = self;
+    tableView.didLayoutContent = ^{ [weakSelf refreshScheduleGlassFrames]; };
     int token = -1;
     if (notify_register_dispatch([self scheduleStatusNotification], &token, dispatch_get_main_queue(),
         ^(__unused int value) {
@@ -504,6 +527,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)refreshScheduleGlassFrames
 {
+    UIView *background = self.tableView.backgroundView;
+    if (!background) return;
     for (NSNumber *key in self.sectionGlassViews.allKeys) {
         if (key.integerValue >= self.tableView.numberOfSections ||
             [self.tableView numberOfRowsInSection:key.integerValue] == 0) {
@@ -528,7 +553,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         // Keep the last valid frame during transient foreground/layout passes.
         if (CGRectIsEmpty(frame) || CGRectGetHeight(frame) < 2) continue;
         DOCustomLiquidGlassView *glass = self.sectionGlassViews[@(section)];
-        BOOL created = NO;
         if (!glass) {
             glass = [[DOCustomLiquidGlassView alloc] initWithCornerRadius:18 baseTintAlpha:0.038];
             glass.userInteractionEnabled = NO;
@@ -538,13 +562,11 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
             glass.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner |
                 kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
             self.sectionGlassViews[@(section)] = glass;
-            [self.tableView insertSubview:glass atIndex:0];
-            created = YES;
+            [background addSubview:glass];
         }
-        CGRect glassFrame = CGRectInset(frame, 1, 0.5);
+        CGRect glassFrame = [self.tableView convertRect:CGRectInset(frame, 1, 0.5) toView:background];
         if (glass.hidden) glass.hidden = NO;
         if (!CGRectEqualToRect(glass.frame, glassFrame)) glass.frame = glassFrame;
-        if (created) [self.tableView sendSubviewToBack:glass];
     }
 }
 
@@ -751,7 +773,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     NSString *state = self.statusFresh ? status[@"State"] : nil;
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
-    if ([state isEqual:@"runtimeFailed"]) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
+    if ([@[@"runtimeFailed", @"timerFailed", @"calendarFailed"] containsObject:state ?: @""])
+        return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
     NSDictionary *next = self.statusFresh ? status[@"Next"] : nil;
     if (![next isKindOfClass:NSDictionary.class] || ![next[@"Date"] isKindOfClass:NSDate.class] ||
         [next[@"Date"] timeIntervalSinceNow] <= 0)
@@ -871,7 +894,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         cell.detailTextLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
             scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightRegular]];
     }
-    [self refreshScheduleGlassFrames];
+    [tableView setNeedsLayout];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath

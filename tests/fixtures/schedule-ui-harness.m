@@ -5,6 +5,7 @@
 
 @interface DOEnvironmentManager : NSObject
 @property(nonatomic, strong) NSDictionary *lowConfig;
+@property(nonatomic, strong) NSDictionary *lowState;
 @property(nonatomic, strong) NSDictionary *batteryConfig;
 @property(nonatomic, strong) NSDictionary *batteryState;
 + (instancetype)sharedManager;
@@ -19,7 +20,7 @@
 @implementation DOEnvironmentManager
 + (instancetype)sharedManager { static id manager; if (!manager) manager = [self new]; return manager; }
 - (NSDictionary *)lowPowerScheduleConfiguration { return self.lowConfig ?: rcLowPowerDefaultConfiguration(); }
-- (NSDictionary *)lowPowerScheduleStatus { return @{}; }
+- (NSDictionary *)lowPowerScheduleStatus { return self.lowState ?: @{}; }
 - (NSDictionary *)batteryRecordConfiguration { return self.batteryConfig ?: rcBatteryDefaultConfiguration(); }
 - (NSDictionary *)batteryRecordStatus { return self.batteryState ?: @{}; }
 - (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)start endMinute:(NSInteger)end error:(NSError **)error
@@ -47,6 +48,41 @@ static void ScheduleLabels(UIView *view, NSString *text, NSMutableArray<UILabel 
     if (view.hidden || view.alpha == 0) return;
     if ([view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqual:text]) [labels addObject:(id)view];
     for (UIView *child in view.subviews) ScheduleLabels(child, text, labels);
+}
+
+static void CheckScheduleBackdrops(DOLowPowerScheduleController *page)
+{
+    // Do not call refreshScheduleGlassFrames here: UIKit must trigger alignment
+    // itself, including when estimated heights change during scrolling.
+    [page.tableView layoutIfNeeded];
+    CHECK(page.sectionGlassViews.count == page.tableView.numberOfSections);
+    for (NSInteger section = 0; section < page.tableView.numberOfSections; section++) {
+        DOCustomLiquidGlassView *glass = page.sectionGlassViews[@(section)];
+        CHECK(glass && !glass.hidden && glass.superview == page.tableView.backgroundView);
+        NSInteger rows = [page.tableView numberOfRowsInSection:section];
+        CGRect first = [page.tableView rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:section]];
+        CGRect last = [page.tableView rectForRowAtIndexPath:[NSIndexPath indexPathForRow:rows - 1 inSection:section]];
+        CGRect expected = CGRectInset(CGRectUnion(first, last), 1, 0.5);
+        CGRect actual = [glass convertRect:glass.bounds toView:page.tableView];
+        CHECK(fabs(CGRectGetMinY(actual) - CGRectGetMinY(expected)) < 0.5);
+        CHECK(fabs(CGRectGetMaxY(actual) - CGRectGetMaxY(expected)) < 0.5);
+        CHECK(fabs(CGRectGetMinX(actual) - CGRectGetMinX(expected)) < 0.5);
+        CHECK(fabs(CGRectGetWidth(actual) - CGRectGetWidth(expected)) < 0.5);
+        CGRect header = [page.tableView rectForHeaderInSection:section];
+        CGRect footer = [page.tableView rectForFooterInSection:section];
+        CHECK(CGRectGetMinY(actual) >= CGRectGetMaxY(header) - 0.5);
+        CHECK(CGRectGetMaxY(actual) <= CGRectGetMinY(footer) + 0.5);
+    }
+    for (UITableViewCell *cell in page.tableView.visibleCells) {
+        NSIndexPath *path = [page.tableView indexPathForCell:cell];
+        if (!path || CGRectGetHeight(cell.bounds) < 2) continue;
+        DOCustomLiquidGlassView *glass = page.sectionGlassViews[@(path.section)];
+        CGRect actual = [glass convertRect:glass.bounds toView:page.tableView];
+        CGRect row = [cell convertRect:cell.bounds toView:page.tableView];
+        CHECK(CGRectGetMinY(actual) <= CGRectGetMinY(row) + 1);
+        CHECK(CGRectGetMaxY(actual) >= CGRectGetMaxY(row) - 1);
+    }
+    CHECK(page.tableView.backgroundView.subviews.count == page.sectionGlassViews.count);
 }
 
 static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
@@ -77,6 +113,14 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     CHECK(!low.hasChanges && !low.saveEnabled);
     CHECK([low.feedbackLabel.text isEqual:DOLocalizedString(@"PowerSchedule_Saved")]);
     CHECK(![low.statusText containsString:@"Waiting"]);
+    for (NSString *state in @[@"timerFailed", @"calendarFailed", @"runtimeFailed"]) {
+        DOEnvironmentManager.sharedManager.lowState = @{@"Revision": low.savedConfiguration[@"Revision"],
+            @"Updated": NSDate.date, @"State": state};
+        [low refreshStatus];
+        CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_RuntimeFailed")]);
+    }
+    DOEnvironmentManager.sharedManager.lowState = nil;
+    [low refreshStatus];
     [container selectPage:1];
     [container finishPageTransition];
     [battery tableView:battery.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:5 inSection:0]];
@@ -119,6 +163,13 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     CHECK(container.selectedPage.view.maskView == nil && container.pageAnimator == nil);
     CHECK(low.view.hidden != battery.view.hidden);
     CHECK(low.hasChanges == NO && battery.hasChanges == NO);
+    NSMutableArray *history = [NSMutableArray new];
+    for (NSUInteger index = 0; index < 60; index++)
+        [history addObject:@{@"Recorded": [NSDate dateWithTimeIntervalSinceNow:-(double)index * 3600],
+            @"Result": @"interrupted"}];
+    DOEnvironmentManager.sharedManager.batteryState = @{@"Revision": battery.savedConfiguration[@"Revision"],
+        @"Updated": NSDate.date, @"History": history};
+    [battery refreshStatus];
     NSUInteger cases = 0;
     for (NSValue *size in @[[NSValue valueWithCGSize:CGSizeMake(320, 568)],
         [NSValue valueWithCGSize:CGSizeMake(393, 852)], [NSValue valueWithCGSize:CGSizeMake(834, 1194)]]) {
@@ -131,18 +182,19 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
             [page.view layoutIfNeeded];
             [page.tableView reloadData];
             [page.tableView layoutIfNeeded];
-            [page refreshScheduleGlassFrames];
+            CheckScheduleBackdrops(page);
             CHECK(page.sectionGlassViews.count >= 2);
             for (NSInteger section = 0; section < page.tableView.numberOfSections; section++) {
                 DOCustomLiquidGlassView *glass = page.sectionGlassViews[@(section)];
                 CHECK(glass && !glass.hidden);
                 CGRect footer = [page.tableView rectForFooterInSection:section];
-                CHECK(CGRectGetMaxY(glass.frame) <= CGRectGetMinY(footer) + 0.5);
+                CHECK(CGRectGetMaxY([glass convertRect:glass.bounds toView:page.tableView]) <= CGRectGetMinY(footer) + 0.5);
                 CHECK([page tableView:page.tableView heightForFooterInSection:section] >= 36);
                 CHECK(![page respondsToSelector:@selector(tableView:titleForFooterInSection:)]);
                 // Inspect actual mounted labels; geometry alone missed the duplicate footer.
                 [page.tableView scrollRectToVisible:footer animated:NO];
                 [page.tableView layoutIfNeeded];
+                CheckScheduleBackdrops(page);
                 footer = [page.tableView rectForFooterInSection:section];
                 NSMutableArray<UILabel *> *labels = [NSMutableArray new];
                 ScheduleLabels(page.tableView, [page footerTextForSection:section], labels);
@@ -157,7 +209,23 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
                 CHECK(after.count == 1 && after.firstObject == label);
             }
             [page.tableView setContentOffset:CGPointMake(0, 100) animated:NO];
-            [page refreshScheduleGlassFrames];
+            CheckScheduleBackdrops(page);
+            NSDictionary *backdrops = [page.sectionGlassViews copy];
+            for (NSUInteger pass = 0; pass < 12; pass++) {
+                [page setTimePickerExpanded:pass % 2 == 0 animated:NO];
+                [page.tableView setContentOffset:CGPointMake(0, pass % 2 ? 0 : 100) animated:NO];
+                CheckScheduleBackdrops(page);
+                CHECK([page.sectionGlassViews isEqualToDictionary:backdrops]);
+            }
+            if (pageIndex == 1) {
+                CHECK([page.tableView numberOfRowsInSection:2] == 60);
+                for (NSInteger row = 0; row < 60; row += 7) {
+                    [page.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:2]
+                        atScrollPosition:UITableViewScrollPositionMiddle animated:NO];
+                    CheckScheduleBackdrops(page);
+                    CHECK([page.sectionGlassViews isEqualToDictionary:backdrops]);
+                }
+            }
             CHECK(!page.view.hasAmbiguousLayout);
             [mode layoutIfNeeded];
             CHECK(fabs(mode.layer.cornerRadius - CGRectGetHeight(mode.bounds) / 2) < 0.5);
@@ -171,5 +239,18 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [nav willMoveToParentViewController:nil];
     [nav.view removeFromSuperview];
     [nav removeFromParentViewController];
+    // The table's layout callback and notification handlers must not retain pages.
+    __weak DOPowerScheduleController *releasedContainer;
+    __weak DOLowPowerScheduleController *releasedLow;
+    __weak DOLowPowerScheduleController *releasedBattery;
+    @autoreleasepool {
+        DOPowerScheduleController *temporary = [DOPowerScheduleController new];
+        [temporary loadViewIfNeeded];
+        [temporary.view layoutIfNeeded];
+        releasedContainer = temporary;
+        releasedLow = temporary.pages[0];
+        releasedBattery = temporary.pages[1];
+    }
+    CHECK(!releasedContainer && !releasedLow && !releasedBattery);
     return cases;
 }
