@@ -16,8 +16,8 @@
 "Home_Avatar_Display_Title" = "圆形显示";
 "Home_Avatar_Show_Photo" = "显示头像";
 "Home_Avatar_Show_Temperature" = "显示温度";
-"Home_Avatar_Collapse_Hint" = "左右滑动隐藏圆形，从同侧屏幕边缘向内拉回；长按切换头像或温度";
-"Home_Avatar_Expand_Hint" = "从隐藏一侧的屏幕边缘向内拉回";
+"Home_Avatar_Collapse_Hint" = "左右滑动隐藏圆形，从任一侧屏幕边缘向内拉回；长按设置显示内容与显示方式，选择会被记住";
+"Home_Avatar_Expand_Hint" = "从左侧或右侧屏幕边缘向内拉回，恢复后保持显示";
 "Thermal_State_Nominal" = "正常";
 "Thermal_State_Fair" = "略热";
 "Thermal_State_Serious" = "偏热";
@@ -254,7 +254,7 @@
 "CustomMount_Working" = "正在处理挂载";
 
 /* Independent interval battery recordings */
-"BatteryRecord_Title" = "时段耗电记录";
+"BatteryRecord_Title" = "耗电记录";
 "BatteryRecord_Plan" = "记录计划";
 "BatteryRecord_Enable" = "启用独立记录计划";
 "BatteryRecord_StartTime" = "开始时间";
@@ -295,3 +295,26 @@
 "BatteryRecord_Result_timerFailed" = "定时器失败，记录未完成";
 "BatteryRecord_Result_expired" = "操作已过期，请重试";
 "BatteryRecord_Result_noActive" = "当前没有进行中的记录。";
+
+"PowerSchedule_Title" = "节能与耗电记录";
+"PowerSchedule_Unsaved" = "有未保存的修改，点右上角 ✓ 保存";
+"PowerSchedule_Saved" = "✓ 已保存";
+"PowerSchedule_Refreshing" = "正在刷新执行状态…";
+"PowerSchedule_Refreshed" = "✓ 执行状态已更新";
+"PowerSchedule_SavedPlan" = "显示已保存的计划";
+"PowerSchedule_TapRefresh" = "点按刷新执行状态";
+"PowerSchedule_Next" = "计划于 %@%@";
+"PowerSchedule_Discard" = "低电量模式或耗电记录中有未保存的修改。放弃这些修改并返回？";
+"BatteryRecord_PlannedAt" = "计划于 %@开始记录";
+"BatteryRecord_DueAt" = "原定于 %@开始，尚无执行结果；点按刷新";
+"BatteryRecord_StartedAt" = "正在记录，已于 %@开始";
+"BatteryRecord_EndsAt" = "预计于 %@结束";
+"BatteryRecord_Paused" = "记录计划未启用，可手动开始记录。";
+"BatteryRecord_Copied" = "✓ 已复制时间，点右上角 ✓ 保存";
+"BatteryRecord_CommandPending" = "操作已提交，正在更新记录结果；请勿重复操作。";
+"BatteryRecord_ManualNeedsRefresh" = "已请求更新记录状态，请稍后再试。若一直无法开始，请重新加载越狱环境后重试。";
+"BatteryRecord_Result_started" = "✓ 已开始记录";
+"BatteryRecord_Result_stopped" = "✓ 已结束记录，结果已加入历史";
+"Home_Avatar_Auto" = "打开后自动淡出";
+"Home_Avatar_Always" = "保持显示";
+"Home_Avatar_Hidden" = "保持隐藏";

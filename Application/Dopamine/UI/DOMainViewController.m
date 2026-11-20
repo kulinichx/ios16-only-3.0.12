@@ -81,12 +81,12 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     CGFloat outerRadius = radius + feather;
     UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
     UIImage *mask = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        // Transparent center, softly illuminated edge, then a long fade to zero.
-        CGFloat locations[] = {0.0, (radius * 0.65) / outerRadius,
-            (radius + feather * 0.08) / outerRadius, (radius + feather * 0.22) / outerRadius,
+        // Overlap the interior feather so there is no transparent ring between them.
+        CGFloat locations[] = {0.0, (radius * 0.40) / outerRadius,
+            (radius * 0.76) / outerRadius, (radius + feather * 0.06) / outerRadius,
             (radius + feather * 0.45) / outerRadius, (radius + feather * 0.72) / outerRadius, 1.0};
         CGFloat components[] = {
-            1, 1, 1, 0,    1, 1, 1, 0,    1, 1, 1, 0.50,
+            1, 1, 1, 0,    1, 1, 1, 0,    1, 1, 1, 0.68,
             1, 1, 1, 0.84, 1, 1, 1, 0.40, 1, 1, 1, 0.08, 1, 1, 1, 0
         };
         CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
@@ -156,7 +156,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         edgeMask.startPoint = CGPointMake(0.5, 0.5);
         edgeMask.endPoint = CGPointMake(1.0, 1.0);
         edgeMask.colors = @[(id)UIColor.blackColor.CGColor, (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];
-        edgeMask.locations = @[@0.0, @0.72, @1.0];
+        edgeMask.locations = @[@0.0, @0.86, @1.0];
         self.colorLayer = [CALayer layer];
         self.colorLayer.mask = edgeMask;
         [self.layer addSublayer:self.colorLayer];
@@ -238,7 +238,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 @end
 
-@interface DOMainViewController () <PHPickerViewControllerDelegate, UIGestureRecognizerDelegate>
+@interface DOMainViewController () <PHPickerViewControllerDelegate, UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate>
 
 @property DOJailbreakButton *jailbreakBtn;
 @property UIStackView *mainStack;
@@ -290,6 +290,9 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic, strong) UIView *customGlassJailbreakDisabledOverlay;
 @property(nonatomic, strong) NSProgress *customGlassAvatarImport;
 @property(nonatomic, strong) UIView *homeEntranceHeader;
+// 0: briefly visible on launch, 1: always visible, 2: hidden until restored.
+@property(nonatomic) NSInteger homeAvatarVisibilityMode;
+@property(nonatomic, strong) NSTimer *homeAvatarHideTimer;
 @property(nonatomic, strong) UIView *homeEntranceLeftColumn;
 @property(nonatomic, strong) UIView *homeEntranceRightColumn;
 @property(nonatomic, strong) NSArray<UIView *> *homeEntranceViews;
@@ -443,12 +446,13 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
+    picker.presentationController.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results
 {
-    [picker dismissViewControllerAnimated:YES completion:nil];
+    [picker dismissViewControllerAnimated:YES completion:^{ [self scheduleHomeAvatarAutoHide]; }];
 
     PHPickerResult *result = results.firstObject;
     if (!result || !DORHSupporterIsVerified())
@@ -808,9 +812,61 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)finishCustomGlassAvatarAnimation
 {
     if (!self.customGlassAvatarAnimator) return;
-    [self.customGlassAvatarAnimator stopAnimation:NO];
-    [self.customGlassAvatarAnimator finishAnimationAtPosition:UIViewAnimatingPositionEnd];
+    UIViewPropertyAnimator *animator = self.customGlassAvatarAnimator;
     self.customGlassAvatarAnimator = nil;
+    [animator stopAnimation:NO];
+    [animator finishAnimationAtPosition:UIViewAnimatingPositionEnd];
+}
+
+- (void)cancelHomeAvatarAutoHide
+{
+    [self.homeAvatarHideTimer invalidate];
+    self.homeAvatarHideTimer = nil;
+}
+
+- (void)scheduleHomeAvatarAutoHide
+{
+    [self cancelHomeAvatarAutoHide];
+    if (self.homeAvatarVisibilityMode != 0 || self.customGlassAvatarHidden ||
+        !self.informationVisible || !self.observingHomeThermalState) return;
+    __weak typeof(self) weakSelf = self;
+    self.homeAvatarHideTimer = [NSTimer scheduledTimerWithTimeInterval:7.0 repeats:NO block:^(NSTimer *timer) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) return;
+        self.homeAvatarHideTimer = nil;
+        if (self.homeAvatarVisibilityMode != 0 || self.customGlassAvatarHidden ||
+            !self.informationVisible || !self.observingHomeThermalState || self.presentedViewController) return;
+        [self finishHomeEntrance];
+        [self finishCustomGlassAvatarAnimation];
+        UIViewPropertyAnimator *animator = [[UIViewPropertyAnimator alloc]
+            initWithDuration:UIAccessibilityIsReduceMotionEnabled() ? 0.2 : 1.4
+            curve:UIViewAnimationCurveEaseInOut animations:^{ weakSelf.customGlassAvatarContainerView.alpha = 0.0; }];
+        self.customGlassAvatarAnimator = animator;
+        [animator addCompletion:^(UIViewAnimatingPosition position) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) return;
+            self.customGlassAvatarAnimator = nil;
+            [self setCustomGlassAvatarHidden:YES right:YES animated:NO];
+        }];
+        [animator startAnimation];
+    }];
+}
+
+- (void)restoreHomeAvatarVisibilityPreference
+{
+    NSInteger mode = [NSUserDefaults.standardUserDefaults integerForKey:@"DOCustomGlassTheme.AvatarVisibility"];
+    self.homeAvatarVisibilityMode = (mode >= 0 && mode <= 2) ? mode : 0;
+    [self setCustomGlassAvatarHidden:self.homeAvatarVisibilityMode == 2 right:YES animated:NO];
+}
+
+- (void)selectHomeAvatarVisibilityMode:(NSInteger)mode
+{
+    [self cancelHomeAvatarAutoHide];
+    [self finishHomeEntrance];
+    self.homeAvatarVisibilityMode = mode;
+    [NSUserDefaults.standardUserDefaults setInteger:mode forKey:@"DOCustomGlassTheme.AvatarVisibility"];
+    [self setCustomGlassAvatarHidden:mode == 2 right:self.customGlassAvatarHiddenRight animated:YES];
+    if (mode == 0) [self scheduleHomeAvatarAutoHide];
 }
 
 - (void)setCustomGlassAvatarHidden:(BOOL)hidden right:(BOOL)right animated:(BOOL)animated
@@ -821,11 +877,12 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self.customGlassAvatarContainerView.userInteractionEnabled = !hidden;
     self.customGlassAvatarContainerView.accessibilityElementsHidden = hidden;
     self.customGlassAvatarContainerView.isAccessibilityElement = !hidden;
-    self.customGlassAvatarLeftEdge.enabled = hidden && !right;
-    self.customGlassAvatarRightEdge.enabled = hidden && right;
+    self.customGlassAvatarLeftEdge.enabled = hidden;
+    self.customGlassAvatarRightEdge.enabled = hidden;
     if (hidden) [self applyHomeAvatarDisplayMode];
     [self updateHomeThermalInteriorBreath];
     CGFloat target = hidden ? [self customGlassAvatarHiddenOffset] : 0.0;
+    self.customGlassAvatarContainerView.alpha = 1.0;
     if (!animated || UIAccessibilityIsReduceMotionEnabled()) {
         [self applyCustomGlassAvatarOffset:target];
         return;
@@ -854,6 +911,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 {
     if (gesture.state != UIGestureRecognizerStateEnded || !self.informationVisible) return;
     if (![self requireCustomGlassSupporterAuthorization]) return;
+    [self cancelHomeAvatarAutoHide];
     [self presentCustomGlassAvatarPicker];
 }
 
@@ -864,8 +922,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     if ([gesture isKindOfClass:UIPanGestureRecognizer.class]) {
         CGPoint velocity = [(UIPanGestureRecognizer *)gesture velocityInView:self.view];
         if (fabs(velocity.x) <= fabs(velocity.y)) return NO;
-        if (gesture == self.customGlassAvatarLeftEdge) return self.customGlassAvatarHidden && !self.customGlassAvatarHiddenRight && velocity.x > 0;
-        if (gesture == self.customGlassAvatarRightEdge) return self.customGlassAvatarHidden && self.customGlassAvatarHiddenRight && velocity.x < 0;
+        if (gesture == self.customGlassAvatarLeftEdge) return self.customGlassAvatarHidden && velocity.x > 0;
+        if (gesture == self.customGlassAvatarRightEdge) return self.customGlassAvatarHidden && velocity.x < 0;
         return !self.customGlassAvatarHidden;
     }
     return YES;
@@ -880,14 +938,19 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)customGlassAvatarPanned:(UIPanGestureRecognizer *)gesture
 {
     if (!self.informationVisible) return;
+    BOOL restoring = gesture == self.customGlassAvatarLeftEdge || gesture == self.customGlassAvatarRightEdge;
     if (gesture.state == UIGestureRecognizerStateBegan) {
+        [self cancelHomeAvatarAutoHide];
         [self finishCustomGlassAvatarAnimation];
+        if (restoring) {
+            self.customGlassAvatarHiddenRight = gesture == self.customGlassAvatarRightEdge;
+            [self applyCustomGlassAvatarOffset:[self customGlassAvatarHiddenOffset]];
+        }
         self.customGlassAvatarPanStart = self.customGlassAvatarOffset;
         self.customGlassAvatarWasDragged = YES;
     }
     CGPoint translation = [gesture translationInView:self.view];
     CGPoint velocity = [gesture velocityInView:self.view];
-    BOOL restoring = gesture == self.customGlassAvatarLeftEdge || gesture == self.customGlassAvatarRightEdge;
     if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
         CGFloat offset = self.customGlassAvatarPanStart + translation.x;
         if (restoring) offset = self.customGlassAvatarHiddenRight ? MAX(0.0, MIN(self.customGlassAvatarPanStart, offset)) : MIN(0.0, MAX(self.customGlassAvatarPanStart, offset));
@@ -896,6 +959,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     }
     if (gesture.state == UIGestureRecognizerStateCancelled || gesture.state == UIGestureRecognizerStateFailed) {
         [self setCustomGlassAvatarHidden:self.customGlassAvatarHidden right:self.customGlassAvatarHiddenRight animated:YES];
+        [self scheduleHomeAvatarAutoHide];
         return;
     }
     if (gesture.state != UIGestureRecognizerStateEnded) return;
@@ -904,11 +968,16 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     BOOL inward = self.customGlassAvatarHiddenRight ? translation.x < 0 : translation.x > 0;
     BOOL hidden = restoring ? !(enough && inward) : enough;
     [self setCustomGlassAvatarHidden:hidden right:restoring ? self.customGlassAvatarHiddenRight : right animated:YES];
+    if (enough && (!restoring || inward)) {
+        self.homeAvatarVisibilityMode = hidden ? 2 : 1;
+        [NSUserDefaults.standardUserDefaults setInteger:self.homeAvatarVisibilityMode forKey:@"DOCustomGlassTheme.AvatarVisibility"];
+    } else [self scheduleHomeAvatarAutoHide];
 }
 
 - (void)customGlassAvatarLongPressed:(UILongPressGestureRecognizer *)gesture
 {
     if (gesture.state == UIGestureRecognizerStateBegan) {
+        [self cancelHomeAvatarAutoHide];
         self.customGlassAvatarPressOrigin = [gesture locationInView:self.view];
         self.customGlassAvatarWasDragged = self.customGlassAvatarPan.state == UIGestureRecognizerStateBegan ||
             self.customGlassAvatarPan.state == UIGestureRecognizerStateChanged;
@@ -917,6 +986,11 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     CGPoint location = [gesture locationInView:self.view];
     if (hypot(location.x - self.customGlassAvatarPressOrigin.x, location.y - self.customGlassAvatarPressOrigin.y) > 12.0)
         self.customGlassAvatarWasDragged = YES;
+    if (gesture.state == UIGestureRecognizerStateCancelled || gesture.state == UIGestureRecognizerStateFailed ||
+        (gesture.state == UIGestureRecognizerStateEnded && self.customGlassAvatarWasDragged)) {
+        [self scheduleHomeAvatarAutoHide];
+        return;
+    }
     // Wait for release: holding then dragging must not open a menu under the finger.
     if (gesture.state != UIGestureRecognizerStateEnded || self.customGlassAvatarWasDragged || !self.informationVisible || self.presentedViewController) return;
     [self finishCustomGlassAvatarAnimation];
@@ -932,12 +1006,29 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
             [NSUserDefaults.standardUserDefaults setBool:temperature forKey:DOHomeAvatarTemperatureModeKey];
             [self applyHomeAvatarDisplayMode];
             if (temperature) [self revealHomeThermalStateInAvatar:YES force:YES];
+            [self scheduleHomeAvatarAutoHide];
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    NSArray<NSString *> *visibilityTitles = @[@"Home_Avatar_Auto", @"Home_Avatar_Always", @"Home_Avatar_Hidden"];
+    for (NSInteger mode = 0; mode < visibilityTitles.count; mode++) {
+        NSString *title = DOLocalizedString(visibilityTitles[mode]);
+        if (mode == self.homeAvatarVisibilityMode) title = [@"✓ " stringByAppendingString:title];
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            [self selectHomeAvatarVisibilityMode:mode];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        [self scheduleHomeAvatarAutoHide];
+    }]];
     sheet.popoverPresentationController.sourceView = self.customGlassAvatarContainerView;
     sheet.popoverPresentationController.sourceRect = self.customGlassAvatarContainerView.bounds;
+    sheet.presentationController.delegate = (id<UIAdaptivePresentationControllerDelegate>)self;
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
+{
+    [self scheduleHomeAvatarAutoHide];
 }
 
 - (void)configureCustomGlassHeaderView:(DOHeaderView *)headerView logoHeight:(CGFloat)logoHeight subtitleScale:(CGFloat)subtitleScale
@@ -1122,15 +1213,15 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self.customGlassAvatarPhotoView.translatesAutoresizingMaskIntoConstraints = NO;
     self.customGlassAvatarPhotoView.contentMode = UIViewContentModeScaleAspectFill;
     self.customGlassAvatarPhotoView.clipsToBounds = YES;
-    self.customGlassAvatarPhotoView.layer.cornerRadius = (avatarSize - 2.0) / 2.0;
+    self.customGlassAvatarPhotoView.layer.cornerRadius = avatarSize / 2.0;
     self.customGlassAvatarPhotoView.hidden = YES;
     [avatarGlass addSubview:self.customGlassAvatarPhotoView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.customGlassAvatarPhotoView.leadingAnchor constraintEqualToAnchor:avatarGlass.leadingAnchor constant:1.0],
-        [self.customGlassAvatarPhotoView.trailingAnchor constraintEqualToAnchor:avatarGlass.trailingAnchor constant:-1.0],
-        [self.customGlassAvatarPhotoView.topAnchor constraintEqualToAnchor:avatarGlass.topAnchor constant:1.0],
-        [self.customGlassAvatarPhotoView.bottomAnchor constraintEqualToAnchor:avatarGlass.bottomAnchor constant:-1.0]
+        [self.customGlassAvatarPhotoView.leadingAnchor constraintEqualToAnchor:avatarGlass.leadingAnchor],
+        [self.customGlassAvatarPhotoView.trailingAnchor constraintEqualToAnchor:avatarGlass.trailingAnchor],
+        [self.customGlassAvatarPhotoView.topAnchor constraintEqualToAnchor:avatarGlass.topAnchor],
+        [self.customGlassAvatarPhotoView.bottomAnchor constraintEqualToAnchor:avatarGlass.bottomAnchor]
     ]];
 
     UIImage *savedAvatar = DOCustomGlassMediaStoreLoadAvatar();
@@ -1156,10 +1247,10 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     thermalOverlay.alpha = 0.0;
     [avatarGlass addSubview:thermalOverlay];
     [NSLayoutConstraint activateConstraints:@[
-        [thermalOverlay.leadingAnchor constraintEqualToAnchor:avatarGlass.leadingAnchor constant:2.0],
-        [thermalOverlay.trailingAnchor constraintEqualToAnchor:avatarGlass.trailingAnchor constant:-2.0],
-        [thermalOverlay.topAnchor constraintEqualToAnchor:avatarGlass.topAnchor constant:2.0],
-        [thermalOverlay.bottomAnchor constraintEqualToAnchor:avatarGlass.bottomAnchor constant:-2.0]
+        [thermalOverlay.leadingAnchor constraintEqualToAnchor:avatarGlass.leadingAnchor],
+        [thermalOverlay.trailingAnchor constraintEqualToAnchor:avatarGlass.trailingAnchor],
+        [thermalOverlay.topAnchor constraintEqualToAnchor:avatarGlass.topAnchor],
+        [thermalOverlay.bottomAnchor constraintEqualToAnchor:avatarGlass.bottomAnchor]
     ]];
     self.homeThermalAvatarOverlay = thermalOverlay;
 
@@ -1500,7 +1591,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         self.customGlassJailbreakCenterYConstraint
     ])];
 
-    [self setCustomGlassAvatarHidden:NO right:YES animated:NO];
+    [self restoreHomeAvatarVisibilityPreference];
     [self.view bringSubviewToFront:self.customGlassAvatarContainerView];
 
     [self applyCustomGlassHomeAppearance];
@@ -1740,6 +1831,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 - (void)stopHomeThermalUpdates
 {
+    [self cancelHomeAvatarAutoHide];
+    [self finishCustomGlassAvatarAnimation];
     self.observingHomeThermalState = NO;
     [self applyHomeAvatarDisplayMode];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
@@ -1783,6 +1876,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     if (notification.object == self.viewIfLoaded.window.windowScene) {
         [self startHomeThermalUpdates];
         [self startHomeEntranceIfReady];
+        [self scheduleHomeAvatarAutoHide];
     }
 }
 
@@ -1843,8 +1937,10 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     for (NSUInteger i = 0; i < self.homeEntranceViews.count; i++) {
         UIView *view = self.homeEntranceViews[i];
         CGFloat alpha = self.homeEntranceAlphas[i].doubleValue;
+        CGAffineTransform target = view == self.customGlassAvatarContainerView && self.customGlassAvatarHidden ?
+            CGAffineTransformMakeTranslation([self customGlassAvatarHiddenOffset], 0.0) : CGAffineTransformIdentity;
         [animator addAnimations:^{
-            view.transform = CGAffineTransformIdentity;
+            view.transform = target;
             view.alpha = alpha;
         } delayFactor:delays[i].doubleValue];
     }
@@ -1863,7 +1959,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     [UIView performWithoutAnimation:^{
         for (NSUInteger i = 0; i < self.homeEntranceViews.count; i++) {
             UIView *view = self.homeEntranceViews[i];
-            view.transform = CGAffineTransformIdentity;
+            view.transform = view == self.customGlassAvatarContainerView && self.customGlassAvatarHidden ?
+                CGAffineTransformMakeTranslation([self customGlassAvatarHiddenOffset], 0.0) : CGAffineTransformIdentity;
             view.alpha = self.homeEntranceAlphas[i].doubleValue;
         }
     }];
@@ -1889,6 +1986,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self.homeEntranceReady = YES;
     [self startHomeThermalUpdates];
     [self startHomeEntranceIfReady];
+    [self scheduleHomeAvatarAutoHide];
 }
 
 // 页面隐藏后停止计时，返回时按系统时钟恢复。
@@ -1911,6 +2009,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         [_customGlassAvatarImport cancel];
     }
     [_homeThermalRevealTimer invalidate];
+    [_homeAvatarHideTimer invalidate];
     [_uptimeTimer invalidate];
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }

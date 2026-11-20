@@ -1,4 +1,6 @@
 #import "DOLowPowerScheduleController.h"
+#import "DOPowerScheduleController.h"
+#import "DOBatteryRecordController.h"
 #import "DOScheduleTimePicker.h"
 #import "DOEnvironmentManager.h"
 #import "DOUIManager.h"
@@ -17,26 +19,104 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)reloadMaterial;
 @end
 
-@interface DOLowPowerScheduleController () <UITableViewDataSource, UITableViewDelegate>
-@property(nonatomic, strong) UITableView *tableView;
-@property(nonatomic, strong) UISwitch *enabledSwitch;
-@property(nonatomic, strong) UIDatePicker *timePicker;
+@interface DOPowerScheduleController ()
+@property(nonatomic, strong) NSArray<DOLowPowerScheduleController *> *pages;
+@property(nonatomic, strong) DOLowPowerScheduleController *selectedPage;
+@end
+
+@implementation DOPowerScheduleController
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.view.backgroundColor = UIColor.clearColor;
+    self.title = DOLocalizedString(@"PowerSchedule_Title");
+    self.pages = @[[DOLowPowerScheduleController new], [DOBatteryRecordController new]];
+    __weak typeof(self) weakSelf = self;
+    for (DOLowPowerScheduleController *page in self.pages) {
+        page.modeSelectionHandler = ^(NSInteger index) { [weakSelf selectPage:index]; };
+        page.backHandler = ^{ [weakSelf backPressed]; };
+    }
+    [self selectPage:0];
+}
+
+- (void)selectPage:(NSInteger)index
+{
+    if (index < 0 || index >= self.pages.count || self.selectedPage == self.pages[index]) return;
+    DOLowPowerScheduleController *previous = self.selectedPage;
+    DOLowPowerScheduleController *next = self.pages[index];
+    BOOL visible = self.viewIfLoaded.window != nil;
+    if (previous) {
+        [previous willMoveToParentViewController:nil];
+        if (visible) [previous beginAppearanceTransition:NO animated:NO];
+        [previous.view removeFromSuperview];
+        if (visible) [previous endAppearanceTransition];
+        [previous removeFromParentViewController];
+    }
+    self.selectedPage = next;
+    [self addChildViewController:next];
+    next.view.translatesAutoresizingMaskIntoConstraints = NO;
+    if (visible) [next beginAppearanceTransition:YES animated:NO];
+    [self.view addSubview:next.view];
+    [NSLayoutConstraint activateConstraints:@[
+        [next.view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [next.view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [next.view.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [next.view.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
+    [next didMoveToParentViewController:self];
+    if (visible) {
+        [next endAppearanceTransition];
+        [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
+    }
+}
+
+- (void)backPressed
+{
+    if (self.presentedViewController) return;
+    BOOL dirty = NO;
+    for (DOLowPowerScheduleController *page in self.pages) dirty |= page.isViewLoaded && page.hasChanges;
+    if (!dirty) { [self.navigationController popViewControllerAnimated:YES]; return; }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.title
+        message:DOLocalizedString(@"PowerSchedule_Discard") preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_DiscardButton")
+        style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [self.navigationController popViewControllerAnimated:YES];
+        }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+@end
+
+@interface DOLowPowerScheduleController ()
 @property(nonatomic, strong) UIButton *backButton;
-@property(nonatomic, strong) UIButton *saveButton;
+@property(nonatomic, strong) UILabel *feedbackLabel;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, DOCustomLiquidGlassView *> *sectionGlassViews;
 @property(nonatomic, strong) UIImpactFeedbackGenerator *timeFeedback;
 @property(nonatomic, copy) NSArray<NSLayoutConstraint *> *timePickerCellConstraints;
-@property(nonatomic) NSInteger editingTime;
-@property(nonatomic) BOOL timePickerExpanded;
-@property(nonatomic) NSInteger lastStartMinute;
-@property(nonatomic) NSInteger lastEndMinute;
-@property(nonatomic, copy) NSDictionary *savedConfiguration;
-@property(nonatomic, copy) NSDictionary *runtimeStatus;
-@property(nonatomic, strong) NSDate *queryDate;
+@property(nonatomic) BOOL awaitingSaveConfirmation;
 @property(nonatomic) int statusToken;
 @end
 
 @implementation DOLowPowerScheduleController
+
+- (NSString *)scheduleTitle { return DOLocalizedString(@"LowPowerSchedule_Title"); }
+- (NSInteger)scheduleMode { return 0; }
+- (NSDictionary *)loadScheduleConfiguration { return [DOEnvironmentManager.sharedManager lowPowerScheduleConfiguration]; }
+- (NSDictionary *)loadRuntimeStatus { return [DOEnvironmentManager.sharedManager lowPowerScheduleStatus]; }
+- (const char *)scheduleStatusNotification { return RC_LOW_POWER_STATUS_CHANGED; }
+- (const char *)scheduleQueryNotification { return RC_LOW_POWER_QUERY; }
+- (BOOL)isScheduleVisible
+{
+    UIViewController *page = self;
+    while (page.parentViewController && page.parentViewController != self.navigationController)
+        page = page.parentViewController;
+    return self.viewIfLoaded.window && self.navigationController.topViewController == page;
+}
+- (void)modeChanged:(UISegmentedControl *)sender
+{
+    if (self.modeSelectionHandler) self.modeSelectionHandler(sender.selectedSegmentIndex);
+    sender.selectedSegmentIndex = self.scheduleMode;
+}
 
 - (UIButton *)chromeButton:(NSString *)image action:(SEL)action label:(NSString *)label
 {
@@ -69,10 +149,10 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.editingTime = 0;
     self.timePickerExpanded = NO;
     self.sectionGlassViews = [NSMutableDictionary new];
-    self.title = DOLocalizedString(@"LowPowerSchedule_Title");
+    self.title = self.scheduleTitle;
     self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     self.view.backgroundColor = UIColor.clearColor;
-    self.savedConfiguration = [DOEnvironmentManager.sharedManager lowPowerScheduleConfiguration];
+    self.savedConfiguration = [self loadScheduleConfiguration];
     if (!rcLowPowerConfigurationValid(self.savedConfiguration))
         self.savedConfiguration = rcLowPowerDefaultConfiguration();
 
@@ -83,7 +163,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.lastStartMinute = [self.savedConfiguration[@"StartMinute"] integerValue];
     self.lastEndMinute = [self.savedConfiguration[@"EndMinute"] integerValue];
     self.timePicker = [self timePickerForMinute:self.lastStartMinute];
-    self.timePicker.accessibilityLabel = DOLocalizedString(@"LowPowerSchedule_OnTime");
+    self.timePicker.accessibilityLabel = DOLocalizedString(self.scheduleMode == 0 ? @"LowPowerSchedule_OnTime" : @"BatteryRecord_StartTime");
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -118,6 +198,21 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self.view addSubview:back];
     [self.view addSubview:title];
     [self.view addSubview:self.saveButton];
+    UISegmentedControl *mode = [[UISegmentedControl alloc] initWithItems:@[
+        DOLocalizedString(@"LowPowerSchedule_Title"), DOLocalizedString(@"BatteryRecord_Title")]];
+    mode.translatesAutoresizingMaskIntoConstraints = NO;
+    mode.selectedSegmentIndex = self.scheduleMode;
+    mode.accessibilityLabel = DOLocalizedString(@"PowerSchedule_Title");
+    [mode addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.view addSubview:mode];
+    self.feedbackLabel = [UILabel new];
+    self.feedbackLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.feedbackLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    self.feedbackLabel.adjustsFontForContentSizeCategory = YES;
+    self.feedbackLabel.textColor = UIColor.secondaryLabelColor;
+    self.feedbackLabel.numberOfLines = 0;
+    self.feedbackLabel.textAlignment = NSTextAlignmentCenter;
+    [self.view addSubview:self.feedbackLabel];
     [NSLayoutConstraint activateConstraints:@[
         [back.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:10],
         [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6],
@@ -131,7 +226,15 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         [title.trailingAnchor constraintEqualToAnchor:self.saveButton.leadingAnchor constant:-8],
         [title.topAnchor constraintEqualToAnchor:back.topAnchor],
         [title.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        [self.tableView.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:8],
+        [mode.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
+        [mode.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
+        [mode.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
+        [mode.heightAnchor constraintGreaterThanOrEqualToConstant:36],
+        [self.feedbackLabel.topAnchor constraintEqualToAnchor:mode.bottomAnchor constant:10],
+        [self.feedbackLabel.leadingAnchor constraintEqualToAnchor:mode.leadingAnchor],
+        [self.feedbackLabel.trailingAnchor constraintEqualToAnchor:mode.trailingAnchor],
+        [self.feedbackLabel.heightAnchor constraintGreaterThanOrEqualToConstant:18],
+        [self.tableView.topAnchor constraintEqualToAnchor:self.feedbackLabel.bottomAnchor constant:4],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
@@ -140,13 +243,13 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         initWithTarget:self action:@selector(edgeBack:)];
     edge.edges = UIRectEdgeLeft;
     [self.view addGestureRecognizer:edge];
+    [self.tableView.panGestureRecognizer requireGestureRecognizerToFail:edge];
 
     __weak typeof(self) weakSelf = self;
     int token = -1;
-    if (notify_register_dispatch(RC_LOW_POWER_STATUS_CHANGED, &token, dispatch_get_main_queue(),
+    if (notify_register_dispatch([self scheduleStatusNotification], &token, dispatch_get_main_queue(),
         ^(__unused int value) {
-            if (weakSelf.viewIfLoaded.window &&
-                weakSelf.navigationController.topViewController == weakSelf) [weakSelf refreshStatus];
+            if ([weakSelf isScheduleVisible]) [weakSelf refreshStatus];
         }) == NOTIFY_STATUS_OK)
         self.statusToken = token;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationDidBecomeActive:)
@@ -161,6 +264,11 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     [super viewWillAppear:animated];
     [self refreshScheduleAppearance];
+}
+
+- (void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
     [self requestStatus];
 }
 
@@ -175,6 +283,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     [super viewDidDisappear:animated];
     self.timeFeedback = nil;
+    self.queryDate = nil;
+    self.statusWaiting = NO;
 }
 
 - (void)dealloc
@@ -202,6 +312,9 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     cell.textLabel.adjustsFontForContentSizeCategory = YES;
     cell.textLabel.numberOfLines = 0;
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
 }
 
 - (void)refreshScheduleScrollInsets
@@ -218,6 +331,13 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)refreshScheduleGlassFrames
 {
+    for (NSNumber *key in self.sectionGlassViews.allKeys) {
+        if (key.integerValue >= self.tableView.numberOfSections ||
+            [self.tableView numberOfRowsInSection:key.integerValue] == 0) {
+            [self.sectionGlassViews[key] removeFromSuperview];
+            [self.sectionGlassViews removeObjectForKey:key];
+        }
+    }
     if (!DORHSupporterRenderIsVerified()) {
         for (DOCustomLiquidGlassView *glass in self.sectionGlassViews.allValues) glass.hidden = YES;
         return;
@@ -229,6 +349,9 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         CGRect first = [self.tableView rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:section]];
         CGRect last = [self.tableView rectForRowAtIndexPath:[NSIndexPath indexPathForRow:rows - 1 inSection:section]];
         CGRect frame = CGRectUnion(first, last);
+        CGRect footer = [self.tableView rectForFooterInSection:section];
+        if (CGRectGetHeight(footer) > 0 && CGRectGetMinY(footer) > CGRectGetMinY(frame))
+            frame.size.height = MIN(frame.size.height, CGRectGetMinY(footer) - CGRectGetMinY(frame));
         // Keep the last valid frame during transient foreground/layout passes.
         if (CGRectIsEmpty(frame) || CGRectGetHeight(frame) < 2) continue;
         DOCustomLiquidGlassView *glass = self.sectionGlassViews[@(section)];
@@ -272,6 +395,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)draftChanged
 {
     self.saveButton.enabled = self.hasChanges || self.timePickerExpanded;
+    if (self.hasChanges) [self showScheduleFeedback:DOLocalizedString(@"PowerSchedule_Unsaved") error:NO];
+    else if ([self.feedbackLabel.text isEqual:DOLocalizedString(@"PowerSchedule_Unsaved")]) self.feedbackLabel.text = nil;
 }
 
 - (void)prepareTimeFeedback
@@ -287,8 +412,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     NSInteger previous = self.editingTime == 0 ? self.lastStartMinute : self.lastEndMinute;
     if (self.editingTime == 0) self.lastStartMinute = minute;
     else self.lastEndMinute = minute;
-    if (minute != previous && self.viewIfLoaded.window &&
-        self.navigationController.topViewController == self &&
+    if (minute != previous && [self isScheduleVisible] &&
         UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
         // Match GlassFolders' crisp detent feedback, once per changed value.
         [self prepareTimeFeedback];
@@ -367,7 +491,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)updateTimeLabels
 {
     for (NSIndexPath *indexPath in self.tableView.indexPathsForVisibleRows) {
-        if (indexPath.section != 0 || indexPath.row == 0 || indexPath.row == 3) continue;
+        if (indexPath.section != 0 || (indexPath.row != 1 && indexPath.row != 2)) continue;
         UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
         NSInteger minute = [self isStartRow:indexPath] ? self.lastStartMinute : self.lastEndMinute;
         cell.detailTextLabel.text =
@@ -384,72 +508,103 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     NSDate *queryDate = NSDate.date;
     self.queryDate = queryDate;
-    if (![self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]])
-        [self refreshStatus];
-    notify_post(RC_LOW_POWER_QUERY);
+    self.statusWaiting = YES;
+    [self showScheduleFeedback:DOLocalizedString(self.awaitingSaveConfirmation ? @"PowerSchedule_Saved" : @"PowerSchedule_Refreshing") error:NO];
+    [self refreshStatus];
+    [self postStatusQuery];
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if ([weakSelf.queryDate isEqualToDate:queryDate] &&
-            weakSelf.viewIfLoaded.window &&
-            weakSelf.navigationController.topViewController == weakSelf &&
-            UIApplication.sharedApplication.applicationState == UIApplicationStateActive)
+        if ([weakSelf.queryDate isEqualToDate:queryDate] && [weakSelf isScheduleVisible] &&
+            UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
+            weakSelf.statusWaiting = NO;
             [weakSelf refreshStatus];
+        }
     });
 }
 
+- (void)postStatusQuery { notify_post([self scheduleQueryNotification]); }
+
 - (void)applicationDidBecomeActive:(NSNotification *)notification
 {
-    if (self.viewIfLoaded.window && self.navigationController.topViewController == self)
-        [self requestStatus];
+    if ([self isScheduleVisible]) [self requestStatus];
 }
 
 - (void)applicationWillResignActive:(NSNotification *)notification
 {
     self.timeFeedback = nil;
+    self.queryDate = nil;
+    self.statusWaiting = NO;
+}
+
+- (BOOL)statusFresh
+{
+    NSDate *updated = self.runtimeStatus[@"Updated"];
+    return self.queryDate && [updated isKindOfClass:NSDate.class] &&
+        [updated timeIntervalSinceDate:self.queryDate] >= 0 &&
+        [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]];
+}
+
+- (BOOL)runtimeHasError
+{
+    return [@[@"unsupported", @"applyFailed", @"runtimeFailed", @"timerFailed"] containsObject:self.runtimeStatus[@"State"] ?: @""];
 }
 
 - (void)refreshStatus
 {
-    self.runtimeStatus = [DOEnvironmentManager.sharedManager lowPowerScheduleStatus];
-    NSIndexPath *statusPath = [NSIndexPath indexPathForRow:0 inSection:1];
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:statusPath];
-    NSString *text = self.statusText;
-    if (![cell.textLabel.text isEqualToString:text]) {
-        cell.textLabel.text = text;
-        [cell setNeedsLayout];
-        [cell layoutIfNeeded];
-        [UIView performWithoutAnimation:^{
-            [self.tableView beginUpdates];
-            [self.tableView endUpdates];
-        }];
+    self.runtimeStatus = [self loadRuntimeStatus];
+    if (self.statusFresh) self.statusWaiting = NO;
+    if (!self.statusWaiting) {
+        BOOL error = self.statusFresh && self.runtimeHasError;
+        NSString *key = self.hasChanges ? @"PowerSchedule_Unsaved" :
+            (self.awaitingSaveConfirmation ? @"PowerSchedule_Saved" :
+                (self.statusFresh ? @"PowerSchedule_Refreshed" : @"PowerSchedule_SavedPlan"));
+        [self showScheduleFeedback:error ? self.statusText : DOLocalizedString(key) error:error];
+        self.awaitingSaveConfirmation = NO;
     }
+    [self didRefreshStatus];
+    // Runtime updates must not rebuild or detach the inline time wheel.
+    if (self.tableView.numberOfSections > 1) [UIView performWithoutAnimation:^{
+        NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, self.tableView.numberOfSections - 1)];
+        [self.tableView reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
+        [self.tableView layoutIfNeeded];
+        [self refreshScheduleGlassFrames];
+    }];
+}
+
+- (void)didRefreshStatus {}
+
+- (void)showScheduleFeedback:(NSString *)message error:(BOOL)error
+{
+    self.feedbackLabel.text = message;
+    self.feedbackLabel.textColor = error ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
+}
+
+- (void)didSaveConfiguration:(NSDictionary *)configuration
+{
+    self.savedConfiguration = configuration;
+    self.awaitingSaveConfirmation = YES;
+    [self setTimePickerExpanded:NO animated:YES];
+    [self draftChanged];
+    [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:UINotificationFeedbackTypeSuccess];
+    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, DOLocalizedString(@"PowerSchedule_Saved"));
+    [self requestStatus];
 }
 
 - (NSString *)statusText
 {
-    if ([self.savedConfiguration[@"Revision"] isEqual:rcLowPowerDefaultConfiguration()[@"Revision"]])
+    if (![self.savedConfiguration[@"Enabled"] boolValue])
         return DOLocalizedString(@"LowPowerSchedule_Disabled");
     NSDictionary *status = self.runtimeStatus;
-    NSDate *updated = status[@"Updated"];
-    BOOL fresh = [updated isKindOfClass:NSDate.class] &&
-        [updated timeIntervalSinceDate:self.queryDate] >= -1;
-    if (!fresh || ![status[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]])
-        return DOLocalizedString(@"LowPowerSchedule_Waiting");
-    NSString *state = status[@"State"];
-    if ([state isEqual:@"disabled"]) return DOLocalizedString(@"LowPowerSchedule_Disabled");
+    NSString *state = self.statusFresh ? status[@"State"] : nil;
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
-    if (![state isEqual:@"scheduled"]) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
-    NSDictionary *next = status[@"Next"];
+    if ([state isEqual:@"runtimeFailed"]) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
+    NSDictionary *next = self.statusFresh ? status[@"Next"] : nil;
     if (![next isKindOfClass:NSDictionary.class] || ![next[@"Date"] isKindOfClass:NSDate.class])
-        return DOLocalizedString(@"LowPowerSchedule_Waiting");
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.dateStyle = NSDateFormatterShortStyle;
-    formatter.timeStyle = NSDateFormatterShortStyle;
+        next = rcLowPowerEvent(self.savedConfiguration, NSDate.date, rcLowPowerLocalCalendar(), YES);
     NSString *action = DOLocalizedString([next[@"PowerMode"] boolValue] ?
         @"LowPowerSchedule_OnAction" : @"LowPowerSchedule_OffAction");
-    return [NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_Next"),
-        [formatter stringFromDate:next[@"Date"]], action];
+    return [NSString stringWithFormat:DOLocalizedString(@"PowerSchedule_Next"), DOScheduleDateText(next[@"Date"]), action];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
@@ -465,13 +620,62 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     return DOLocalizedString(section == 0 ? @"LowPowerSchedule_Footer" : @"LowPowerSchedule_RuntimeFooter");
 }
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section
+{
+    UITableViewHeaderFooterView *footer = [[UITableViewHeaderFooterView alloc] initWithReuseIdentifier:nil];
+    footer.backgroundView = [UIView new];
+    footer.backgroundView.backgroundColor = UIColor.clearColor;
+    UILabel *label = [UILabel new];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.text = [self tableView:tableView titleForFooterInSection:section];
+    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.textColor = UIColor.secondaryLabelColor;
+    label.numberOfLines = 0;
+    [footer.contentView addSubview:label];
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:footer.contentView.leadingAnchor constant:32],
+        [label.trailingAnchor constraintEqualToAnchor:footer.contentView.trailingAnchor constant:-32],
+        [label.topAnchor constraintEqualToAnchor:footer.contentView.topAnchor constant:16],
+        [label.bottomAnchor constraintLessThanOrEqualToAnchor:footer.contentView.bottomAnchor constant:-20]
+    ]];
+    return footer;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section
+{
+    NSString *text = [self tableView:tableView titleForFooterInSection:section];
+    // Reserve real padding outside the glass, including at accessibility font sizes.
+    CGFloat width = MAX(80, CGRectGetWidth(tableView.bounds) - 104);
+    CGRect rect = [text boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
+        options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+        attributes:@{NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote]} context:nil];
+    return ceil(rect.size.height) + 36;
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView { [self refreshScheduleGlassFrames]; }
+
+- (void)configureStatusCell:(UITableViewCell *)cell
+{
+    cell.textLabel.text = self.statusText;
+    cell.detailTextLabel.text = DOLocalizedString(@"PowerSchedule_TapRefresh");
+    cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+    cell.accessibilityTraits |= UIAccessibilityTraitButton;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    if (self.statusWaiting) {
+        UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        [spinner startAnimating];
+        cell.accessoryView = spinner;
+    }
+}
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:indexPath.section == 1 ? UITableViewCellStyleSubtitle : UITableViewCellStyleValue1 reuseIdentifier:nil];
     [self styleScheduleCell:cell];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     if (indexPath.section == 1) {
-        cell.textLabel.text = self.statusText;
+        [self configureStatusCell:cell];
     } else if (indexPath.row == 3) {
         if (self.timePickerExpanded) [self attachTimePickerToCell:cell];
     } else if (indexPath.row == 0) {
@@ -479,7 +683,9 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         cell.accessoryView = self.enabledSwitch;
     } else {
         BOOL start = [self isStartRow:indexPath];
-        cell.textLabel.text = DOLocalizedString(start ? @"LowPowerSchedule_OnTime" : @"LowPowerSchedule_OffTime");
+        cell.textLabel.text = DOLocalizedString(self.scheduleMode == 0 ?
+            (start ? @"LowPowerSchedule_OnTime" : @"LowPowerSchedule_OffTime") :
+            (start ? @"BatteryRecord_StartTime" : @"BatteryRecord_EndTime"));
         NSInteger minute = start ? self.lastStartMinute : self.lastEndMinute;
         cell.detailTextLabel.text =
             [NSString stringWithFormat:@"%02ld:%02ld", (long)(minute / 60), (long)(minute % 60)];
@@ -511,17 +717,29 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     forRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [self styleScheduleCell:cell];
+    if (indexPath.section == 0 && (indexPath.row == 1 || indexPath.row == 2)) {
+        cell.detailTextLabel.textColor = UIColor.systemBlueColor;
+        cell.detailTextLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+            scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightRegular]];
+    }
+    [self refreshScheduleGlassFrames];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section == 1 && indexPath.row == 0) {
+        [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
+        [self requestStatus];
+        return;
+    }
     if (indexPath.section != 0 || indexPath.row == 0 || indexPath.row == 3) return;
     self.editingTime = [self isStartRow:indexPath] ? 0 : 1;
     self.timePicker.date = [self dateForMinute:self.editingTime == 0 ?
         self.lastStartMinute : self.lastEndMinute];
-    self.timePicker.accessibilityLabel = DOLocalizedString(self.editingTime == 0 ?
-        @"LowPowerSchedule_OnTime" : @"LowPowerSchedule_OffTime");
+    self.timePicker.accessibilityLabel = DOLocalizedString(self.scheduleMode == 0 ?
+        (self.editingTime == 0 ? @"LowPowerSchedule_OnTime" : @"LowPowerSchedule_OffTime") :
+        (self.editingTime == 0 ? @"BatteryRecord_StartTime" : @"BatteryRecord_EndTime"));
     [self setTimePickerExpanded:YES animated:YES];
     [self updateTimeLabels];
     [self prepareTimeFeedback];
@@ -546,9 +764,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
             error.localizedDescription ?: @"Unknown"]];
         return;
     }
-    self.savedConfiguration = [DOEnvironmentManager.sharedManager lowPowerScheduleConfiguration];
-    [self setTimePickerExpanded:NO animated:YES];
-    [self requestStatus];
+    [self didSaveConfiguration:[self loadScheduleConfiguration]];
 }
 
 - (void)showMessage:(NSString *)message
@@ -562,6 +778,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)backPressed
 {
+    if (self.backHandler) { self.backHandler(); return; }
     if (!self.hasChanges) {
         [self.navigationController popViewControllerAnimated:YES];
         return;

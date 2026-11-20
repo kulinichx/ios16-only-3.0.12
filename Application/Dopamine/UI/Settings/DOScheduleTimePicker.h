@@ -1,6 +1,15 @@
 #pragma once
 #import <UIKit/UIKit.h>
 
+static inline NSString *DOScheduleDateText(id value)
+{
+    if (![value isKindOfClass:NSDate.class]) return @"—";
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    // Include an explicit date so a midnight/overnight plan is never ambiguous.
+    [formatter setLocalizedDateFormatFromTemplate:@"MMMdBhmm"];
+    return [formatter stringFromDate:value];
+}
+
 // Both plans edit wall-clock minutes with the same wheel, independent of today's DST.
 static inline UIDatePicker *DOScheduleTimePicker(NSInteger minute, id target, SEL action)
 {

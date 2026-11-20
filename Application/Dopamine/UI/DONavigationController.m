@@ -13,6 +13,7 @@
 #import "DOCustomGlassMediaStore.h"
 #import "DOSettingsController.h"
 #import "Settings/DOLowPowerScheduleController.h"
+#import "Settings/DOPowerScheduleController.h"
 #import "Settings/DOBatteryRecordController.h"
 #import "DOCreditsViewController.h"
 #import "DOSupporterLicense.h"
@@ -339,6 +340,7 @@ static CGFloat DOCustomGlassNavigationScrimAlpha(CGFloat luminance, CGFloat hier
 {
     return [viewController isKindOfClass:DOSettingsController.class] ||
         [viewController isKindOfClass:DOLowPowerScheduleController.class] ||
+        [viewController isKindOfClass:DOPowerScheduleController.class] ||
         [viewController isKindOfClass:DOBatteryRecordController.class] ||
         [viewController isKindOfClass:DOCreditsViewController.class] ||
         [NSStringFromClass(viewController.class) hasPrefix:@"DOCustomGlass"];

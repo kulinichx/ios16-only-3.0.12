@@ -248,11 +248,11 @@ test('username and motto editors use saved user input rather than treating place
   assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassMottoEditor\)/);
 });
 
-test('only the avatar slides offscreen and the matching edge restores it', () => {
+test('only the avatar slides offscreen and either edge restores it', () => {
   const gestures = section(main, '- (CGFloat)customGlassAvatarHiddenOffset', '- (void)customGlassAvatarLongPressed:');
   assert.match(gestures, /CGAffineTransformMakeTranslation\(offset, 0\.0\)/);
-  assert.match(gestures, /customGlassAvatarLeftEdge\.enabled = hidden && !right/);
-  assert.match(gestures, /customGlassAvatarRightEdge\.enabled = hidden && right/);
+  assert.match(gestures, /customGlassAvatarLeftEdge\.enabled = hidden;/);
+  assert.match(gestures, /customGlassAvatarRightEdge\.enabled = hidden;/);
   assert.match(gestures, /fabs\(velocity\.x\) <= fabs\(velocity\.y\)/);
   assert.match(gestures, /UIGestureRecognizerStateCancelled/);
   assert.doesNotMatch(gestures, /detailAlpha|menuTravel|customGlassActionGrid\.alpha|jailbreakBtn\.alpha/);
@@ -891,7 +891,7 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
   // Baseline excludes the removed whitelist installer and separately tested ports.
   const supporterActions = section(
     settings,
-    '- (void)batteryRecordPressed',
+    '- (void)lowPowerSchedulePressed',
     '- (void)changeMobilePasswordWithAuthenticationPressed',
   );
   const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:')

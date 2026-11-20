@@ -194,6 +194,7 @@ static void Snapshot(DOPSListController *page, NSString *name, NSString *documen
 }
 
 /* HOME_FOCUS_FIXTURE */
+/* SCHEDULE_UI_FIXTURE */
 
 static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
 {
@@ -246,7 +247,8 @@ static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
         [page removeFromParentViewController];
     }
     NSUInteger homeFocusCases = CheckHomeFocus(host);
-    return @{@"status": @"passed", @"viewports": @(viewports), @"scrollChecks": @(checks), @"homeFocusCases": @(homeFocusCases),
+    NSUInteger scheduleUICases = CheckScheduleUI(host);
+    return @{@"status": @"passed", @"viewports": @(viewports), @"scrollChecks": @(checks), @"homeFocusCases": @(homeFocusCases), @"scheduleUICases": @(scheduleUICases),
         @"note": @"Real UIKit and production callbacks/material; synthetic Preferences parent. Not an iOS 16 device test."};
 }
 

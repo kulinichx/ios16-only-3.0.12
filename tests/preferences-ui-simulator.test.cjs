@@ -7,7 +7,7 @@ const { run } = require('./helpers/preferences-ui-simulator.cjs');
 
 // Exercise the runner's control flow on every platform. This does not replace UIKit.
 function fixture(t, { launchError, diagnosticError, plistError, failedReport = false, outputUnavailable = false,
-  missingHomeReport = false, runtimeErrors = [], runtimeOutput } = {}) {
+  missingHomeReport = false, missingScheduleReport = false, runtimeErrors = [], runtimeOutput } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-simulator-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const output = path.join(directory, 'evidence');
@@ -53,7 +53,7 @@ function fixture(t, { launchError, diagnosticError, plistError, failedReport = f
           // The app can write its report before simctl acknowledges the launch.
           fs.writeFileSync(path.join(data, 'Documents', 'report.json'), JSON.stringify(failedReport
             ? { status: 'failed', reason: 'geometry assertion failed' }
-            : { status: 'passed', viewports: 12, scrollChecks: 2400, homeFocusCases: missingHomeReport ? undefined : 6 }));
+            : { status: 'passed', viewports: 12, scrollChecks: 2400, homeFocusCases: missingHomeReport ? undefined : 6, scheduleUICases: missingScheduleReport ? undefined : 6 }));
           fs.writeFileSync(path.join(data, 'Documents', 'settings-portrait.png'), 'test screenshot');
           if (outputUnavailable) {
             fs.renameSync(output, path.join(directory, 'old-evidence'));
@@ -215,4 +215,9 @@ test('a passing settings report cannot substitute for the new native home gestur
   const context = fixture(t, { missingHomeReport: true });
   await assert.rejects(run(context), /undefined !== 6/);
   assert.ok(fs.existsSync(path.join(context.output, 'report.json')));
+});
+
+test('a passing home report cannot substitute for the shared schedule page cases', async t => {
+  const context = fixture(t, { missingScheduleReport: true });
+  await assert.rejects(run(context), /undefined !== 6/);
 });

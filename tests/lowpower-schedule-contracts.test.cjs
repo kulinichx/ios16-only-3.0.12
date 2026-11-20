@@ -71,14 +71,14 @@ test('scheduler checks private ABI, arms the next event before applying mode, an
 
 test('settings exposes the schedule while jailbroken and UI never applies system mode directly', () => {
   assert.match(settings, /DOLowPowerScheduleController\.h/);
-  assert.match(settings, /LowPowerSchedule_Title/);
+  assert.match(settings, /PowerSchedule_Title/);
   assert.match(settings, /lowPowerSchedulePressed/);
-  assert.match(settings, /pushViewController:\[DOLowPowerScheduleController new\]/);
+  assert.match(settings, /pushViewController:\[DOPowerScheduleController new\]/);
   assert.match(controller, /DOScheduleTimePicker\(minute, self/);
   assert.match(read('Application/Dopamine/UI/Settings/DOScheduleTimePicker.h'), /UIDatePickerModeTime/);
   assert.match(controller, /start == end/);
   assert.match(controller, /RC_LOW_POWER_QUERY/);
-  assert.match(controller, /status\[@"Revision"\] isEqual:self\.savedConfiguration\[@"Revision"\]/);
+  assert.match(controller, /runtimeStatus\[@"Revision"\] isEqual:self\.savedConfiguration\[@"Revision"\]/);
   assert.match(controller, /notify_cancel\(self\.statusToken\)/);
   assert.doesNotMatch(controller, /setPowerMode:/);
   const refresh = body(runtime, '- (void)refresh\n');

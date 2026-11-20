@@ -109,6 +109,8 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
 {
     BOOL revealWasConsumed = DOHomeThermalLaunchRevealConsumed;
     BOOL entranceWasConsumed = DOHomeEntranceConsumed;
+    NSString *visibilityKey = @"DOCustomGlassTheme.AvatarVisibility";
+    id savedVisibility = [NSUserDefaults.standardUserDefaults objectForKey:visibilityKey];
     DOHomeThermalLaunchRevealConsumed = YES;
     BOOL animationsWereEnabled = UIView.areAnimationsEnabled;
     [UIView setAnimationsEnabled:NO];
@@ -262,27 +264,27 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 pan.testState = UIGestureRecognizerStateEnded; [home customGlassAvatarPanned:pan];
                 [home finishCustomGlassAvatarAnimation];
                 CHECK(home.customGlassAvatarHidden);
-                CHECK(home.customGlassAvatarLeftEdge.enabled == (dx < 0));
-                CHECK(home.customGlassAvatarRightEdge.enabled == (dx > 0));
+                CHECK(home.customGlassAvatarLeftEdge.enabled && home.customGlassAvatarRightEdge.enabled);
+                CHECK([NSUserDefaults.standardUserDefaults integerForKey:visibilityKey] == 2);
                 CHECK(dx < 0 ? CGRectGetMaxX(HomeAvatarRect(home)) < 0 : CGRectGetMinX(HomeAvatarRect(home)) > size.CGSizeValue.width);
                 CHECK(home.customGlassActionGrid.alpha == 1 && home.jailbreakBtn.alpha == 1 && home.updateButton.alpha == 1);
                 CHECK(home.customGlassActionGrid.userInteractionEnabled);
                 CHECK(CGRectEqualToRect(profile, home.customGlassProfileView.frame));
                 CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
-                HomeTestPan *edge = dx < 0 ? left : right;
-                HomeTestPan *wrong = dx < 0 ? right : left;
-                wrong.testVelocity = CGPointMake(-dx * 5, 0);
-                CHECK(![home gestureRecognizerShouldBegin:wrong]);
+                // Restore from the opposite side, including cancellation first.
+                HomeTestPan *edge = dx < 0 ? right : left;
                 for (NSNumber *end in @[@(UIGestureRecognizerStateCancelled), @(UIGestureRecognizerStateEnded)]) {
-                    edge.testVelocity = CGPointMake(-dx * 5, 0);
+                    edge.testVelocity = CGPointMake(dx * 5, 0);
                     CHECK([home gestureRecognizerShouldBegin:edge]);
                     edge.testTranslation = CGPointZero; edge.testState = UIGestureRecognizerStateBegan;
                     [home customGlassAvatarPanned:edge];
-                    edge.testTranslation = CGPointMake(-dx, 0); edge.testState = UIGestureRecognizerStateChanged;
+                    edge.testTranslation = CGPointMake(dx, 0); edge.testState = UIGestureRecognizerStateChanged;
                     [home customGlassAvatarPanned:edge];
                     edge.testState = end.integerValue; [home customGlassAvatarPanned:edge];
                     [home finishCustomGlassAvatarAnimation];
                     CHECK(home.customGlassAvatarHidden == (end.integerValue == UIGestureRecognizerStateCancelled));
+                    CHECK([NSUserDefaults.standardUserDefaults integerForKey:visibilityKey] ==
+                        (end.integerValue == UIGestureRecognizerStateCancelled ? 2 : 1));
                 }
                 CheckHomeAvatarRect(home, original, @"edge restored");
             }
@@ -304,7 +306,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 [home customGlassAvatarLongPressed:press];
                 CHECK((home.testPresentedController != nil) == !move.boolValue);
                 if (!move.boolValue) {
-                    CHECK(((UIAlertController *)home.testPresentedController).actions.count == 3);
+                    CHECK(((UIAlertController *)home.testPresentedController).actions.count == 6);
                     if (home.testPresentedController.popoverPresentationController)
                         CHECK(home.testPresentedController.popoverPresentationController.sourceView == home.customGlassAvatarContainerView);
                 }
@@ -364,6 +366,34 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home revealHomeThermalStateInAvatar:NO force:YES];
             [home applyHomeAvatarDisplayMode];
             CHECK(home.homeThermalRevealTimer == nil);
+            // Automatic fading preserves automatic mode; explicit choices survive reload.
+            [home selectHomeAvatarVisibilityMode:0];
+            [home finishCustomGlassAvatarAnimation];
+            CHECK(home.homeAvatarHideTimer != nil);
+            [home.homeAvatarHideTimer fire];
+            [home finishCustomGlassAvatarAnimation];
+            CHECK(home.customGlassAvatarHidden && home.homeAvatarHideTimer == nil);
+            CHECK([NSUserDefaults.standardUserDefaults integerForKey:visibilityKey] == 0);
+            CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            [home restoreHomeAvatarVisibilityPreference];
+            CHECK(!home.customGlassAvatarHidden);
+            [home selectHomeAvatarVisibilityMode:2];
+            [home finishCustomGlassAvatarAnimation];
+            [home restoreHomeAvatarVisibilityPreference];
+            DOHomeEntranceConsumed = NO;
+            [home prepareHomeEntrance];
+            [home finishHomeEntrance];
+            CHECK(home.customGlassAvatarHidden);
+            CHECK(CGRectGetMinX(HomeAvatarRect(home)) > size.CGSizeValue.width);
+            [home selectHomeAvatarVisibilityMode:1];
+            [home finishCustomGlassAvatarAnimation];
+            [home restoreHomeAvatarVisibilityPreference];
+            CHECK(!home.customGlassAvatarHidden && home.homeAvatarHideTimer == nil);
+            [home selectHomeAvatarVisibilityMode:0];
+            [home finishCustomGlassAvatarAnimation];
+            NSTimer *cancelledTimer = home.homeAvatarHideTimer;
+            [home cancelHomeAvatarAutoHide];
+            CHECK(!cancelledTimer.valid && home.homeAvatarHideTimer == nil);
             cases++;
         }
         [home willMoveToParentViewController:nil];
@@ -372,6 +402,8 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
     } @finally {
         DOHomeThermalLaunchRevealConsumed = revealWasConsumed;
         DOHomeEntranceConsumed = entranceWasConsumed;
+        if (savedVisibility) [NSUserDefaults.standardUserDefaults setObject:savedVisibility forKey:visibilityKey];
+        else [NSUserDefaults.standardUserDefaults removeObjectForKey:visibilityKey];
         [UIView setAnimationsEnabled:animationsWereEnabled];
     }
     return cases;

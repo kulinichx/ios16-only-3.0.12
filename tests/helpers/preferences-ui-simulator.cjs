@@ -21,6 +21,8 @@ function harnessSource() {
   const credits = read(ui + 'Settings/DOCreditsViewController.m');
   const material = read(ui + 'DOCustomGlassView.m');
   const home = read(ui + 'DOMainViewController.m');
+  const lowPower = read(ui + 'Settings/DOLowPowerScheduleController.m');
+  const stripLocalImports = source => source.replace(/^#(?:import "[^"\n]+"|pragma once).*$/gm, '');
   const replacements = {
     MATERIAL_HEADER: read(ui + 'DOCustomGlassView.h'),
     MATERIAL: section(material, '@implementation DOCustomLiquidGlassView', '\n@end') + '\n@end',
@@ -36,9 +38,13 @@ function harnessSource() {
     HOME_ENTRANCE: section(home, '\n- (void)prepareHomeEntrance\n{', '// 显示主页时刷新信息及越狱按钮状态。'),
     HOME_FOCUS: section(home, '- (CGFloat)customGlassAvatarHiddenOffset', '- (void)configureCustomGlassHeaderView:'),
     HOME_THERMAL: section(home, '\n- (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate\n{', '\n- (void)startHomeThermalUpdates\n{'),
+    SCHEDULE_RUNTIME_HEADERS: stripLocalImports(read('BaseBin/roothidehooks/src/RCLowPowerSchedule.h')) + '\n' + stripLocalImports(read('BaseBin/roothidehooks/src/RCBatteryRecord.h')),
+    SCHEDULE_HEADERS: stripLocalImports(read(ui + 'Settings/DOLowPowerScheduleController.h')) + '\n' + stripLocalImports(read(ui + 'Settings/DOBatteryRecordController.h')) + '\n' + stripLocalImports(read(ui + 'Settings/DOPowerScheduleController.h')) + '\n' + read(ui + 'Settings/DOScheduleTimePicker.h'),
+    SCHEDULE_CONTROLLERS: 'static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTheme.DidChange";\n' + lowPower.slice(lowPower.indexOf('@interface DOPowerScheduleController ()')) + '\n' + stripLocalImports(read(ui + 'Settings/DOBatteryRecordController.m')),
   };
   return read('tests/fixtures/preferences-ui-harness.m')
     .replace('/* HOME_FOCUS_FIXTURE */', read('tests/fixtures/home-focus-harness.m'))
+    .replace('/* SCHEDULE_UI_FIXTURE */', read('tests/fixtures/schedule-ui-harness.m'))
     .replace(/\/\* PRODUCTION_(\w+) \*\//g, (_, key) => {
     assert.ok(replacements[key], `Missing harness replacement ${key}`);
     return replacements[key];
@@ -169,6 +175,7 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
     assert.equal(result.viewports, 12);
     assert.equal(result.scrollChecks, 2400);
     assert.equal(result.homeFocusCases, 6);
+    assert.equal(result.scheduleUICases, 6);
     logger.log(`UIKit: ${runtime.version}; 12 page/viewport cases, 2400 offset checks, 6 home gesture/layout cases; evidence: ${output}`);
   } catch (error) {
     save('failure.log', `${error.stack || error.message}\n`);

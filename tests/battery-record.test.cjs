@@ -30,16 +30,17 @@ test('coincident low-power events bracket battery endpoint sampling', () => {
   assert.match(runtime, /rcLowPowerScheduleRefresh\(\);\s*\[self refresh\]/);
 });
 
-test('recording UI is wired and reuses only the time editor, not the low-power configuration', () => {
+test('recording UI inherits the schedule editor while keeping its own configuration', () => {
   const env = read('Application/Dopamine/Jailbreak/DOEnvironmentManager.m');
   assert.match(env, /saveBatteryRecordConfiguration/);
   assert.match(env, /rcBatteryPath\(JBROOT_PATH\(@"\/"\), suffix\)/);
-  assert.match(controller, /DOScheduleTimePicker\(/);
+  assert.match(read('Application/Dopamine/UI/Settings/DOBatteryRecordController.h'), /: DOLowPowerScheduleController/);
+  assert.match(read('Application/Dopamine/UI/Settings/DOLowPowerScheduleController.m'), /DOScheduleTimePicker\(/);
   assert.match(controller, /lowPowerScheduleConfiguration/);
   assert.doesNotMatch(controller, /saveLowPowerScheduleEnabled|setPowerMode:/);
   assert.match(controller, /comparison.count == 2/);
   assert.match(controller, /statusFresh/);
-  assert.match(read('Application/Dopamine/UI/Settings/DOSettingsController.m'), /batteryRecordPressed/);
+  assert.match(read('Application/Dopamine/UI/Settings/DOSettingsController.m'), /DOPowerScheduleController new/);
   const project = read('Application/Dopamine.xcodeproj/project.pbxproj');
   assert.equal((project.match(/DOBatteryRecordController.m in Sources/g) || []).length, 2);
 });

@@ -22,7 +22,7 @@
 #import "DOCustomGlassView.h"
 #import "../DOSupporterLicenseUI.h"
 #import "DOLowPowerScheduleController.h"
-#import "DOBatteryRecordController.h"
+#import "DOPowerScheduleController.h"
 
 @interface DOSettingsController ()
 
@@ -533,19 +533,12 @@
 
                 if (envManager.isJailbroken) {
                     PSSpecifier *lowPowerSchedule = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
-                    [lowPowerSchedule setProperty:@"LowPowerSchedule_Title" forKey:@"title"];
+                    [lowPowerSchedule setProperty:@"PowerSchedule_Title" forKey:@"title"];
                     [lowPowerSchedule setProperty:[DOButtonCell class] forKey:@"cellClass"];
                     [lowPowerSchedule setProperty:buttonHeight forKey:@"height"];
                     [lowPowerSchedule setProperty:@"calendar.badge.clock" forKey:@"image"];
                     [lowPowerSchedule setProperty:@"lowPowerSchedulePressed" forKey:@"action"];
                     [specifiers addObject:lowPowerSchedule];
-                    PSSpecifier *batteryRecord = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
-                    [batteryRecord setProperty:@"BatteryRecord_Title" forKey:@"title"];
-                    [batteryRecord setProperty:[DOButtonCell class] forKey:@"cellClass"];
-                    [batteryRecord setProperty:buttonHeight forKey:@"height"];
-                    [batteryRecord setProperty:@"battery.75percent" forKey:@"image"];
-                    [batteryRecord setProperty:@"batteryRecordPressed" forKey:@"action"];
-                    [specifiers addObject:batteryRecord];
 
                     PSSpecifier *mountSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
                     [mountSpecifier setProperty:@"CustomMount_Add" forKey:@"title"];
@@ -1138,14 +1131,9 @@
     [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
 }
 
-- (void)batteryRecordPressed
-{
-    [self.navigationController pushViewController:[DOBatteryRecordController new] animated:YES];
-}
-
 - (void)lowPowerSchedulePressed
 {
-    [self.navigationController pushViewController:[DOLowPowerScheduleController new] animated:YES];
+    [self.navigationController pushViewController:[DOPowerScheduleController new] animated:YES];
 }
 
 - (void)reinstallPackageManagersPressed

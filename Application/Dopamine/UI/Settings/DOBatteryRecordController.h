@@ -1,3 +1,3 @@
-#import <UIKit/UIKit.h>
-@interface DOBatteryRecordController : UIViewController
+#import "DOLowPowerScheduleController.h"
+@interface DOBatteryRecordController : DOLowPowerScheduleController
 @end
