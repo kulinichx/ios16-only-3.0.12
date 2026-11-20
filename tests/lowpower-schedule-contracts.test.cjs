@@ -74,7 +74,8 @@ test('settings exposes the schedule while jailbroken and UI never applies system
   assert.match(settings, /LowPowerSchedule_Title/);
   assert.match(settings, /lowPowerSchedulePressed/);
   assert.match(settings, /pushViewController:\[DOLowPowerScheduleController new\]/);
-  assert.match(controller, /UIDatePickerModeTime/);
+  assert.match(controller, /DOScheduleTimePicker\(minute, self/);
+  assert.match(read('Application/Dopamine/UI/Settings/DOScheduleTimePicker.h'), /UIDatePickerModeTime/);
   assert.match(controller, /start == end/);
   assert.match(controller, /RC_LOW_POWER_QUERY/);
   assert.match(controller, /status\[@"Revision"\] isEqual:self\.savedConfiguration\[@"Revision"\]/);

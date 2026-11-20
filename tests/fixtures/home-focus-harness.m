@@ -41,14 +41,19 @@
 @property(nonatomic, strong) DOHomeThermalStatusView *homeThermalAvatarOverlay;
 @property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarPan;
 @property(nonatomic, strong) UILongPressGestureRecognizer *customGlassAvatarLongPress;
-@property(nonatomic, strong) UIViewPropertyAnimator *customGlassFocusAnimator;
+@property(nonatomic, strong) UIViewPropertyAnimator *customGlassAvatarAnimator;
 @property(nonatomic) CGFloat customGlassAvatarNormalSize;
-@property(nonatomic) CGFloat customGlassFocusProgress;
-@property(nonatomic) CGFloat customGlassFocusPanStart;
-@property(nonatomic) BOOL customGlassProfileFocusEnabled;
+@property(nonatomic) CGFloat customGlassAvatarOffset;
+@property(nonatomic) CGFloat customGlassAvatarPanStart;
+@property(nonatomic) BOOL customGlassAvatarHidden;
 @property(nonatomic) BOOL customGlassAvatarWasDragged;
 @property(nonatomic) CGPoint customGlassAvatarPressOrigin;
 @property(nonatomic) BOOL homeAvatarShowsTemperature;
+@property(nonatomic) BOOL customGlassAvatarHiddenRight;
+@property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarLeftEdge;
+@property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarRightEdge;
+@property(nonatomic, strong) UIView *customGlassAvatarMaterialView;
+@property(nonatomic, strong) NSTimer *homeThermalRevealTimer;
 @property(nonatomic) BOOL informationVisible;
 @property(nonatomic) BOOL observingHomeThermalState;
 @property(nonatomic) BOOL homeThermalRevealActive;
@@ -58,6 +63,7 @@
 - (void)applyHomeAvatarDisplayMode;
 - (void)updateHomeThermalInteriorBreath;
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated;
+- (void)revealHomeThermalStateInAvatar:(BOOL)animated force:(BOOL)force;
 @end
 
 @implementation HomeFocusHarness
@@ -90,7 +96,7 @@ static void CheckHomeAvatarRect(HomeFocusHarness *home, CGRect expected, NSStrin
         fabs(actual.size.height - expected.size.height) >= 0.5) {
         NSString *reason = [NSString stringWithFormat:@"%@: avatar %@, expected %@, viewport %@, progress %.3f, transform %@",
             stage, NSStringFromCGRect(actual), NSStringFromCGRect(expected),
-            NSStringFromCGSize(home.view.bounds.size), home.customGlassFocusProgress,
+            NSStringFromCGSize(home.view.bounds.size), home.customGlassAvatarOffset,
             NSStringFromCGAffineTransform(home.customGlassAvatarContainerView.transform)];
         @throw [NSException exceptionWithName:@"LayoutFailure" reason:reason userInfo:nil];
     }
@@ -102,8 +108,6 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
     DOHomeThermalLaunchRevealConsumed = YES;
     BOOL animationsWereEnabled = UIView.areAnimationsEnabled;
     [UIView setAnimationsEnabled:NO];
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    id savedFocus = [defaults objectForKey:DOCustomGlassProfileFocusEnabledKey];
     NSUInteger cases = 0;
     NSArray<NSValue *> *sizes = @[
         [NSValue valueWithCGSize:CGSizeMake(320, 568)], [NSValue valueWithCGSize:CGSizeMake(393, 852)],
@@ -134,6 +138,9 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         home.customGlassAvatarLongPress = press;
         HomeTestPan *pan = [HomeTestPan new];
         home.customGlassAvatarPan = pan;
+        HomeTestPan *left = [HomeTestPan new], *right = [HomeTestPan new];
+        home.customGlassAvatarLeftEdge = left; home.customGlassAvatarRightEdge = right;
+        home.customGlassAvatarMaterialView = [UIView new];
         for (UIView *view in @[home.customGlassProfileView, home.customGlassJailbreakPlaceholder,
             home.customGlassActionGrid, home.jailbreakBtn, home.updateButton, home.customGlassAvatarContainerView]) {
             view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -177,65 +184,54 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             home.view.frame = (CGRect){CGPointZero, size.CGSizeValue};
             [home.view setNeedsLayout];
             [home.view layoutIfNeeded];
-            [home setCustomGlassProfileFocusEnabled:NO animated:NO persist:NO];
+            [home setCustomGlassAvatarHidden:NO right:YES animated:NO];
             CGRect original = HomeAvatarRect(home);
             CGRect profile = home.customGlassProfileView.frame;
-            CGFloat travel = [home customGlassFocusTravel];
-            CHECK(travel > 50);
             CHECK(!home.customGlassAvatarContainerView.hasAmbiguousLayout);
-            pan.testVelocity = CGPointMake(400, 20);
-            CHECK(![home gestureRecognizerShouldBegin:pan]);
             pan.testVelocity = CGPointMake(20, 400);
-            CHECK([home gestureRecognizerShouldBegin:pan]);
-            pan.testTranslation = CGPointZero;
-            pan.testState = UIGestureRecognizerStateBegan;
-            [home customGlassAvatarPanned:pan];
-            pan.testTranslation = CGPointMake(500, travel / 2.0);
-            pan.testState = UIGestureRecognizerStateChanged;
-            [home customGlassAvatarPanned:pan];
-            CheckHomeAvatarRect(home, CGRectOffset(original, 0, travel / 2.0), @"downward drag midpoint");
-            CHECK(fabs(home.customGlassActionGrid.alpha - 0.5) < 0.01);
-            CHECK(home.customGlassActionGrid.transform.ty > 0);
-            CHECK(!home.customGlassActionGrid.userInteractionEnabled);
-            CHECK(CGRectEqualToRect(profile, home.customGlassProfileView.frame));
-            pan.testState = UIGestureRecognizerStateEnded;
-            [home customGlassAvatarPanned:pan];
-            [home finishCustomGlassFocusAnimation];
-            CHECK(home.customGlassProfileFocusEnabled);
-            CheckHomeAvatarRect(home, CGRectOffset(original, 0, travel), @"collapsed endpoint");
-            CHECK(home.customGlassActionGrid.alpha == 0 && home.jailbreakBtn.alpha == 0 && home.updateButton.alpha == 0);
-            CHECK(home.customGlassActionGrid.accessibilityElementsHidden);
-            CHECK(CGSizeEqualToSize(home.customGlassAvatarContainerView.bounds.size, original.size));
-            CHECK(CGRectGetMaxY(HomeAvatarRect(home)) + DOHomeThermalHaloExtent(84.0) <= CGRectGetMaxY(home.view.safeAreaLayoutGuide.layoutFrame));
-            CHECK(home.customGlassAvatarContainerView.userInteractionEnabled);
-            for (NSNumber *end in @[@(UIGestureRecognizerStateCancelled), @(UIGestureRecognizerStateEnded)]) {
-                pan.testState = UIGestureRecognizerStateBegan;
-                pan.testTranslation = CGPointZero;
+            CHECK(![home gestureRecognizerShouldBegin:pan]);
+            for (NSNumber *direction in @[@-1, @1]) {
+                CGFloat dx = direction.doubleValue * 70;
+                pan.testVelocity = CGPointMake(dx * 5, 0);
+                CHECK([home gestureRecognizerShouldBegin:pan]);
+                pan.testTranslation = CGPointZero; pan.testState = UIGestureRecognizerStateBegan;
                 [home customGlassAvatarPanned:pan];
-                pan.testTranslation = CGPointMake(-500, -travel);
-                pan.testState = UIGestureRecognizerStateChanged;
+                pan.testTranslation = CGPointMake(dx, 0); pan.testState = UIGestureRecognizerStateChanged;
                 [home customGlassAvatarPanned:pan];
-                pan.testState = end.integerValue;
-                [home customGlassAvatarPanned:pan];
-                [home finishCustomGlassFocusAnimation];
-                CHECK(home.customGlassProfileFocusEnabled == (end.integerValue == UIGestureRecognizerStateCancelled));
-                CheckHomeAvatarRect(home, end.integerValue == UIGestureRecognizerStateCancelled ?
-                    CGRectOffset(original, 0, travel) : original, @"upward drag cancelled or completed");
+                CheckHomeAvatarRect(home, CGRectOffset(original, dx, 0), @"horizontal drag");
+                pan.testState = UIGestureRecognizerStateEnded; [home customGlassAvatarPanned:pan];
+                [home finishCustomGlassAvatarAnimation];
+                CHECK(home.customGlassAvatarHidden);
+                CHECK(home.customGlassAvatarLeftEdge.enabled == (dx < 0));
+                CHECK(home.customGlassAvatarRightEdge.enabled == (dx > 0));
+                CHECK(dx < 0 ? CGRectGetMaxX(HomeAvatarRect(home)) < 0 : CGRectGetMinX(HomeAvatarRect(home)) > size.CGSizeValue.width);
+                CHECK(home.customGlassActionGrid.alpha == 1 && home.jailbreakBtn.alpha == 1 && home.updateButton.alpha == 1);
+                CHECK(home.customGlassActionGrid.userInteractionEnabled);
+                CHECK(CGRectEqualToRect(profile, home.customGlassProfileView.frame));
+                CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
+                HomeTestPan *edge = dx < 0 ? left : right;
+                HomeTestPan *wrong = dx < 0 ? right : left;
+                wrong.testVelocity = CGPointMake(-dx * 5, 0);
+                CHECK(![home gestureRecognizerShouldBegin:wrong]);
+                for (NSNumber *end in @[@(UIGestureRecognizerStateCancelled), @(UIGestureRecognizerStateEnded)]) {
+                    edge.testVelocity = CGPointMake(-dx * 5, 0);
+                    CHECK([home gestureRecognizerShouldBegin:edge]);
+                    edge.testTranslation = CGPointZero; edge.testState = UIGestureRecognizerStateBegan;
+                    [home customGlassAvatarPanned:edge];
+                    edge.testTranslation = CGPointMake(-dx, 0); edge.testState = UIGestureRecognizerStateChanged;
+                    [home customGlassAvatarPanned:edge];
+                    edge.testState = end.integerValue; [home customGlassAvatarPanned:edge];
+                    [home finishCustomGlassAvatarAnimation];
+                    CHECK(home.customGlassAvatarHidden == (end.integerValue == UIGestureRecognizerStateCancelled));
+                }
+                CheckHomeAvatarRect(home, original, @"edge restored");
             }
-            CheckHomeAvatarRect(home, original, @"restored endpoint");
-            CHECK(home.customGlassActionGrid.alpha == 1 && home.customGlassActionGrid.userInteractionEnabled);
-            CHECK(!home.customGlassActionGrid.accessibilityElementsHidden);
-            CHECK(home.updateButton.alpha == 1);
-            // A tiny drag must settle back even after a high initial velocity.
-            pan.testTranslation = CGPointZero;
-            pan.testState = UIGestureRecognizerStateBegan;
+            pan.testTranslation = CGPointZero; pan.testState = UIGestureRecognizerStateBegan;
             [home customGlassAvatarPanned:pan];
-            pan.testTranslation = CGPointMake(0, 2);
-            pan.testState = UIGestureRecognizerStateEnded;
-            [home customGlassAvatarPanned:pan];
-            [home finishCustomGlassFocusAnimation];
-            CHECK(!home.customGlassProfileFocusEnabled);
-            CheckHomeAvatarRect(home, original, @"short drag restored");
+            pan.testTranslation = CGPointMake(2, 0); pan.testVelocity = CGPointMake(800, 0);
+            pan.testState = UIGestureRecognizerStateEnded; [home customGlassAvatarPanned:pan];
+            [home finishCustomGlassAvatarAnimation]; CHECK(!home.customGlassAvatarHidden);
+            CheckHomeAvatarRect(home, original, @"tiny flick restored");
             // Holding still opens the selector; moving while held must never open it.
             pan.testState = UIGestureRecognizerStatePossible;
             for (NSNumber *move in @[@YES, @NO]) {
@@ -259,17 +255,18 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 [home applyHomeAvatarDisplayMode];
                 CHECK(home.homeThermalAvatarOverlay.alpha == (mode.boolValue ? 1 : 0));
                 CHECK(home.customGlassAvatarPhotoView.alpha == (mode.boolValue ? 0 : 1));
+                CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 0);
                 CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                    (mode.boolValue && !UIAccessibilityIsReduceMotionEnabled()));
+                    (mode.boolValue && (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled)));
             }
             home.homeAvatarShowsTemperature = YES;
             [home applyHomeAvatarDisplayMode];
             for (NSInteger state = 0; state < 4; state++) {
                 [home displayHomeThermalState:(NSProcessInfoThermalState)state animate:YES];
                 CHECK(home.homeThermalAvatarOverlay.statusLabel.text.length > 0);
-                if (!UIAccessibilityIsReduceMotionEnabled()) CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] != nil);
+                if ((!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled)) CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] != nil);
                 CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                    !UIAccessibilityIsReduceMotionEnabled());
+                    (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled));
                 CHECK(home.homeThermalAvatarOverlay.textStack.layer.animationKeys.count == 0);
                 CHECK(home.homeThermalAvatarOverlay.statusLabel.layer.animationKeys.count == 0);
             }
@@ -288,12 +285,25 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             home.homeThermalRevealActive = YES;
             [home updateHomeThermalInteriorBreath];
             CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                !UIAccessibilityIsReduceMotionEnabled());
+                (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled));
             [home applyHomeAvatarDisplayMode];
             CHECK(!home.homeThermalRevealActive);
             CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
             [home.homeThermalHalo stopBreath];
             CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            // Force a real reveal, then fire the one-shot timer to test its final state.
+            home.homeAvatarShowsTemperature = YES;
+            [home revealHomeThermalStateInAvatar:NO force:YES];
+            CHECK(home.homeThermalRevealTimer != nil);
+            CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 1);
+            [home.homeThermalRevealTimer fire];
+            [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+            CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 0);
+            CHECK(home.homeThermalAvatarOverlay.alpha == 1);
+            CHECK(!home.homeThermalRevealActive);
+            [home revealHomeThermalStateInAvatar:NO force:YES];
+            [home applyHomeAvatarDisplayMode];
+            CHECK(home.homeThermalRevealTimer == nil);
             cases++;
         }
         [home willMoveToParentViewController:nil];
@@ -302,8 +312,6 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
     } @finally {
         DOHomeThermalLaunchRevealConsumed = revealWasConsumed;
         [UIView setAnimationsEnabled:animationsWereEnabled];
-        if (savedFocus) [defaults setObject:savedFocus forKey:DOCustomGlassProfileFocusEnabledKey];
-        else [defaults removeObjectForKey:DOCustomGlassProfileFocusEnabledKey];
     }
     return cases;
 }

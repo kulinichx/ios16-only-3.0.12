@@ -32,7 +32,7 @@ function harnessSource() {
     CREDITS_REFRESH: section(credits, '- (void)customGlassRefreshPageBackdrop', '- (void)customGlassRefreshPageAppearance'),
     CREDITS_LAYOUT: section(credits, '- (void)viewDidLayoutSubviews', '- (void)customGlassStyleContent:'),
     HOME_VIEWS: section(home, 'static NSString * const DOHomeThermalBreathKey', '@interface DOMainViewController'),
-    HOME_FOCUS: section(home, '- (CGFloat)customGlassFocusTravel', '- (void)configureCustomGlassHeaderView:'),
+    HOME_FOCUS: section(home, '- (CGFloat)customGlassAvatarHiddenOffset', '- (void)configureCustomGlassHeaderView:'),
     HOME_THERMAL: section(home, '\n- (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate\n{', '\n- (void)startHomeThermalUpdates\n{'),
   };
   return read('tests/fixtures/preferences-ui-harness.m')
@@ -132,6 +132,15 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
 <string>UIInterfaceOrientationLandscapeRight</string>
 </array>
 <key>UILaunchScreen</key><dict/>
+  <key>UIApplicationSceneManifest</key><dict>
+    <key>UIApplicationSupportsMultipleScenes</key><false/>
+    <key>UISceneConfigurations</key><dict>
+      <key>UIWindowSceneSessionRoleApplication</key><array><dict>
+        <key>UISceneConfigurationName</key><string>Default Configuration</string>
+        <key>UISceneDelegateClassName</key><string>SceneDelegate</string>
+      </dict></array>
+    </dict>
+  </dict>
 </dict></plist>`);
     // This bundle is assembled without Xcode's generated Info.plist defaults.
     // Validate it before spending time booting/installing, and retain it as evidence.

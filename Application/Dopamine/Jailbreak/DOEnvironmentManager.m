@@ -8,6 +8,7 @@
 #import "DOEnvironmentManager.h"
 #import "UIImage+JPEG2000.h"
 #import "../../../BaseBin/roothidehooks/src/RCLowPowerSchedule.h"
+#import "../../../BaseBin/roothidehooks/src/RCBatteryRecord.h"
 
 #import <sys/sysctl.h>
 #import <sys/mount.h>
@@ -1047,6 +1048,51 @@ extern char **environ;
         }
     }
     return @"sileo";
+}
+
+- (NSDictionary *)batteryRecordConfiguration
+{
+    __block NSDictionary *value;
+    [self runUnsandboxed:^{ value = rcLowPowerReadDictionary(rcBatteryPath(JBROOT_PATH(@"/"), @".plist")); }];
+    return rcBatteryConfigurationValid(value) ? value : rcBatteryDefaultConfiguration();
+}
+
+- (NSDictionary *)batteryRecordStatus
+{
+    __block NSDictionary *value;
+    [self runUnsandboxed:^{ value = rcBatteryReadState(JBROOT_PATH(@"/")); }];
+    return value ?: @{};
+}
+
+- (BOOL)writeBatteryRecordValue:(NSDictionary *)value suffix:(NSString *)suffix error:(NSError **)error
+{
+    if (!self.isJailbroken) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EPERM userInfo:nil];
+        return NO;
+    }
+    __block NSError *failure = nil;
+    __block BOOL success = NO;
+    [self runUnsandboxed:^{ success = rcLowPowerWriteDictionary(value, rcBatteryPath(JBROOT_PATH(@"/"), suffix), &failure); }];
+    if (success) notify_post(RC_BATTERY_CHANGED);
+    else if (error) *error = failure;
+    return success;
+}
+
+- (BOOL)saveBatteryRecordConfiguration:(NSDictionary *)configuration error:(NSError **)error
+{
+    if (!rcBatteryConfigurationValid(configuration)) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EINVAL userInfo:nil];
+        return NO;
+    }
+    return [self writeBatteryRecordValue:configuration suffix:@".plist" error:error];
+}
+
+- (NSString *)sendBatteryRecordCommand:(NSString *)action error:(NSError **)error
+{
+    if (![@[@"start", @"stop"] containsObject:action]) return nil;
+    NSString *identifier = NSUUID.UUID.UUIDString;
+    NSDictionary *command = @{@"ID": identifier, @"Action": action, @"Date": NSDate.date};
+    return [self writeBatteryRecordValue:command suffix:@".command" error:error] ? identifier : nil;
 }
 
 - (NSDictionary *)lowPowerScheduleConfiguration

@@ -250,13 +250,13 @@ static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
         @"note": @"Real UIKit and production callbacks/material; synthetic Preferences parent. Not an iOS 16 device test."};
 }
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic, strong) UIWindow *window;
 @end
-@implementation AppDelegate
-- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options
+@implementation SceneDelegate
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options
 {
-    self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     self.window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     UIViewController *host = [UIViewController new];
     self.window.rootViewController = host;
@@ -269,8 +269,12 @@ static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];
         [data writeToFile:[documents stringByAppendingPathComponent:@"report.json"] atomically:YES];
     });
-    return YES;
 }
+@end
+@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@end
+@implementation AppDelegate
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options { return YES; }
 @end
 int main(int argc, char *argv[]) {
     @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class)); }

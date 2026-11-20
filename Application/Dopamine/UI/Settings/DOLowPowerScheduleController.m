@@ -1,4 +1,5 @@
 #import "DOLowPowerScheduleController.h"
+#import "DOScheduleTimePicker.h"
 #import "DOEnvironmentManager.h"
 #import "DOUIManager.h"
 #import "../DOSupporterLicense.h"
@@ -53,27 +54,12 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (UIDatePicker *)timePickerForMinute:(NSInteger)minute
 {
-    UIDatePicker *picker = [UIDatePicker new];
-    picker.datePickerMode = UIDatePickerModeTime;
-    picker.preferredDatePickerStyle = UIDatePickerStyleWheels;
-    picker.minuteInterval = 1;
-    picker.locale = [NSLocale localeWithLocaleIdentifier:@"en_GB"];
-    // Time-only editing must also allow a time missing in today's local DST.
-    picker.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
-    picker.date = [NSDate dateWithTimeIntervalSinceReferenceDate:minute * 60];
-    picker.translatesAutoresizingMaskIntoConstraints = NO;
-    [picker.heightAnchor constraintEqualToConstant:216].active = YES;
-    [picker addTarget:self action:@selector(timeChanged:) forControlEvents:UIControlEventValueChanged];
-    return picker;
+    return DOScheduleTimePicker(minute, self, @selector(timeChanged:));
 }
 
 - (NSInteger)minuteFromPicker:(UIDatePicker *)picker
 {
-    NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
-    calendar.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
-    NSDateComponents *components = [calendar components:NSCalendarUnitHour | NSCalendarUnitMinute
-                                              fromDate:picker.date];
-    return components.hour * 60 + components.minute;
+    return DOSchedulePickerMinute(picker);
 }
 
 - (void)viewDidLoad

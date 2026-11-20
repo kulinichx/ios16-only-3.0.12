@@ -156,17 +156,17 @@ test('home thermal state uses four localized levels and a foreground-only breath
   assert.match(avatar, /self\.homeThermalAvatarOverlay = thermalOverlay/);
   assert.match(avatar, /thermalOverlay\.leadingAnchor constraintEqualToAnchor:avatarGlass\.leadingAnchor/);
 
-  const reveal = section(main, '- (void)revealHomeThermalStateInAvatar:', '- (void)startHomeThermalUpdates');
+  const reveal = section(main, '- (void)revealHomeThermalStateInAvatar:(BOOL)animated\n{', '- (void)startHomeThermalUpdates\n{');
   assert.match(reveal, /activationState != UISceneActivationStateForegroundActive/);
-  assert.match(reveal, /overlay\.alpha = 1\.0/);
-  assert.match(reveal, /overlay\.alpha = 0\.0/);
-  assert.match(reveal, /self\.customGlassAvatarPhotoView\.alpha = photoRestAlpha/);
+  assert.match(reveal, /homeThermalAvatarOverlay\.alpha = 1\.0/);
+  assert.match(reveal, /textStack\.alpha = 0\.0/);
+  assert.match(reveal, /customGlassAvatarPhotoView\.alpha = self\.homeAvatarShowsTemperature \? 0\.0 : 1\.0/);
   assert.match(main, /breath\.repeatCount = HUGE_VALF/);
 
   const stop = section(main, '\n- (void)stopHomeThermalUpdates\n{', '- (void)homeThermalStateDidChange:');
   assert.match(stop, /\[self\.homeThermalHalo stopBreath\]/);
   assert.match(stop, /\[self applyHomeAvatarDisplayMode\]/);
-  assert.match(reveal, /if \(DOHomeThermalLaunchRevealConsumed\) return/);
+  assert.match(reveal, /if \(DOHomeThermalLaunchRevealConsumed && !force\) return/);
   assert.match(reveal, /DOHomeThermalLaunchRevealConsumed = YES/);
   assert.doesNotMatch(reveal, /customGlassProfileFocusEnabled/);
 
@@ -210,11 +210,11 @@ test('jailbreak entry preserves other-jailbreak guard and root-coordinate expans
   assert.match(main, /updateButton\.bottomAnchor constraintEqualToAnchor:self\.jailbreakBtn\.topAnchor constant:-12/);
 });
 
-test('profile editing and focus mode are retained', () => {
+test('profile editing and avatar hiding are retained', () => {
   for (const selector of [
     'presentCustomGlassAvatarPicker', 'presentCustomGlassUsernameEditor',
     'presentCustomGlassMottoEditor', 'customGlassAvatarPanned',
-    'setCustomGlassProfileFocusEnabled',
+    'setCustomGlassAvatarHidden',
   ]) assert.ok(main.includes(selector), selector);
   assert.match(main, /DOCustomGlassMediaStoreSaveAvatar/);
   assert.match(material, /DOCustomGlassTheme\.ProfileFocusEnabled/);
@@ -248,16 +248,27 @@ test('username and motto editors use saved user input rather than treating place
   assert.match(main, /initWithTarget:self action:@selector\(presentCustomGlassMottoEditor\)/);
 });
 
-test('avatar focus uses vertical travel with stable layout and disables faded menus', () => {
-  const focus = section(main, '- (CGFloat)customGlassFocusTravel', '- (void)configureCustomGlassHeaderView:');
-  assert.match(focus, /detail\.transform = CGAffineTransformMakeTranslation\(0\.0, menuTravel \* progress\)/);
-  assert.match(focus, /detail\.userInteractionEnabled = progress < 0\.001/);
-  assert.match(focus, /detail\.accessibilityElementsHidden = progress > 0\.001/);
-  assert.match(focus, /translationInView:self\.view/);
-  assert.match(focus, /fabs\(velocity\.y\) > fabs\(velocity\.x\)/);
-  assert.match(focus, /translation\.y \/ \[self customGlassFocusTravel\]/);
+test('only the avatar slides offscreen and the matching edge restores it', () => {
+  const gestures = section(main, '- (CGFloat)customGlassAvatarHiddenOffset', '- (void)customGlassAvatarLongPressed:');
+  assert.match(gestures, /CGAffineTransformMakeTranslation\(offset, 0\.0\)/);
+  assert.match(gestures, /customGlassAvatarLeftEdge\.enabled = hidden && !right/);
+  assert.match(gestures, /customGlassAvatarRightEdge\.enabled = hidden && right/);
+  assert.match(gestures, /fabs\(velocity\.x\) <= fabs\(velocity\.y\)/);
+  assert.match(gestures, /UIGestureRecognizerStateCancelled/);
+  assert.doesNotMatch(gestures, /detailAlpha|menuTravel|customGlassActionGrid\.alpha|jailbreakBtn\.alpha/);
+  assert.doesNotMatch(main, /customGlassFocusTravel|setCustomGlassProfileFocusEnabled|applyCustomGlassFocusProgress/);
   assert.match(main, /usernameLabel\.topAnchor constraintEqualToAnchor:profileView\.topAnchor constant:avatarSize \+ avatarToUsernameSpacing/);
-  assert.doesNotMatch(main, /customGlassProfileFocusDockRight|customGlassAvatarFocusSize|LeadingDockConstraint|TrailingDockConstraint/);
+});
+
+test('thermal text fades separately, timers cancel, and hidden or low-power halos stop', () => {
+  const mode = section(main, '- (void)revealHomeThermalStateInAvatar:(BOOL)animated\n{', '- (void)startHomeThermalUpdates\n{');
+  assert.match(mode, /homeThermalRevealTimer invalidate/);
+  assert.match(mode, /scheduledTimerWithTimeInterval:fade \+ 3\.5 repeats:NO/);
+  assert.match(mode, /textStack\.alpha = 0\.0/);
+  assert.match(mode, /!self\.customGlassAvatarHidden/);
+  assert.match(mode, /!NSProcessInfo\.processInfo\.lowPowerModeEnabled/);
+  assert.match(main, /avatarMaterial\.materialSpecularScale = 0\.0/);
+  assert.match(main, /avatarMaterial\.materialEdgeDarkScale = 0\.0/);
 });
 
 test('avatar mode is remembered and long press cannot open its menu after dragging', () => {
@@ -880,7 +891,7 @@ test('iOS 16 slimming preserves settings data sources and action/preference impl
   // Baseline excludes the removed whitelist installer and separately tested ports.
   const supporterActions = section(
     settings,
-    '- (void)lowPowerSchedulePressed',
+    '- (void)batteryRecordPressed',
     '- (void)changeMobilePasswordWithAuthenticationPressed',
   );
   const actions = section(settings, '- (void)setPreferenceValue:', '- (void)setDyldPatchEnabled:')

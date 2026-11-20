@@ -81,7 +81,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
     UIImage *mask = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
         // Transparent center, softly illuminated edge, then a long fade to zero.
-        CGFloat locations[] = {0.0, MAX(0.0, radius - 3.0) / outerRadius,
+        CGFloat locations[] = {0.0, (radius * 0.65) / outerRadius,
             (radius + feather * 0.08) / outerRadius, (radius + feather * 0.22) / outerRadius,
             (radius + feather * 0.45) / outerRadius, (radius + feather * 0.72) / outerRadius, 1.0};
         CGFloat components[] = {
@@ -135,6 +135,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic, strong) UIImageView *temperatureIcon;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIStackView *textStack;
+@property(nonatomic, strong) CALayer *colorLayer;
 @property(nonatomic, strong) CAGradientLayer *backdropLayer;
 @property(nonatomic, strong) CAGradientLayer *breathingLayer;
 - (void)playBreath;
@@ -148,12 +149,21 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self = [super initWithFrame:frame];
     if (self) {
         self.userInteractionEnabled = NO;
-        self.clipsToBounds = YES;
+        self.clipsToBounds = NO;
+        CAGradientLayer *edgeMask = [CAGradientLayer layer];
+        edgeMask.type = kCAGradientLayerRadial;
+        edgeMask.startPoint = CGPointMake(0.5, 0.5);
+        edgeMask.endPoint = CGPointMake(1.0, 1.0);
+        edgeMask.colors = @[(id)UIColor.blackColor.CGColor, (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];
+        edgeMask.locations = @[@0.0, @0.72, @1.0];
+        self.colorLayer = [CALayer layer];
+        self.colorLayer.mask = edgeMask;
+        [self.layer addSublayer:self.colorLayer];
         self.accessibilityElementsHidden = YES;
         self.backdropLayer = [CAGradientLayer layer];
         self.backdropLayer.startPoint = CGPointMake(0.1, 0.0);
         self.backdropLayer.endPoint = CGPointMake(0.9, 1.0);
-        [self.layer addSublayer:self.backdropLayer];
+        [self.colorLayer addSublayer:self.backdropLayer];
         // A separate color wash breathes behind the text; the dark base and
         // foreground stay steady so the status remains readable at every phase.
         self.breathingLayer = [CAGradientLayer layer];
@@ -162,7 +172,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         self.breathingLayer.endPoint = CGPointMake(1.0, 1.0);
         self.breathingLayer.locations = @[@0.0, @0.55, @1.0];
         self.breathingLayer.opacity = 0.45;
-        [self.layer addSublayer:self.breathingLayer];
+        [self.colorLayer addSublayer:self.breathingLayer];
         self.temperatureIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"thermometer"]];
         self.temperatureIcon.contentMode = UIViewContentModeScaleAspectFit;
         self.temperatureIcon.tintColor = [UIColor colorWithWhite:1.0 alpha:0.72];
@@ -196,6 +206,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     CGFloat diameter = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
+    self.colorLayer.frame = self.bounds;
+    self.colorLayer.mask.frame = self.bounds;
     self.backdropLayer.frame = self.bounds;
     self.breathingLayer.frame = self.bounds;
     self.layer.cornerRadius = diameter / 2.0;
@@ -246,9 +258,9 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic, strong) NSLayoutConstraint *customGlassAvatarIconHeightConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *customGlassAvatarCenterXConstraint;
 @property(nonatomic, assign) CGFloat customGlassAvatarNormalSize;
-@property(nonatomic, assign) BOOL customGlassProfileFocusEnabled;
-@property(nonatomic) CGFloat customGlassFocusProgress;
-@property(nonatomic) CGFloat customGlassFocusPanStart;
+@property(nonatomic, assign) BOOL customGlassAvatarHidden;
+@property(nonatomic) CGFloat customGlassAvatarOffset;
+@property(nonatomic) CGFloat customGlassAvatarPanStart;
 @property(nonatomic) BOOL customGlassAvatarWasDragged;
 @property(nonatomic) CGPoint customGlassAvatarPressOrigin;
 @property(nonatomic, strong) UIView *customGlassProfileView;
@@ -256,8 +268,12 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic, strong) UIView *customGlassJailbreakPlaceholder;
 @property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarPan;
 @property(nonatomic, strong) UILongPressGestureRecognizer *customGlassAvatarLongPress;
-@property(nonatomic, strong) UIViewPropertyAnimator *customGlassFocusAnimator;
+@property(nonatomic, strong) UIViewPropertyAnimator *customGlassAvatarAnimator;
 @property(nonatomic) BOOL homeAvatarShowsTemperature;
+@property(nonatomic) BOOL customGlassAvatarHiddenRight;
+@property(nonatomic, strong) UIScreenEdgePanGestureRecognizer *customGlassAvatarLeftEdge;
+@property(nonatomic, strong) UIScreenEdgePanGestureRecognizer *customGlassAvatarRightEdge;
+@property(nonatomic, strong) NSTimer *homeThermalRevealTimer;
 @property UILabel *customGlassUsernameLabel;
 @property UIAlertController *customGlassUsernameEditor;
 @property UILabel *customGlassMottoLabel;
@@ -281,9 +297,10 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)startHomeThermalUpdates;
 - (void)stopHomeThermalUpdates;
 - (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate;
+- (void)revealHomeThermalStateInAvatar:(BOOL)animated force:(BOOL)force;
 - (void)applyHomeAvatarDisplayMode;
 - (void)updateHomeThermalInteriorBreath;
-- (void)applyCustomGlassFocusProgress:(CGFloat)progress;
+- (void)applyCustomGlassAvatarOffset:(CGFloat)offset;
 
 @end
 
@@ -760,92 +777,66 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     return innerGlass;
 }
 
-// Keep the profile's layout fixed. Only the root avatar and the visible details
-// move, so hiding the menus cannot change the drag endpoints or collapse the stack.
-- (CGFloat)customGlassFocusTravel
+// Only the avatar moves. The original profile/menu layout keeps its full size.
+- (CGFloat)customGlassAvatarHiddenOffset
 {
-    CGRect profile = [self.customGlassProfileView convertRect:self.customGlassProfileView.bounds toView:self.view];
-    CGRect button = [self.customGlassJailbreakPlaceholder convertRect:self.customGlassJailbreakPlaceholder.bounds toView:self.view];
-    CGFloat normalCenter = CGRectGetMinY(profile) + self.customGlassAvatarNormalSize / 2.0;
-    CGFloat bottomLimit = CGRectGetMaxY(self.view.safeAreaLayoutGuide.layoutFrame) - self.customGlassAvatarNormalSize / 2.0 - DOHomeThermalHaloExtent(self.customGlassAvatarNormalSize) - 4.0;
-    CGFloat dockCenter = MIN(CGRectGetMidY(button) + self.customGlassJailbreakCenterYConstraint.constant, bottomLimit);
-    return MAX(1.0, dockCenter - normalCenter);
+    CGFloat center = self.customGlassAvatarContainerView.center.x;
+    CGFloat margin = self.customGlassAvatarNormalSize / 2.0 + DOHomeThermalHaloExtent(self.customGlassAvatarNormalSize) + 4.0;
+    return self.customGlassAvatarHiddenRight ? CGRectGetMaxX(self.view.bounds) + margin - center : -margin - center;
 }
 
-- (void)applyCustomGlassFocusProgress:(CGFloat)progress
+- (void)applyCustomGlassAvatarOffset:(CGFloat)offset
 {
-    progress = MAX(0.0, MIN(1.0, progress));
-    self.customGlassFocusProgress = progress;
-    self.customGlassAvatarContainerView.transform = CGAffineTransformMakeTranslation(0.0, [self customGlassFocusTravel] * progress);
-    CGFloat detailAlpha = 1.0 - progress;
-    // A downward exit and the same upward return track the finger in both directions.
-    CGFloat menuTravel = MIN(110.0, [self customGlassFocusTravel] * 0.30);
-    for (UIView *detail in @[self.customGlassUsernameLabel, self.customGlassSystemLabel,
-        self.customGlassMottoLabel, self.customGlassActionGrid, self.jailbreakBtn]) {
-        detail.alpha = detailAlpha;
-        detail.transform = CGAffineTransformMakeTranslation(0.0, menuTravel * progress);
-        detail.userInteractionEnabled = progress < 0.001;
-        detail.accessibilityElementsHidden = progress > 0.001;
-    }
-    self.updateButton.alpha = detailAlpha;
-    self.updateButton.transform = CGAffineTransformMakeTranslation(0.0, menuTravel * progress);
-    self.updateButton.userInteractionEnabled = progress < 0.001;
-    self.updateButton.accessibilityElementsHidden = progress > 0.001;
-    for (UIView *label in self.customGlassHeaderSubtitleLabels) {
-        label.alpha = detailAlpha;
-        label.accessibilityElementsHidden = progress > 0.001;
-    }
+    self.customGlassAvatarOffset = offset;
+    self.customGlassAvatarContainerView.transform = CGAffineTransformMakeTranslation(offset, 0.0);
 }
 
-- (void)finishCustomGlassFocusAnimation
+- (void)finishCustomGlassAvatarAnimation
 {
-    if (!self.customGlassFocusAnimator) return;
-    [self.customGlassFocusAnimator stopAnimation:NO];
-    [self.customGlassFocusAnimator finishAnimationAtPosition:UIViewAnimatingPositionEnd];
-    self.customGlassFocusAnimator = nil;
+    if (!self.customGlassAvatarAnimator) return;
+    [self.customGlassAvatarAnimator stopAnimation:NO];
+    [self.customGlassAvatarAnimator finishAnimationAtPosition:UIViewAnimatingPositionEnd];
+    self.customGlassAvatarAnimator = nil;
 }
 
-- (void)setCustomGlassProfileFocusEnabled:(BOOL)enabled animated:(BOOL)animated persist:(BOOL)persist
+- (void)setCustomGlassAvatarHidden:(BOOL)hidden right:(BOOL)right animated:(BOOL)animated
 {
-    if (!self.customGlassJailbreakPlaceholder) return;
-    [self finishCustomGlassFocusAnimation];
-    self.customGlassProfileFocusEnabled = enabled;
-    if (persist) [NSUserDefaults.standardUserDefaults setBool:enabled forKey:DOCustomGlassProfileFocusEnabledKey];
-    self.customGlassAvatarContainerView.accessibilityHint = DOLocalizedString(enabled ? @"Home_Avatar_Expand_Hint" : @"Home_Avatar_Collapse_Hint");
-    [self.view layoutIfNeeded];
-    CGFloat target = enabled ? 1.0 : 0.0;
+    [self finishCustomGlassAvatarAnimation];
+    self.customGlassAvatarHidden = hidden;
+    self.customGlassAvatarHiddenRight = right;
+    self.customGlassAvatarContainerView.userInteractionEnabled = !hidden;
+    self.customGlassAvatarContainerView.accessibilityElementsHidden = hidden;
+    self.customGlassAvatarContainerView.isAccessibilityElement = !hidden;
+    self.customGlassAvatarLeftEdge.enabled = hidden && !right;
+    self.customGlassAvatarRightEdge.enabled = hidden && right;
+    if (hidden) [self applyHomeAvatarDisplayMode];
+    [self updateHomeThermalInteriorBreath];
+    CGFloat target = hidden ? [self customGlassAvatarHiddenOffset] : 0.0;
     if (!animated || UIAccessibilityIsReduceMotionEnabled()) {
-        [self applyCustomGlassFocusProgress:target];
+        [self applyCustomGlassAvatarOffset:target];
         return;
     }
-    // Property animations are interruptible; no per-frame timer or wallpaper redraw.
     __weak typeof(self) weakSelf = self;
-    UIViewPropertyAnimator *animator = [[UIViewPropertyAnimator alloc] initWithDuration:0.36
-        curve:UIViewAnimationCurveEaseInOut animations:^{
-        [weakSelf applyCustomGlassFocusProgress:target];
-    }];
-    self.customGlassFocusAnimator = animator;
-    [animator addCompletion:^(UIViewAnimatingPosition position) {
-        weakSelf.customGlassFocusAnimator = nil;
-        [weakSelf applyCustomGlassFocusProgress:weakSelf.customGlassFocusProgress];
-    }];
+    UIViewPropertyAnimator *animator = [[UIViewPropertyAnimator alloc] initWithDuration:0.32
+        curve:UIViewAnimationCurveEaseInOut animations:^{ [weakSelf applyCustomGlassAvatarOffset:target]; }];
+    self.customGlassAvatarAnimator = animator;
+    [animator addCompletion:^(UIViewAnimatingPosition position) { weakSelf.customGlassAvatarAnimator = nil; }];
     [animator startAnimation];
 }
 
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
-    if (self.customGlassJailbreakPlaceholder && self.informationVisible && !self.customGlassFocusAnimator)
-        [self applyCustomGlassFocusProgress:self.customGlassFocusProgress];
+    self.customGlassAvatarMaterialView.layer.borderWidth = 0.0;
+    if (self.customGlassAvatarHidden && !self.customGlassAvatarAnimator &&
+        self.customGlassAvatarLeftEdge.state != UIGestureRecognizerStateChanged &&
+        self.customGlassAvatarRightEdge.state != UIGestureRecognizerStateChanged)
+        [self applyCustomGlassAvatarOffset:[self customGlassAvatarHiddenOffset]];
 }
 
 - (void)customGlassAvatarTapped:(UITapGestureRecognizer *)gesture
 {
     if (gesture.state != UIGestureRecognizerStateEnded || !self.informationVisible) return;
-    if (self.customGlassProfileFocusEnabled) {
-        [self setCustomGlassProfileFocusEnabled:NO animated:YES persist:YES];
-        return;
-    }
     if (![self requireCustomGlassSupporterAuthorization]) return;
     [self presentCustomGlassAvatarPicker];
 }
@@ -853,10 +844,12 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture
 {
     if (!self.informationVisible || self.presentedViewController) return NO;
-    if (gesture == self.customGlassAvatarPan) {
-        CGPoint velocity = [self.customGlassAvatarPan velocityInView:self.view];
-        // Horizontal swipes no longer move or dock the avatar.
-        return fabs(velocity.y) > fabs(velocity.x);
+    if ([gesture isKindOfClass:UIPanGestureRecognizer.class]) {
+        CGPoint velocity = [(UIPanGestureRecognizer *)gesture velocityInView:self.view];
+        if (fabs(velocity.x) <= fabs(velocity.y)) return NO;
+        if (gesture == self.customGlassAvatarLeftEdge) return self.customGlassAvatarHidden && !self.customGlassAvatarHiddenRight && velocity.x > 0;
+        if (gesture == self.customGlassAvatarRightEdge) return self.customGlassAvatarHidden && self.customGlassAvatarHiddenRight && velocity.x < 0;
+        return !self.customGlassAvatarHidden;
     }
     return YES;
 }
@@ -871,33 +864,29 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 {
     if (!self.informationVisible) return;
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        if (self.customGlassFocusAnimator) {
-            CALayer *presentation = self.customGlassAvatarContainerView.layer.presentationLayer;
-            CGFloat current = presentation ? presentation.transform.m42 / [self customGlassFocusTravel] : self.customGlassFocusProgress;
-            [self.customGlassFocusAnimator stopAnimation:YES];
-            self.customGlassFocusAnimator = nil;
-            [self applyCustomGlassFocusProgress:current];
-        }
-        self.customGlassFocusPanStart = self.customGlassFocusProgress;
+        [self finishCustomGlassAvatarAnimation];
+        self.customGlassAvatarPanStart = self.customGlassAvatarOffset;
         self.customGlassAvatarWasDragged = YES;
     }
     CGPoint translation = [gesture translationInView:self.view];
+    CGPoint velocity = [gesture velocityInView:self.view];
+    BOOL restoring = gesture == self.customGlassAvatarLeftEdge || gesture == self.customGlassAvatarRightEdge;
     if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
-        [self applyCustomGlassFocusProgress:self.customGlassFocusPanStart + translation.y / [self customGlassFocusTravel]];
+        CGFloat offset = self.customGlassAvatarPanStart + translation.x;
+        if (restoring) offset = self.customGlassAvatarHiddenRight ? MAX(0.0, MIN(self.customGlassAvatarPanStart, offset)) : MIN(0.0, MAX(self.customGlassAvatarPanStart, offset));
+        [self applyCustomGlassAvatarOffset:offset];
         return;
     }
     if (gesture.state == UIGestureRecognizerStateCancelled || gesture.state == UIGestureRecognizerStateFailed) {
-        [self setCustomGlassProfileFocusEnabled:self.customGlassProfileFocusEnabled animated:YES persist:NO];
+        [self setCustomGlassAvatarHidden:self.customGlassAvatarHidden right:self.customGlassAvatarHiddenRight animated:YES];
         return;
     }
     if (gesture.state != UIGestureRecognizerStateEnded) return;
-    CGFloat distance = [self customGlassFocusTravel];
-    CGFloat threshold = MIN(100.0, distance * 0.28);
-    BOOL enabled = self.customGlassProfileFocusEnabled;
-    // Require real vertical travel; a short high-speed flick alone cannot hide menus.
-    if (!enabled && translation.y >= threshold) enabled = YES;
-    else if (enabled && translation.y <= -threshold) enabled = NO;
-    [self setCustomGlassProfileFocusEnabled:enabled animated:YES persist:YES];
+    BOOL enough = fabs(translation.x) >= 28.0 || (fabs(translation.x) >= 8.0 && fabs(velocity.x) >= 360.0);
+    BOOL right = translation.x > 0;
+    BOOL inward = self.customGlassAvatarHiddenRight ? translation.x < 0 : translation.x > 0;
+    BOOL hidden = restoring ? !(enough && inward) : enough;
+    [self setCustomGlassAvatarHidden:hidden right:restoring ? self.customGlassAvatarHiddenRight : right animated:YES];
 }
 
 - (void)customGlassAvatarLongPressed:(UILongPressGestureRecognizer *)gesture
@@ -913,7 +902,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         self.customGlassAvatarWasDragged = YES;
     // Wait for release: holding then dragging must not open a menu under the finger.
     if (gesture.state != UIGestureRecognizerStateEnded || self.customGlassAvatarWasDragged || !self.informationVisible || self.presentedViewController) return;
-    [self finishCustomGlassFocusAnimation];
+    [self finishCustomGlassAvatarAnimation];
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Home_Avatar_Display_Title")
         message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSNumber *mode in @[@NO, @YES]) {
@@ -925,6 +914,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
             DOHomeThermalLaunchRevealConsumed = YES;
             [NSUserDefaults.standardUserDefaults setBool:temperature forKey:DOHomeAvatarTemperatureModeKey];
             [self applyHomeAvatarDisplayMode];
+            if (temperature) [self revealHomeThermalStateInAvatar:YES force:YES];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:nil]];
@@ -958,7 +948,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     CGFloat topInset = isPad ? 24.0 : (compactLayout ? 6.0 : 10.0);
     CGFloat horizontalInset = compactLayout ? 20.0 : 25.0;
     CGFloat headerToProfileSpacing = isPad ? 29.0 : (compactLayout ? 14.0 : 18.0);
-    CGFloat logoHeight = isPad ? 55.0 : (compactLayout ? 39.0 : 40.0);
+    CGFloat logoHeight = isPad ? 66.0 : (compactLayout ? 46.0 : 49.0);
     CGFloat headerSubtitleScale = isPad ? 1.09 : (compactLayout ? 0.93 : 0.95);
     CGFloat avatarSize = isPad ? 104.0 : (compactLayout ? 72.0 : 84.0);
     CGFloat avatarIconSize = avatarSize * 0.62;
@@ -1058,10 +1048,10 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     avatarGlass.layer.cornerRadius = avatarSize / 2.0;
     avatarGlass.layer.cornerCurve = kCACornerCurveContinuous;
     avatarGlass.layer.shadowColor = UIColor.blackColor.CGColor;
-    avatarGlass.layer.shadowOpacity = 0.16;
+    avatarGlass.layer.shadowOpacity = 0.0;
     avatarGlass.layer.shadowRadius = 6.0;
     avatarGlass.layer.shadowOffset = CGSizeMake(0.0, 3.0);
-    // A root overlay stays touchable while moving down across the menu area.
+    // A root overlay can slide completely beyond either screen edge.
     [self.view addSubview:avatarGlass];
     self.customGlassAvatarContainerView = avatarGlass;
     self.customGlassAvatarNormalSize = avatarSize;
@@ -1083,10 +1073,11 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     avatarMaterial.materialBodyScale = 0.34;
     avatarMaterial.materialOpticalScale = 0.52;
     avatarMaterial.materialBackdropScale = 0.34;
-    avatarMaterial.materialSpecularScale = 0.54;
-    avatarMaterial.materialEdgeDarkScale = 0.42;
+    avatarMaterial.materialSpecularScale = 0.0;
+    avatarMaterial.materialEdgeDarkScale = 0.0;
     [avatarGlass addSubview:avatarMaterial];
     self.customGlassAvatarMaterialView = avatarMaterial;
+    avatarMaterial.layer.borderWidth = 0.0;
     [NSLayoutConstraint activateConstraints:@[
         [avatarMaterial.leadingAnchor constraintEqualToAnchor:avatarGlass.leadingAnchor],
         [avatarMaterial.trailingAnchor constraintEqualToAnchor:avatarGlass.trailingAnchor],
@@ -1169,6 +1160,16 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     [avatarGlass addGestureRecognizer:avatarTap];
     [avatarGlass addGestureRecognizer:self.customGlassAvatarPan];
     [avatarGlass addGestureRecognizer:self.customGlassAvatarLongPress];
+    avatarGlass.accessibilityHint = DOLocalizedString(@"Home_Avatar_Collapse_Hint");
+    self.customGlassAvatarLeftEdge = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(customGlassAvatarPanned:)];
+    self.customGlassAvatarRightEdge = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(customGlassAvatarPanned:)];
+    self.customGlassAvatarLeftEdge.edges = UIRectEdgeLeft;
+    self.customGlassAvatarRightEdge.edges = UIRectEdgeRight;
+    for (UIScreenEdgePanGestureRecognizer *edge in @[self.customGlassAvatarLeftEdge, self.customGlassAvatarRightEdge]) {
+        edge.delegate = self;
+        edge.enabled = NO;
+        [self.view addGestureRecognizer:edge];
+    }
     self.homeAvatarShowsTemperature = [NSUserDefaults.standardUserDefaults boolForKey:DOHomeAvatarTemperatureModeKey];
     [self applyHomeAvatarDisplayMode];
 
@@ -1478,9 +1479,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         self.customGlassJailbreakCenterYConstraint
     ])];
 
-    NSUserDefaults *profileDefaults = NSUserDefaults.standardUserDefaults;
-    BOOL focusEnabled = [profileDefaults boolForKey:DOCustomGlassProfileFocusEnabledKey];
-    [self setCustomGlassProfileFocusEnabled:focusEnabled animated:NO persist:NO];
+    [self setCustomGlassAvatarHidden:NO right:YES animated:NO];
     [self.view bringSubviewToFront:self.customGlassAvatarContainerView];
 
     [self applyCustomGlassHomeAppearance];
@@ -1604,7 +1603,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     self.homeThermalAvatarOverlay.backdropLayer.colors = @[
-        (id)[UIColor colorWithRed:0.06 green:0.07 blue:0.12 alpha:0.96].CGColor,
+        (id)[rim colorWithAlphaComponent:0.28].CGColor,
         (id)[rim colorWithAlphaComponent:0.32].CGColor
     ];
     self.homeThermalAvatarOverlay.breathingLayer.colors = @[
@@ -1626,66 +1625,60 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated
 {
+    [self revealHomeThermalStateInAvatar:animated force:NO];
+}
+
+- (void)revealHomeThermalStateInAvatar:(BOOL)animated force:(BOOL)force
+{
     UIWindowScene *scene = self.viewIfLoaded.window.windowScene;
-    if (!self.homeThermalAvatarOverlay || !self.informationVisible ||
+    if (!self.homeThermalAvatarOverlay || !self.informationVisible || self.customGlassAvatarHidden ||
         !scene || scene.activationState != UISceneActivationStateForegroundActive) return;
-
-    if (self.homeAvatarShowsTemperature) {
-        DOHomeThermalLaunchRevealConsumed = YES;
-        return;
-    }
-    if (DOHomeThermalLaunchRevealConsumed) return;
+    if (DOHomeThermalLaunchRevealConsumed && !force) return;
     DOHomeThermalLaunchRevealConsumed = YES;
+    [self applyHomeAvatarDisplayMode];
     self.homeThermalRevealActive = YES;
-
-    NSUInteger generation = ++self.homeThermalRevealGeneration;
-    DOHomeThermalStatusView *overlay = self.homeThermalAvatarOverlay;
-    NSTimeInterval fadeDuration = (animated && !UIAccessibilityIsReduceMotionEnabled()) ? 1.0 : 0.0;
-    CGFloat photoRestAlpha = 1.0;
-    CGFloat fallbackRestAlpha = 1.0;
-    [overlay.layer removeAllAnimations];
-    [self.customGlassAvatarPhotoView.layer removeAllAnimations];
-    [self.customGlassAvatarFallbackIconView.layer removeAllAnimations];
-    overlay.alpha = 0.0;
-    self.customGlassAvatarPhotoView.alpha = photoRestAlpha;
-    self.customGlassAvatarFallbackIconView.alpha = fallbackRestAlpha;
-
-    void (^showThermalState)(void) = ^{
-        if (generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-        [UIView animateWithDuration:fadeDuration delay:0.0
-            options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.customGlassAvatarPhotoView.alpha = 0.0;
-            self.customGlassAvatarFallbackIconView.alpha = 0.0;
-            overlay.alpha = 1.0;
+    self.customGlassAvatarMaterialView.hidden = YES;
+    NSUInteger generation = self.homeThermalRevealGeneration;
+    NSTimeInterval fade = animated && !UIAccessibilityIsReduceMotionEnabled() ? 1.0 : 0.0;
+    [UIView animateWithDuration:fade animations:^{
+        self.homeThermalAvatarOverlay.alpha = 1.0;
+        self.homeThermalAvatarOverlay.textStack.alpha = 1.0;
+        self.customGlassAvatarPhotoView.alpha = 0.0;
+        self.customGlassAvatarFallbackIconView.alpha = 0.0;
+    }];
+    __weak typeof(self) weakSelf = self;
+    self.homeThermalRevealTimer = [NSTimer scheduledTimerWithTimeInterval:fade + 3.5 repeats:NO block:^(NSTimer *timer) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || generation != self.homeThermalRevealGeneration) return;
+        self.homeThermalRevealTimer = nil;
+        [UIView animateWithDuration:fade * 1.6 animations:^{
+            self.homeThermalAvatarOverlay.textStack.alpha = 0.0;
+            self.homeThermalAvatarOverlay.alpha = self.homeAvatarShowsTemperature ? 1.0 : 0.0;
+            self.customGlassAvatarPhotoView.alpha = self.homeAvatarShowsTemperature ? 0.0 : 1.0;
+            self.customGlassAvatarFallbackIconView.alpha = self.homeAvatarShowsTemperature ? 0.0 : 1.0;
         } completion:^(BOOL finished) {
-            if (!finished || generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                if (generation != self.homeThermalRevealGeneration || !self.informationVisible) return;
-                [UIView animateWithDuration:fadeDuration * 1.2 delay:0.0
-                    options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{
-                    overlay.alpha = 0.0;
-                    self.customGlassAvatarPhotoView.alpha = photoRestAlpha;
-                    self.customGlassAvatarFallbackIconView.alpha = fallbackRestAlpha;
-                } completion:^(BOOL finished) {
-                    if (generation != self.homeThermalRevealGeneration) return;
-                    self.homeThermalRevealActive = NO;
-                    [self updateHomeThermalInteriorBreath];
-                }];
-            });
+            if (generation != self.homeThermalRevealGeneration) return;
+            self.homeThermalRevealActive = NO;
+            self.customGlassAvatarMaterialView.hidden = self.homeAvatarShowsTemperature;
+            [self updateHomeThermalInteriorBreath];
         }];
-    };
-
-    showThermalState();
+    }];
+    [self updateHomeThermalInteriorBreath];
 }
 
 - (void)applyHomeAvatarDisplayMode
 {
+    [self.homeThermalRevealTimer invalidate];
+    self.homeThermalRevealTimer = nil;
     self.homeThermalRevealGeneration++;
     self.homeThermalRevealActive = NO;
     [self.homeThermalAvatarOverlay.layer removeAllAnimations];
+    [self.homeThermalAvatarOverlay.textStack.layer removeAllAnimations];
     [self.customGlassAvatarPhotoView.layer removeAllAnimations];
     [self.customGlassAvatarFallbackIconView.layer removeAllAnimations];
+    self.homeThermalAvatarOverlay.textStack.alpha = 0.0;
     self.homeThermalAvatarOverlay.alpha = self.homeAvatarShowsTemperature ? 1.0 : 0.0;
+    self.customGlassAvatarMaterialView.hidden = self.homeAvatarShowsTemperature;
     self.customGlassAvatarPhotoView.alpha = self.homeAvatarShowsTemperature ? 0.0 : 1.0;
     self.customGlassAvatarFallbackIconView.alpha = self.homeAvatarShowsTemperature ? 0.0 : 1.0;
     self.customGlassAvatarContainerView.accessibilityLabel = DOLocalizedString(self.homeAvatarShowsTemperature ?
@@ -1695,11 +1688,13 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 - (void)updateHomeThermalInteriorBreath
 {
-    BOOL visible = self.homeAvatarShowsTemperature || self.homeThermalRevealActive;
-    if (visible && self.informationVisible && self.observingHomeThermalState && !UIAccessibilityIsReduceMotionEnabled())
+    BOOL active = self.informationVisible && self.observingHomeThermalState && !self.customGlassAvatarHidden &&
+        !UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled;
+    if (active) [self.homeThermalHalo playBreath];
+    else [self.homeThermalHalo stopBreath];
+    if (active && (self.homeAvatarShowsTemperature || self.homeThermalRevealActive))
         [self.homeThermalAvatarOverlay playBreath];
-    else
-        [self.homeThermalAvatarOverlay stopBreath];
+    else [self.homeThermalAvatarOverlay stopBreath];
 }
 
 - (void)startHomeThermalUpdates
@@ -1717,6 +1712,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         name:NSProcessInfoThermalStateDidChangeNotification object:process];
     [center addObserver:self selector:@selector(homeThermalMotionPolicyDidChange:)
         name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
+    [center addObserver:self selector:@selector(homeThermalMotionPolicyDidChange:) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     [self applyHomeAvatarDisplayMode];
     [self displayHomeThermalState:process.thermalState animate:YES];
 }
@@ -1728,6 +1724,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center removeObserver:self name:NSProcessInfoThermalStateDidChangeNotification object:NSProcessInfo.processInfo];
     [center removeObserver:self name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
+    [center removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     [self.homeThermalHalo stopBreath];
 }
 
@@ -1790,8 +1787,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 {
     [super viewWillDisappear:animated];
     self.informationVisible = NO;
-    [self finishCustomGlassFocusAnimation];
-    [self applyCustomGlassFocusProgress:self.customGlassProfileFocusEnabled ? 1.0 : 0.0];
+    [self finishCustomGlassAvatarAnimation];
+    [self applyCustomGlassAvatarOffset:self.customGlassAvatarHidden ? [self customGlassAvatarHiddenOffset] : 0.0];
     [self stopHomeThermalUpdates];
     [self stopUptimeTimer];
 }
@@ -1802,6 +1799,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     @synchronized(NSUserDefaults.class) {
         [_customGlassAvatarImport cancel];
     }
+    [_homeThermalRevealTimer invalidate];
     [_uptimeTimer invalidate];
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
@@ -1918,7 +1916,6 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
         [self.updateButton.bottomAnchor constraintEqualToAnchor:self.jailbreakBtn.topAnchor constant:-12]
     ]];
 
-    [self applyCustomGlassFocusProgress:self.customGlassFocusProgress];
 }
 
 -(void)simulateJailbreak

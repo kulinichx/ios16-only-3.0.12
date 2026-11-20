@@ -22,6 +22,7 @@
 #import "DOCustomGlassView.h"
 #import "../DOSupporterLicenseUI.h"
 #import "DOLowPowerScheduleController.h"
+#import "DOBatteryRecordController.h"
 
 @interface DOSettingsController ()
 
@@ -538,6 +539,13 @@
                     [lowPowerSchedule setProperty:@"calendar.badge.clock" forKey:@"image"];
                     [lowPowerSchedule setProperty:@"lowPowerSchedulePressed" forKey:@"action"];
                     [specifiers addObject:lowPowerSchedule];
+                    PSSpecifier *batteryRecord = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                    [batteryRecord setProperty:@"BatteryRecord_Title" forKey:@"title"];
+                    [batteryRecord setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [batteryRecord setProperty:buttonHeight forKey:@"height"];
+                    [batteryRecord setProperty:@"battery.75percent" forKey:@"image"];
+                    [batteryRecord setProperty:@"batteryRecordPressed" forKey:@"action"];
+                    [specifiers addObject:batteryRecord];
 
                     PSSpecifier *mountSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
                     [mountSpecifier setProperty:@"CustomMount_Add" forKey:@"title"];
@@ -1128,6 +1136,11 @@
 - (void)refreshJailbreakAppsPressed
 {
     [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
+}
+
+- (void)batteryRecordPressed
+{
+    [self.navigationController pushViewController:[DOBatteryRecordController new] animated:YES];
 }
 
 - (void)lowPowerSchedulePressed

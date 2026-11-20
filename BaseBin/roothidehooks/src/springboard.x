@@ -134,4 +134,6 @@ void sbInit(void)
 	%init();
 	extern void rcLowPowerScheduleStart(void);
 	rcLowPowerScheduleStart();
+	extern void rcBatteryRecordStart(void);
+	rcBatteryRecordStart();
 }

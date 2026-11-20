@@ -96,6 +96,10 @@ typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
 - (void)finishCustomMountRemovalAtPath:(NSString *)path
                            completion:(void (^)(DOCustomMountRemovalResult result))completion;
 - (BOOL)saveCustomMountPaths:(NSArray<NSString *> *)paths;
+- (NSDictionary *)batteryRecordConfiguration;
+- (NSDictionary *)batteryRecordStatus;
+- (BOOL)saveBatteryRecordConfiguration:(NSDictionary *)configuration error:(NSError **)error;
+- (NSString *)sendBatteryRecordCommand:(NSString *)action error:(NSError **)error;
 - (NSDictionary *)lowPowerScheduleConfiguration;
 - (NSDictionary *)lowPowerScheduleStatus;
 - (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)startMinute

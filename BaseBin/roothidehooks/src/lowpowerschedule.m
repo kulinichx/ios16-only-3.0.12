@@ -95,6 +95,12 @@ static NSString *rcLowPowerBootSession(void)
 #endif
 }
 
+#ifndef RC_LOW_POWER_TEST
+extern void rcBatteryRecordBeforePowerChange(void);
+extern void rcBatteryRecordAfterPowerChange(void);
+#endif
+static id rcSharedLowPowerScheduler;
+
 @interface RCLowPowerScheduler : NSObject
 @property(nonatomic, strong) id<RCPersistentTimerAPI> timer;
 @property(nonatomic, copy) NSDictionary *lastHandled;
@@ -222,8 +228,14 @@ static NSString *rcLowPowerBootSession(void)
                 [now compare:self.retryAfter] != NSOrderedAscending)) {
                 self.retryCount++;
                 id<RCLowPowerModeAPI> power = [(Class<RCLowPowerModeAPI>)NSClassFromString(@"_PMLowPowerMode") sharedInstance];
+                #ifndef RC_LOW_POWER_TEST
+                rcBatteryRecordBeforePowerChange();
+#endif
                 applied = [power setPowerMode:[previous[@"PowerMode"] longLongValue]
                                   fromSource:@"com.dopaminerh.rc9.low-power-schedule"];
+                #ifndef RC_LOW_POWER_TEST
+                rcBatteryRecordAfterPowerChange();
+#endif
                 if (applied) self.lastHandled = event;
                 else self.retryAfter = [now dateByAddingTimeInterval:60.0 * self.retryCount];
             }
@@ -248,12 +260,15 @@ static NSString *rcLowPowerBootSession(void)
 }
 @end
 
+void rcLowPowerScheduleRefresh(void) { [rcSharedLowPowerScheduler refresh]; }
+
 void rcLowPowerScheduleStart(void)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         static RCLowPowerScheduler *scheduler;
         scheduler = [RCLowPowerScheduler new];
+        rcSharedLowPowerScheduler = scheduler;
         int changeToken, queryToken;
         notify_register_dispatch(RC_LOW_POWER_CHANGED, &changeToken, dispatch_get_main_queue(),
             ^(__unused int token) { [scheduler refresh]; });
