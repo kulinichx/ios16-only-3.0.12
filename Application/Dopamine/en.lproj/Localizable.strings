@@ -312,10 +312,10 @@
 "PowerSchedule_Next" = "Scheduled for %@ · %@";
 "PowerSchedule_Discard" = "There are unsaved changes in the power plan or recording plan. Discard them and go back?";
 "BatteryRecord_PlannedAt" = "Recording is scheduled to start on %@";
-"BatteryRecord_DueAt" = "Scheduled start was %@; no execution result yet. Tap to refresh.";
+"BatteryRecord_DueAt" = "Scheduled to start at %@; no execution result yet.";
 "BatteryRecord_StartedAt" = "Recording · started on %@";
 "BatteryRecord_EndsAt" = "Scheduled to end on %@";
-"BatteryRecord_Paused" = "Recording schedule is off. You can start a manual record.";
+"BatteryRecord_Paused" = "Recording plan is off. Set the times, enable the plan, and save.";
 "BatteryRecord_Copied" = "✓ Times copied · tap ✓ to save";
 "BatteryRecord_CommandPending" = "Action submitted. Updating the record; do not submit again.";
 "BatteryRecord_ManualNeedsRefresh" = "A status refresh was requested. Try again shortly. If recording remains unavailable, reload the jailbreak environment and try again.";
@@ -324,3 +324,4 @@
 "Home_Avatar_Auto" = "Fade out after opening";
 "Home_Avatar_Always" = "Keep visible";
 "Home_Avatar_Hidden" = "Keep hidden";
+"BatteryRecord_EndPending" = "The planned end was %@; the recording result is still pending.";

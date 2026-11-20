@@ -306,10 +306,10 @@
 "PowerSchedule_Next" = "计划于 %@%@";
 "PowerSchedule_Discard" = "低电量模式或耗电记录中有未保存的修改。放弃这些修改并返回？";
 "BatteryRecord_PlannedAt" = "计划于 %@开始记录";
-"BatteryRecord_DueAt" = "原定于 %@开始，尚无执行结果；点按刷新";
+"BatteryRecord_DueAt" = "原定于 %@开始，尚无执行结果。";
 "BatteryRecord_StartedAt" = "正在记录，已于 %@开始";
 "BatteryRecord_EndsAt" = "预计于 %@结束";
-"BatteryRecord_Paused" = "记录计划未启用，可手动开始记录。";
+"BatteryRecord_Paused" = "记录计划未启用。设置开始、结束时间后启用并保存。";
 "BatteryRecord_Copied" = "✓ 已复制时间，点右上角 ✓ 保存";
 "BatteryRecord_CommandPending" = "操作已提交，正在更新记录结果；请勿重复操作。";
 "BatteryRecord_ManualNeedsRefresh" = "已请求更新记录状态，请稍后再试。若一直无法开始，请重新加载越狱环境后重试。";
@@ -318,3 +318,4 @@
 "Home_Avatar_Auto" = "打开后自动淡出";
 "Home_Avatar_Always" = "保持显示";
 "Home_Avatar_Hidden" = "保持隐藏";
+"BatteryRecord_EndPending" = "计划结束时间为 %@，尚待记录结果。";

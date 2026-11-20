@@ -6,7 +6,8 @@ static inline NSString *DOScheduleDateText(id value)
     if (![value isKindOfClass:NSDate.class]) return @"—";
     NSDateFormatter *formatter = [NSDateFormatter new];
     // Include an explicit date so a midnight/overnight plan is never ambiguous.
-    [formatter setLocalizedDateFormatFromTemplate:@"MMMdBhmm"];
+    NSString *day = [NSDateFormatter dateFormatFromTemplate:@"MMMd" options:0 locale:NSLocale.currentLocale];
+    formatter.dateFormat = [day stringByAppendingString:@" HH:mm"];
     return [formatter stringFromDate:value];
 }
 

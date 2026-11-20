@@ -19,56 +19,295 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)reloadMaterial;
 @end
 
+// Public UIKit views only: both the track and selection have a full capsule radius.
+@interface DOScheduleModeControl : UIControl
+@property(nonatomic, strong) UIView *selectionView;
+@property(nonatomic, strong) NSArray<UIButton *> *buttons;
+@property(nonatomic) NSInteger selectedIndex;
+@property(nonatomic) CGSize laidOutSize;
+@property(nonatomic, strong) UIViewPropertyAnimator *selectionAnimator;
+- (void)selectIndex:(NSInteger)index animated:(BOOL)animated;
+@end
+
+@implementation DOScheduleModeControl
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    self.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+    self.clipsToBounds = YES;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+    self.selectionView = [UIView new];
+    self.selectionView.userInteractionEnabled = NO;
+    self.selectionView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.20];
+    self.selectionView.layer.cornerCurve = kCACornerCurveContinuous;
+    [self addSubview:self.selectionView];
+    NSMutableArray *buttons = [NSMutableArray new];
+    NSArray *titles = @[DOLocalizedString(@"LowPowerSchedule_Title"), DOLocalizedString(@"BatteryRecord_Title")];
+    for (NSInteger i = 0; i < titles.count; i++) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.tag = i;
+        [button setTitle:titles[i] forState:UIControlStateNormal];
+        [button setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+        button.titleLabel.adjustsFontForContentSizeCategory = YES;
+        button.titleLabel.adjustsFontSizeToFitWidth = YES;
+        button.titleLabel.minimumScaleFactor = 0.75;
+        [button addTarget:self action:@selector(pressed:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:button];
+        [buttons addObject:button];
+    }
+    self.buttons = buttons;
+    [self selectIndex:0 animated:NO];
+    return self;
+}
+- (CGRect)selectionFrame
+{
+    CGFloat width = MAX(0, (CGRectGetWidth(self.bounds) - 8) / 2);
+    NSInteger slot = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft ? 1 - self.selectedIndex : self.selectedIndex;
+    return CGRectMake(4 + slot * width, 4, width, MAX(0, CGRectGetHeight(self.bounds) - 8));
+}
+- (void)finishSelection
+{
+    UIViewPropertyAnimator *animator = self.selectionAnimator;
+    self.selectionAnimator = nil;
+    if (animator.state == UIViewAnimatingStateActive) {
+        [animator stopAnimation:NO];
+        [animator finishAnimationAtPosition:UIViewAnimatingPositionEnd];
+    }
+}
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    self.layer.cornerRadius = CGRectGetHeight(self.bounds) / 2;
+    self.selectionView.layer.cornerRadius = MAX(0, (CGRectGetHeight(self.bounds) - 8) / 2);
+    CGFloat width = CGRectGetWidth(self.bounds) / 2;
+    for (UIButton *button in self.buttons) {
+        NSInteger slot = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft ? 1 - button.tag : button.tag;
+        button.frame = CGRectMake(slot * width, 0, width, CGRectGetHeight(self.bounds));
+    }
+    if (!CGSizeEqualToSize(self.laidOutSize, self.bounds.size)) {
+        [self finishSelection];
+        self.laidOutSize = self.bounds.size;
+        self.selectionView.frame = [self selectionFrame];
+    }
+}
+- (void)selectIndex:(NSInteger)index animated:(BOOL)animated
+{
+    [self finishSelection];
+    self.selectedIndex = index;
+    for (UIButton *button in self.buttons)
+        button.accessibilityTraits = UIAccessibilityTraitButton | (button.tag == index ? UIAccessibilityTraitSelected : 0);
+    CGRect target = [self selectionFrame];
+    if (!animated || UIAccessibilityIsReduceMotionEnabled()) { self.selectionView.frame = target; return; }
+    __weak typeof(self) weakSelf = self;
+    self.selectionAnimator = [[UIViewPropertyAnimator alloc] initWithDuration:0.5 dampingRatio:0.86
+        animations:^{ weakSelf.selectionView.frame = target; }];
+    [self.selectionAnimator startAnimation];
+}
+- (void)pressed:(UIButton *)sender
+{
+    if (sender.tag == self.selectedIndex) return;
+    self.selectedIndex = sender.tag;
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+@end
+
 @interface DOPowerScheduleController ()
 @property(nonatomic, strong) NSArray<DOLowPowerScheduleController *> *pages;
 @property(nonatomic, strong) DOLowPowerScheduleController *selectedPage;
+@property(nonatomic, strong) DOScheduleModeControl *modeControl;
+@property(nonatomic, strong) UIButton *saveButton;
+@property(nonatomic, strong) UIView *contentView;
+@property(nonatomic, strong) UIViewPropertyAnimator *pageAnimator;
+@property(nonatomic, strong) DOLowPowerScheduleController *transitionFromPage;
+@property(nonatomic, strong) DOLowPowerScheduleController *transitionToPage;
+@property(nonatomic) BOOL transitionHasAppearance;
+@property(nonatomic) BOOL pageVisible;
+@property(nonatomic) CGSize contentSize;
 @end
 
 @implementation DOPowerScheduleController
+- (BOOL)shouldAutomaticallyForwardAppearanceMethods { return NO; }
+- (UIButton *)chromeButton:(NSString *)image action:(SEL)action label:(NSString *)label
+{
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.tintColor = UIColor.labelColor;
+    [button setImage:[UIImage systemImageNamed:image withConfiguration:
+        [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightMedium]] forState:UIControlStateNormal];
+    button.accessibilityLabel = label;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.clearColor;
+    self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     self.title = DOLocalizedString(@"PowerSchedule_Title");
+    UIButton *back = [self chromeButton:@"chevron.left" action:@selector(backPressed) label:DOLocalizedString(@"Button_Cancel")];
+    self.saveButton = [self chromeButton:@"checkmark" action:@selector(savePressed) label:DOLocalizedString(@"LowPowerSchedule_Save")];
+    UILabel *title = [UILabel new];
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    title.text = self.title;
+    title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    title.textColor = UIColor.labelColor;
+    title.numberOfLines = 2;
+    title.adjustsFontForContentSizeCategory = YES;
+    title.textAlignment = NSTextAlignmentCenter;
+    self.modeControl = [DOScheduleModeControl new];
+    self.modeControl.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.modeControl addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
+    self.contentView = [UIView new];
+    self.contentView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.contentView.clipsToBounds = YES;
+    for (UIView *view in @[back, title, self.saveButton, self.modeControl, self.contentView]) [self.view addSubview:view];
+    [NSLayoutConstraint activateConstraints:@[
+        [back.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:10],
+        [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6],
+        [back.widthAnchor constraintEqualToConstant:44], [back.heightAnchor constraintEqualToConstant:44],
+        [self.saveButton.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-10],
+        [self.saveButton.topAnchor constraintEqualToAnchor:back.topAnchor],
+        [self.saveButton.widthAnchor constraintEqualToConstant:44], [self.saveButton.heightAnchor constraintEqualToConstant:44],
+        [title.leadingAnchor constraintEqualToAnchor:back.trailingAnchor constant:8],
+        [title.trailingAnchor constraintEqualToAnchor:self.saveButton.leadingAnchor constant:-8],
+        [title.topAnchor constraintEqualToAnchor:back.topAnchor], [title.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [self.modeControl.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
+        [self.modeControl.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
+        [self.modeControl.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
+        [self.modeControl.heightAnchor constraintEqualToConstant:44],
+        [self.contentView.topAnchor constraintEqualToAnchor:self.modeControl.bottomAnchor constant:4],
+        [self.contentView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.contentView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.contentView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
     self.pages = @[[DOLowPowerScheduleController new], [DOBatteryRecordController new]];
     __weak typeof(self) weakSelf = self;
     for (DOLowPowerScheduleController *page in self.pages) {
-        page.modeSelectionHandler = ^(NSInteger index) { [weakSelf selectPage:index]; };
         page.backHandler = ^{ [weakSelf backPressed]; };
+        page.chromeStateDidChange = ^{ weakSelf.saveButton.enabled = weakSelf.selectedPage.saveEnabled; };
+        [self addChildViewController:page];
+        page.view.translatesAutoresizingMaskIntoConstraints = NO;
+        page.view.hidden = YES;
+        [self.contentView addSubview:page.view];
+        [NSLayoutConstraint activateConstraints:@[
+            [page.view.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+            [page.view.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+            [page.view.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [page.view.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor]
+        ]];
+        [page didMoveToParentViewController:self];
     }
     [self selectPage:0];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(stopPageMotion:)
+        name:UIApplicationWillResignActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(stopPageMotion:)
+        name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
 }
-
+- (void)stopPageMotion:(NSNotification *)notification { [self finishPageTransition]; }
+- (void)modeChanged:(DOScheduleModeControl *)sender { [self selectPage:sender.selectedIndex]; }
+- (void)savePressed { [self.selectedPage savePressed]; }
+- (void)finishPageTransition
+{
+    UIViewPropertyAnimator *animator = self.pageAnimator;
+    self.pageAnimator = nil;
+    if (animator.state == UIViewAnimatingStateActive) [animator stopAnimation:YES];
+    DOLowPowerScheduleController *previous = self.transitionFromPage;
+    DOLowPowerScheduleController *next = self.transitionToPage;
+    self.transitionFromPage = nil;
+    self.transitionToPage = nil;
+    previous.view.hidden = YES;
+    previous.view.alpha = 1;
+    next.view.maskView = nil;
+    next.view.transform = CGAffineTransformIdentity;
+    if (self.transitionHasAppearance) {
+        self.transitionHasAppearance = NO;
+        [previous endAppearanceTransition];
+        [next endAppearanceTransition];
+    }
+    self.contentView.userInteractionEnabled = YES;
+    [self.modeControl finishSelection];
+}
 - (void)selectPage:(NSInteger)index
 {
     if (index < 0 || index >= self.pages.count || self.selectedPage == self.pages[index]) return;
+    [self finishPageTransition];
     DOLowPowerScheduleController *previous = self.selectedPage;
     DOLowPowerScheduleController *next = self.pages[index];
-    BOOL visible = self.viewIfLoaded.window != nil;
-    if (previous) {
-        [previous willMoveToParentViewController:nil];
-        if (visible) [previous beginAppearanceTransition:NO animated:NO];
-        [previous.view removeFromSuperview];
-        if (visible) [previous endAppearanceTransition];
-        [previous removeFromParentViewController];
-    }
+    BOOL animated = previous && self.pageVisible && !UIAccessibilityIsReduceMotionEnabled() && UIView.areAnimationsEnabled;
     self.selectedPage = next;
-    [self addChildViewController:next];
-    next.view.translatesAutoresizingMaskIntoConstraints = NO;
-    if (visible) [next beginAppearanceTransition:YES animated:NO];
-    [self.view addSubview:next.view];
-    [NSLayoutConstraint activateConstraints:@[
-        [next.view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [next.view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [next.view.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [next.view.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
-    ]];
-    [next didMoveToParentViewController:self];
-    if (visible) {
-        [next endAppearanceTransition];
-        [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
+    self.saveButton.enabled = next.saveEnabled;
+    [self.modeControl selectIndex:index animated:animated];
+    self.transitionFromPage = previous;
+    self.transitionToPage = next;
+    self.transitionHasAppearance = self.pageVisible;
+    if (self.transitionHasAppearance) {
+        [previous beginAppearanceTransition:NO animated:animated];
+        [next beginAppearanceTransition:YES animated:animated];
+    }
+    [self.view layoutIfNeeded];
+    [next.view layoutIfNeeded];
+    next.view.hidden = NO;
+    if (!animated) { [self finishPageTransition]; return; }
+    self.contentView.userInteractionEnabled = NO;
+    // Reveal from the top without resizing rows or moving the persistent header.
+    UIView *mask = [[UIView alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(next.view.bounds), 0)];
+    mask.backgroundColor = UIColor.blackColor;
+    next.view.maskView = mask;
+    next.view.transform = CGAffineTransformMakeTranslation(0, -6);
+    __weak typeof(self) weakSelf = self;
+    UIViewPropertyAnimator *fade = [[UIViewPropertyAnimator alloc] initWithDuration:0.10 curve:UIViewAnimationCurveEaseOut
+        animations:^{ previous.view.alpha = 0; }];
+    self.pageAnimator = fade;
+    [fade addCompletion:^(__unused UIViewAnimatingPosition position) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || self.transitionToPage != next) return;
+        previous.view.hidden = YES;
+        UIViewPropertyAnimator *reveal = [[UIViewPropertyAnimator alloc] initWithDuration:0.56 curve:UIViewAnimationCurveEaseOut animations:^{
+            mask.frame = next.view.bounds;
+            next.view.transform = CGAffineTransformIdentity;
+        }];
+        self.pageAnimator = reveal;
+        [reveal addCompletion:^(__unused UIViewAnimatingPosition end) { [weakSelf finishPageTransition]; }];
+        [reveal startAnimation];
+    }];
+    [fade startAnimation];
+    [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
+}
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    [self.selectedPage beginAppearanceTransition:YES animated:animated];
+    [self.view layoutIfNeeded];
+}
+- (void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
+    [self.selectedPage endAppearanceTransition];
+    self.pageVisible = YES;
+}
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [self finishPageTransition];
+    [super viewWillDisappear:animated];
+    self.pageVisible = NO;
+    [self.selectedPage beginAppearanceTransition:NO animated:animated];
+}
+- (void)viewDidDisappear:(BOOL)animated
+{
+    [super viewDidDisappear:animated];
+    [self.selectedPage endAppearanceTransition];
+}
+- (void)viewDidLayoutSubviews
+{
+    [super viewDidLayoutSubviews];
+    if (!CGSizeEqualToSize(self.contentSize, self.contentView.bounds.size)) {
+        if (self.pageAnimator) [self finishPageTransition];
+        self.contentSize = self.contentView.bounds.size;
     }
 }
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (void)backPressed
 {
@@ -88,12 +327,10 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 @end
 
 @interface DOLowPowerScheduleController ()
-@property(nonatomic, strong) UIButton *backButton;
 @property(nonatomic, strong) UILabel *feedbackLabel;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, DOCustomLiquidGlassView *> *sectionGlassViews;
 @property(nonatomic, strong) UIImpactFeedbackGenerator *timeFeedback;
 @property(nonatomic, copy) NSArray<NSLayoutConstraint *> *timePickerCellConstraints;
-@property(nonatomic) BOOL awaitingSaveConfirmation;
 @property(nonatomic) int statusToken;
 @end
 
@@ -104,34 +341,15 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (NSDictionary *)loadScheduleConfiguration { return [DOEnvironmentManager.sharedManager lowPowerScheduleConfiguration]; }
 - (NSDictionary *)loadRuntimeStatus { return [DOEnvironmentManager.sharedManager lowPowerScheduleStatus]; }
 - (const char *)scheduleStatusNotification { return RC_LOW_POWER_STATUS_CHANGED; }
-- (const char *)scheduleQueryNotification { return RC_LOW_POWER_QUERY; }
 - (BOOL)isScheduleVisible
 {
     UIViewController *page = self;
     while (page.parentViewController && page.parentViewController != self.navigationController)
         page = page.parentViewController;
-    return self.viewIfLoaded.window && self.navigationController.topViewController == page;
+    return self.viewIfLoaded.window && !self.view.hidden &&
+        (![page isKindOfClass:DOPowerScheduleController.class] || ((DOPowerScheduleController *)page).selectedPage == self) &&
+        self.navigationController.topViewController == page;
 }
-- (void)modeChanged:(UISegmentedControl *)sender
-{
-    if (self.modeSelectionHandler) self.modeSelectionHandler(sender.selectedSegmentIndex);
-    sender.selectedSegmentIndex = self.scheduleMode;
-}
-
-- (UIButton *)chromeButton:(NSString *)image action:(SEL)action label:(NSString *)label
-{
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    button.tintColor = UIColor.labelColor;
-    UIImageSymbolConfiguration *configuration =
-        [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightMedium];
-    [button setImage:[UIImage systemImageNamed:image withConfiguration:configuration]
-           forState:UIControlStateNormal];
-    button.accessibilityLabel = label;
-    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    return button;
-}
-
 - (UIDatePicker *)timePickerForMinute:(NSInteger)minute
 {
     return DOScheduleTimePicker(minute, self, @selector(timeChanged:));
@@ -181,30 +399,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self refreshScheduleScrollInsets];
     [self.view addSubview:self.tableView];
 
-    UIButton *back = [self chromeButton:@"chevron.left" action:@selector(backPressed)
-        label:DOLocalizedString(@"Button_Cancel")];
-    self.backButton = back;
-    self.saveButton = [self chromeButton:@"checkmark" action:@selector(savePressed)
-        label:DOLocalizedString(@"LowPowerSchedule_Save")];
-    self.saveButton.enabled = NO;
-    UILabel *title = [UILabel new];
-    title.translatesAutoresizingMaskIntoConstraints = NO;
-    title.text = self.title;
-    title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    title.textColor = UIColor.labelColor;
-    title.adjustsFontForContentSizeCategory = YES;
-    title.numberOfLines = 2;
-    title.textAlignment = NSTextAlignmentCenter;
-    [self.view addSubview:back];
-    [self.view addSubview:title];
-    [self.view addSubview:self.saveButton];
-    UISegmentedControl *mode = [[UISegmentedControl alloc] initWithItems:@[
-        DOLocalizedString(@"LowPowerSchedule_Title"), DOLocalizedString(@"BatteryRecord_Title")]];
-    mode.translatesAutoresizingMaskIntoConstraints = NO;
-    mode.selectedSegmentIndex = self.scheduleMode;
-    mode.accessibilityLabel = DOLocalizedString(@"PowerSchedule_Title");
-    [mode addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
-    [self.view addSubview:mode];
     self.feedbackLabel = [UILabel new];
     self.feedbackLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.feedbackLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
@@ -214,30 +408,14 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.feedbackLabel.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:self.feedbackLabel];
     [NSLayoutConstraint activateConstraints:@[
-        [back.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:10],
-        [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6],
-        [back.widthAnchor constraintEqualToConstant:44],
-        [back.heightAnchor constraintEqualToConstant:44],
-        [self.saveButton.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-10],
-        [self.saveButton.topAnchor constraintEqualToAnchor:back.topAnchor],
-        [self.saveButton.widthAnchor constraintEqualToConstant:44],
-        [self.saveButton.heightAnchor constraintEqualToConstant:44],
-        [title.leadingAnchor constraintEqualToAnchor:back.trailingAnchor constant:8],
-        [title.trailingAnchor constraintEqualToAnchor:self.saveButton.leadingAnchor constant:-8],
-        [title.topAnchor constraintEqualToAnchor:back.topAnchor],
-        [title.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        [mode.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
-        [mode.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
-        [mode.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
-        [mode.heightAnchor constraintGreaterThanOrEqualToConstant:36],
-        [self.feedbackLabel.topAnchor constraintEqualToAnchor:mode.bottomAnchor constant:10],
-        [self.feedbackLabel.leadingAnchor constraintEqualToAnchor:mode.leadingAnchor],
-        [self.feedbackLabel.trailingAnchor constraintEqualToAnchor:mode.trailingAnchor],
+        [self.feedbackLabel.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:6],
+        [self.feedbackLabel.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
+        [self.feedbackLabel.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
         [self.feedbackLabel.heightAnchor constraintGreaterThanOrEqualToConstant:18],
         [self.tableView.topAnchor constraintEqualToAnchor:self.feedbackLabel.bottomAnchor constant:4],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
     ]];
     UIScreenEdgePanGestureRecognizer *edge = [[UIScreenEdgePanGestureRecognizer alloc]
         initWithTarget:self action:@selector(edgeBack:)];
@@ -254,6 +432,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         self.statusToken = token;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationDidBecomeActive:)
         name:UIApplicationDidBecomeActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationDidBecomeActive:)
+        name:UIApplicationSignificantTimeChangeNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationWillResignActive:)
         name:UIApplicationWillResignActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleThemeDidChange:)
@@ -263,13 +443,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    [self refreshScheduleAppearance];
-}
-
-- (void)viewDidAppear:(BOOL)animated
-{
-    [super viewDidAppear:animated];
-    [self requestStatus];
+    [self refreshStatus];
+    [self refreshScheduleGlassFrames];
 }
 
 - (void)viewDidLayoutSubviews
@@ -283,8 +458,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     [super viewDidDisappear:animated];
     self.timeFeedback = nil;
-    self.queryDate = nil;
-    self.statusWaiting = NO;
 }
 
 - (void)dealloc
@@ -377,12 +550,16 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)refreshScheduleAppearance
 {
-    self.backButton.tintColor = UIColor.labelColor;
-    self.saveButton.tintColor = UIColor.labelColor;
     for (UITableViewCell *cell in self.tableView.visibleCells) [self styleScheduleCell:cell];
     [self refreshScheduleGlassFrames];
     for (DOCustomLiquidGlassView *glass in self.sectionGlassViews.allValues)
         [glass reloadMaterial];
+}
+
+- (void)setSaveEnabled:(BOOL)saveEnabled
+{
+    _saveEnabled = saveEnabled;
+    if (self.chromeStateDidChange) self.chromeStateDidChange();
 }
 
 - (BOOL)hasChanges
@@ -394,7 +571,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)draftChanged
 {
-    self.saveButton.enabled = self.hasChanges || self.timePickerExpanded;
+    self.saveEnabled = self.hasChanges || self.timePickerExpanded;
     if (self.hasChanges) [self showScheduleFeedback:DOLocalizedString(@"PowerSchedule_Unsaved") error:NO];
     else if ([self.feedbackLabel.text isEqual:DOLocalizedString(@"PowerSchedule_Unsaved")]) self.feedbackLabel.text = nil;
 }
@@ -504,43 +681,15 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     }
 }
 
-- (void)requestStatus
-{
-    NSDate *queryDate = NSDate.date;
-    self.queryDate = queryDate;
-    self.statusWaiting = YES;
-    [self showScheduleFeedback:DOLocalizedString(self.awaitingSaveConfirmation ? @"PowerSchedule_Saved" : @"PowerSchedule_Refreshing") error:NO];
-    [self refreshStatus];
-    [self postStatusQuery];
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if ([weakSelf.queryDate isEqualToDate:queryDate] && [weakSelf isScheduleVisible] &&
-            UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
-            weakSelf.statusWaiting = NO;
-            [weakSelf refreshStatus];
-        }
-    });
-}
-
-- (void)postStatusQuery { notify_post([self scheduleQueryNotification]); }
-
+// Read the persisted result on entry and on real scheduler events. No query loop.
 - (void)applicationDidBecomeActive:(NSNotification *)notification
 {
-    if ([self isScheduleVisible]) [self requestStatus];
+    if ([self isScheduleVisible]) [self refreshStatus];
 }
-
-- (void)applicationWillResignActive:(NSNotification *)notification
-{
-    self.timeFeedback = nil;
-    self.queryDate = nil;
-    self.statusWaiting = NO;
-}
-
+- (void)applicationWillResignActive:(NSNotification *)notification { self.timeFeedback = nil; }
 - (BOOL)statusFresh
 {
-    NSDate *updated = self.runtimeStatus[@"Updated"];
-    return self.queryDate && [updated isKindOfClass:NSDate.class] &&
-        [updated timeIntervalSinceDate:self.queryDate] >= 0 &&
+    return [self.runtimeStatus[@"Updated"] isKindOfClass:NSDate.class] &&
         [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]];
 }
 
@@ -551,21 +700,25 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)refreshStatus
 {
+    NSArray *previousHistory = self.runtimeStatus[@"History"] ?: @[];
     self.runtimeStatus = [self loadRuntimeStatus];
-    if (self.statusFresh) self.statusWaiting = NO;
-    if (!self.statusWaiting) {
-        BOOL error = self.statusFresh && self.runtimeHasError;
-        NSString *key = self.hasChanges ? @"PowerSchedule_Unsaved" :
-            (self.awaitingSaveConfirmation ? @"PowerSchedule_Saved" :
-                (self.statusFresh ? @"PowerSchedule_Refreshed" : @"PowerSchedule_SavedPlan"));
-        [self showScheduleFeedback:error ? self.statusText : DOLocalizedString(key) error:error];
-        self.awaitingSaveConfirmation = NO;
-    }
     [self didRefreshStatus];
-    // Runtime updates must not rebuild or detach the inline time wheel.
-    if (self.tableView.numberOfSections > 1) [UIView performWithoutAnimation:^{
-        NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, self.tableView.numberOfSections - 1)];
-        [self.tableView reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
+    // Preserve cells, footers, wheel and scroll position when only status changes.
+    NSIndexPath *statusPath = [NSIndexPath indexPathForRow:0 inSection:1];
+    UITableViewCell *statusCell = [self.tableView cellForRowAtIndexPath:statusPath];
+    BOOL textChanged = statusCell && ![statusCell.textLabel.text isEqual:self.statusText];
+    BOOL rowsChanged = self.tableView.numberOfSections > 1 &&
+        [self.tableView numberOfRowsInSection:1] != [self tableView:self.tableView numberOfRowsInSection:1];
+    BOOL historyChanged = ![previousHistory isEqual:self.runtimeStatus[@"History"] ?: @[]];
+    [UIView performWithoutAnimation:^{
+        if (rowsChanged) [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:1] withRowAnimation:UITableViewRowAnimationNone];
+        else if (textChanged) {
+            [self configureStatusCell:statusCell];
+            [self.tableView beginUpdates];
+            [self.tableView endUpdates];
+        }
+        if (historyChanged && self.tableView.numberOfSections > 2)
+            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:2] withRowAnimation:UITableViewRowAnimationNone];
         [self.tableView layoutIfNeeded];
         [self refreshScheduleGlassFrames];
     }];
@@ -582,12 +735,12 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)didSaveConfiguration:(NSDictionary *)configuration
 {
     self.savedConfiguration = configuration;
-    self.awaitingSaveConfirmation = YES;
     [self setTimePickerExpanded:NO animated:YES];
     [self draftChanged];
     [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:UINotificationFeedbackTypeSuccess];
     UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, DOLocalizedString(@"PowerSchedule_Saved"));
-    [self requestStatus];
+    [self showScheduleFeedback:DOLocalizedString(@"PowerSchedule_Saved") error:NO];
+    [self refreshStatus];
 }
 
 - (NSString *)statusText
@@ -600,7 +753,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
     if ([state isEqual:@"runtimeFailed"]) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
     NSDictionary *next = self.statusFresh ? status[@"Next"] : nil;
-    if (![next isKindOfClass:NSDictionary.class] || ![next[@"Date"] isKindOfClass:NSDate.class])
+    if (![next isKindOfClass:NSDictionary.class] || ![next[@"Date"] isKindOfClass:NSDate.class] ||
+        [next[@"Date"] timeIntervalSinceNow] <= 0)
         next = rcLowPowerEvent(self.savedConfiguration, NSDate.date, rcLowPowerLocalCalendar(), YES);
     NSString *action = DOLocalizedString([next[@"PowerMode"] boolValue] ?
         @"LowPowerSchedule_OnAction" : @"LowPowerSchedule_OffAction");
@@ -616,38 +770,37 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     return DOLocalizedString(section == 0 ? @"LowPowerSchedule_Title" : @"LowPowerSchedule_Status");
 }
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
+- (NSString *)footerTextForSection:(NSInteger)section
 {
     return DOLocalizedString(section == 0 ? @"LowPowerSchedule_Footer" : @"LowPowerSchedule_RuntimeFooter");
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section
 {
-    UITableViewHeaderFooterView *footer = [[UITableViewHeaderFooterView alloc] initWithReuseIdentifier:nil];
-    footer.backgroundView = [UIView new];
-    footer.backgroundView.backgroundColor = UIColor.clearColor;
+    UIView *footer = [UIView new];
+    footer.backgroundColor = UIColor.clearColor;
     UILabel *label = [UILabel new];
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.text = [self tableView:tableView titleForFooterInSection:section];
+    label.text = [self footerTextForSection:section];
     label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
     label.adjustsFontForContentSizeCategory = YES;
     label.textColor = UIColor.secondaryLabelColor;
     label.numberOfLines = 0;
-    [footer.contentView addSubview:label];
+    [footer addSubview:label];
     [NSLayoutConstraint activateConstraints:@[
-        [label.leadingAnchor constraintEqualToAnchor:footer.contentView.leadingAnchor constant:32],
-        [label.trailingAnchor constraintEqualToAnchor:footer.contentView.trailingAnchor constant:-32],
-        [label.topAnchor constraintEqualToAnchor:footer.contentView.topAnchor constant:16],
-        [label.bottomAnchor constraintLessThanOrEqualToAnchor:footer.contentView.bottomAnchor constant:-20]
+        [label.leadingAnchor constraintEqualToAnchor:footer.leadingAnchor constant:32],
+        [label.trailingAnchor constraintEqualToAnchor:footer.trailingAnchor constant:-32],
+        [label.topAnchor constraintEqualToAnchor:footer.topAnchor constant:16],
+        [label.bottomAnchor constraintLessThanOrEqualToAnchor:footer.bottomAnchor constant:-20]
     ]];
     return footer;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section
 {
-    NSString *text = [self tableView:tableView titleForFooterInSection:section];
+    NSString *text = [self footerTextForSection:section];
     // Reserve real padding outside the glass, including at accessibility font sizes.
-    CGFloat width = MAX(80, CGRectGetWidth(tableView.bounds) - 104);
+    CGFloat width = MAX(80, CGRectGetWidth(tableView.bounds) - 64);
     CGRect rect = [text boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
         options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
         attributes:@{NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote]} context:nil];
@@ -659,15 +812,11 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)configureStatusCell:(UITableViewCell *)cell
 {
     cell.textLabel.text = self.statusText;
-    cell.detailTextLabel.text = DOLocalizedString(@"PowerSchedule_TapRefresh");
-    cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
-    cell.accessibilityTraits |= UIAccessibilityTraitButton;
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    if (self.statusWaiting) {
-        UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-        [spinner startAnimating];
-        cell.accessoryView = spinner;
-    }
+    cell.detailTextLabel.text = nil;
+    cell.accessoryView = nil;
+    cell.accessoryType = UITableViewCellAccessoryNone;
+    cell.accessibilityTraits = UIAccessibilityTraitStaticText;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
@@ -728,11 +877,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.section == 1 && indexPath.row == 0) {
-        [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
-        [self requestStatus];
-        return;
-    }
     if (indexPath.section != 0 || indexPath.row == 0 || indexPath.row == 3) return;
     self.editingTime = [self isStartRow:indexPath] ? 0 : 1;
     self.timePicker.date = [self dateForMinute:self.editingTime == 0 ?

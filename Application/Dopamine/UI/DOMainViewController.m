@@ -238,6 +238,47 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 @end
 
+// Press only the tapped surface; surrounding layout and navigation stay independent.
+@interface DOHomePressButton : UIButton
+@property(nonatomic, weak) UIView *pressSurface;
+@property(nonatomic, strong) UIViewPropertyAnimator *pressAnimator;
+- (void)resetPressFeedback;
+@end
+@implementation DOHomePressButton
+- (void)resetPressFeedback
+{
+    if (self.pressAnimator.state == UIViewAnimatingStateActive) [self.pressAnimator stopAnimation:YES];
+    self.pressAnimator = nil;
+    self.pressSurface.transform = CGAffineTransformIdentity;
+}
+- (void)setHighlighted:(BOOL)highlighted
+{
+    [super setHighlighted:highlighted];
+    UIView *surface = self.pressSurface;
+    if (!surface) return;
+    if (!self.enabled || UIAccessibilityIsReduceMotionEnabled() || !self.window) { [self resetPressFeedback]; return; }
+    if (self.pressAnimator.state == UIViewAnimatingStateActive) {
+        CATransform3D current = surface.layer.presentationLayer.transform;
+        [self.pressAnimator stopAnimation:YES];
+        if (CATransform3DIsAffine(current)) surface.transform = CATransform3DGetAffineTransform(current);
+    }
+    CGAffineTransform target = highlighted ? CGAffineTransformMakeScale(0.97, 0.97) : CGAffineTransformIdentity;
+    self.pressAnimator = [[UIViewPropertyAnimator alloc] initWithDuration:highlighted ? 0.10 : 0.38
+        dampingRatio:highlighted ? 1.0 : 0.68 animations:^{ surface.transform = target; }];
+    [self.pressAnimator startAnimation];
+}
+- (void)setEnabled:(BOOL)enabled
+{
+    [super setEnabled:enabled];
+    if (!enabled) [self resetPressFeedback];
+}
+- (void)didMoveToWindow
+{
+    [super didMoveToWindow];
+    if (!self.window) [self resetPressFeedback];
+}
+@end
+
 @interface DOMainViewController () <PHPickerViewControllerDelegate, UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate>
 
 @property DOJailbreakButton *jailbreakBtn;
@@ -639,7 +680,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 - (UIButton *)customGlassButtonWithTitle:(NSString *)title imageName:(NSString *)imageName action:(UIAction *)action
 {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButton *button = [DOHomePressButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
 
     UIButtonConfiguration *configuration = [UIButtonConfiguration plainButtonConfiguration];
@@ -672,6 +713,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     DOCustomGlassApplyMainMaterialProfile(card);
     [card reloadMaterial];
     UIButton *button = [self customGlassButtonWithTitle:title imageName:imageName action:action];
+    ((DOHomePressButton *)button).pressSurface = card;
     [card.contentView addSubview:button];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -752,7 +794,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     titleLabel.allowsDefaultTighteningForTruncation = YES;
     [contentRow addSubview:titleLabel];
 
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    DOHomePressButton *button = [DOHomePressButton buttonWithType:UIButtonTypeCustom];
+    button.pressSurface = innerGlass;
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.enabled = enabled;
     button.accessibilityLabel = title;

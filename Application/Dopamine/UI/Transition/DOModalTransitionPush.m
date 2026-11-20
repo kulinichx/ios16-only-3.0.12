@@ -25,7 +25,7 @@
 
 
 - (NSTimeInterval)transitionDuration:(nullable id<UIViewControllerContextTransitioning>)transitionContext {
-    return 0.5;
+    return 0.6;
 }
 
 - (void)animateTransition:(id<UIViewControllerContextTransitioning>)transitionContext {
@@ -35,6 +35,11 @@
     int screen_width = fromViewController.navigationController.view.bounds.size.width;
 
     [[transitionContext containerView] addSubview:toViewController.view];
+    CGRect finalFrame = [transitionContext finalFrameForViewController:toViewController];
+    if (!CGRectIsEmpty(finalFrame)) toViewController.view.frame = finalFrame;
+    // Build table/footer/glass geometry before the first frame of the transition.
+    [toViewController.view setNeedsLayout];
+    [toViewController.view layoutIfNeeded];
 
     screen_width *= _forwards ? 1 : -1;
 
@@ -42,7 +47,7 @@
     toViewController.view.transform = CGAffineTransformTranslate(CGAffineTransformIdentity, screen_width, 0);
     fromViewController.view.transform = CGAffineTransformIdentity;
     
-    [UIView animateWithDuration:0.6 delay:0.0 usingSpringWithDamping:0.9 initialSpringVelocity:2.0  options: UIViewAnimationOptionCurveEaseInOut animations:^{
+    [UIView animateWithDuration:[self transitionDuration:transitionContext] delay:0.0 usingSpringWithDamping:0.9 initialSpringVelocity:2.0  options: UIViewAnimationOptionCurveEaseInOut animations:^{
         toViewController.view.transform = CGAffineTransformIdentity;
         fromViewController.view.transform = CGAffineTransformTranslate(CGAffineTransformIdentity, -screen_width, 0);
     } completion:^(BOOL finished) {

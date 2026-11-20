@@ -77,7 +77,7 @@ test('settings exposes the schedule while jailbroken and UI never applies system
   assert.match(controller, /DOScheduleTimePicker\(minute, self/);
   assert.match(read('Application/Dopamine/UI/Settings/DOScheduleTimePicker.h'), /UIDatePickerModeTime/);
   assert.match(controller, /start == end/);
-  assert.match(controller, /RC_LOW_POWER_QUERY/);
+  assert.doesNotMatch(controller, /RC_LOW_POWER_QUERY|notify_post|UIActivityIndicatorView|scheduledTimer|dispatch_after/);
   assert.match(controller, /runtimeStatus\[@"Revision"\] isEqual:self\.savedConfiguration\[@"Revision"\]/);
   assert.match(controller, /notify_cancel\(self\.statusToken\)/);
   assert.doesNotMatch(controller, /setPowerMode:/);
@@ -97,6 +97,31 @@ test('low-power schedule uses the same full-screen navigation frame as settings'
   assert.match(controller, /tableView\.bounces = YES/);
   assert.match(controller, /tableView\.alwaysBounceVertical = YES/);
   assert.doesNotMatch(controller, /revealScheduleStatusIfNeeded/);
+});
+
+test('schedule footers use one custom label and cannot receive UIKit default footer text', () => {
+  const battery = read('Application/Dopamine/UI/Settings/DOBatteryRecordController.m');
+  assert.doesNotMatch(controller + battery, /titleForFooterInSection:/);
+  const footer = body(controller, '- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:');
+  assert.doesNotMatch(footer, /UITableViewHeaderFooterView/);
+  assert.equal((footer.match(/\[UILabel new\]/g) || []).length, 1);
+  assert.match(footer, /footerTextForSection:section/);
+});
+
+test('scheduled recording has no manual start or refresh UI and keeps an exit for active records', () => {
+  const battery = read('Application/Dopamine/UI/Settings/DOBatteryRecordController.m');
+  assert.doesNotMatch(controller + battery, /PowerSchedule_TapRefresh|PowerSchedule_Refreshing|BatteryRecord_Start"|requestStatus|statusWaiting|queryDate/);
+  assert.match(battery, /sendBatteryRecordCommand:@"stop"/);
+  assert.doesNotMatch(battery, /sendBatteryRecordCommand:@"start"/);
+  const cell = body(controller, '- (void)configureStatusCell:');
+  assert.match(cell, /UIAccessibilityTraitStaticText/);
+  assert.match(cell, /UITableViewCellSelectionStyleNone/);
+});
+
+test('page entry prelays out the destination and uses the reported animation duration', () => {
+  const transition = read('Application/Dopamine/UI/Transition/DOModalTransitionPush.m');
+  assert.ok(transition.indexOf('[toViewController.view layoutIfNeeded]') < transition.indexOf('[UIView animateWithDuration:'));
+  assert.match(transition, /animateWithDuration:\[self transitionDuration:transitionContext\]/);
 });
 
 test('all schedule localization keys exist in the supported release locales', () => {

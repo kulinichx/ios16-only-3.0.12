@@ -40,7 +40,9 @@ function harnessSource() {
     HOME_THERMAL: section(home, '\n- (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate\n{', '\n- (void)startHomeThermalUpdates\n{'),
     SCHEDULE_RUNTIME_HEADERS: stripLocalImports(read('BaseBin/roothidehooks/src/RCLowPowerSchedule.h')) + '\n' + stripLocalImports(read('BaseBin/roothidehooks/src/RCBatteryRecord.h')),
     SCHEDULE_HEADERS: stripLocalImports(read(ui + 'Settings/DOLowPowerScheduleController.h')) + '\n' + stripLocalImports(read(ui + 'Settings/DOBatteryRecordController.h')) + '\n' + stripLocalImports(read(ui + 'Settings/DOPowerScheduleController.h')) + '\n' + read(ui + 'Settings/DOScheduleTimePicker.h'),
-    SCHEDULE_CONTROLLERS: 'static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTheme.DidChange";\n' + lowPower.slice(lowPower.indexOf('@interface DOPowerScheduleController ()')) + '\n' + stripLocalImports(read(ui + 'Settings/DOBatteryRecordController.m')),
+    SCHEDULE_STRINGS: [...read('Application/Dopamine/zh-CN.lproj/Localizable.strings').matchAll(/^"([^"\n]+)"\s*=\s*("(?:\\.|[^"\\])*");/gm)]
+      .map(match => `@"${match[1]}": @${match[2]}`).join(',\n'),
+    SCHEDULE_CONTROLLERS: 'static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTheme.DidChange";\n' + lowPower.slice(lowPower.indexOf('@interface DOScheduleModeControl :')) + '\n' + stripLocalImports(read(ui + 'Settings/DOBatteryRecordController.m')),
   };
   return read('tests/fixtures/preferences-ui-harness.m')
     .replace('/* HOME_FOCUS_FIXTURE */', read('tests/fixtures/home-focus-harness.m'))
@@ -95,7 +97,7 @@ async function run({ execute = execFileAsync, output = path.join(root, '.audit-a
   const copyEvidence = () => {
     if (!documents || !fs.existsSync(documents)) return;
     for (const name of fs.readdirSync(documents))
-      if (/^(?:report\.json|(?:settings|credits)-.*\.png)$/.test(name))
+      if (/^(?:report\.json|(?:settings|credits|schedule)-.*\.png)$/.test(name))
         fs.copyFileSync(path.join(documents, name), path.join(output, name));
   };
   try {

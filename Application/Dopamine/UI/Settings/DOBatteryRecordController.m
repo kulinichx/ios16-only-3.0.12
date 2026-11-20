@@ -17,7 +17,6 @@
 - (NSDictionary *)loadScheduleConfiguration { return [DOEnvironmentManager.sharedManager batteryRecordConfiguration]; }
 - (NSDictionary *)loadRuntimeStatus { return [DOEnvironmentManager.sharedManager batteryRecordStatus]; }
 - (const char *)scheduleStatusNotification { return RC_BATTERY_STATUS; }
-- (const char *)scheduleQueryNotification { return RC_BATTERY_QUERY; }
 
 - (void)viewDidLoad
 {
@@ -39,7 +38,7 @@
     // A completed one-shot can be scheduled again without changing its time.
     BOOL completed = [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]] &&
         [self.runtimeStatus[@"Completed"] boolValue] && !self.runtimeStatus[@"Active"];
-    self.saveButton.enabled = !self.pendingCommand &&
+    self.saveEnabled = !self.pendingCommand &&
         (self.hasChanges || self.timePickerExpanded || (completed && self.enabledSwitch.on));
 }
 
@@ -73,7 +72,7 @@
         BOOL success = [@[@"started", @"stopped"] containsObject:result];
         [self showScheduleFeedback:DOLocalizedString([@"BatteryRecord_Result_" stringByAppendingString:result]) error:!success];
         [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:success ? UINotificationFeedbackTypeSuccess : UINotificationFeedbackTypeWarning];
-    } else if (self.pendingCommand && !self.statusWaiting) {
+    } else if (self.pendingCommand) {
         if (-self.pendingCommandDate.timeIntervalSinceNow > 60) {
             self.pendingCommand = nil;
             self.pendingCommandDate = nil;
@@ -84,7 +83,7 @@
     }
     BOOL completed = [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]] &&
         [self.runtimeStatus[@"Completed"] boolValue] && !self.runtimeStatus[@"Active"];
-    self.saveButton.enabled = !self.pendingCommand &&
+    self.saveEnabled = !self.pendingCommand &&
         (self.hasChanges || self.timePickerExpanded || (completed && self.enabledSwitch.on));
 }
 
@@ -126,6 +125,9 @@
     if (self.statusFresh && self.runtimeHasError)
         return DOLocalizedString([@"BatteryRecord_State_" stringByAppendingString:status[@"State"]]);
     if (self.statusFresh && status[@"Active"]) {
+        NSDate *end = status[@"Active"][@"PlannedEnd"];
+        if ([end isKindOfClass:NSDate.class] && end.timeIntervalSinceNow <= 0)
+            return [NSString stringWithFormat:DOLocalizedString(@"BatteryRecord_EndPending"), DOScheduleDateText(end)];
         NSString *text = [NSString stringWithFormat:DOLocalizedString(@"BatteryRecord_StartedAt"),
             DOScheduleDateText(status[@"Active"][@"Start"][@"Date"])];
         if (status[@"Active"][@"PlannedEnd"]) text = [text stringByAppendingFormat:@"\n%@",
@@ -152,13 +154,13 @@
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return section == 0 ? 6 : section == 1 ? 2 : MAX(1, [self.runtimeStatus[@"History"] count]);
+    return section == 0 ? 6 : section == 1 ? (self.statusFresh && self.runtimeStatus[@"Active"] ? 2 : 1) : MAX(1, [self.runtimeStatus[@"History"] count]);
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section
 {
     return DOLocalizedString(section == 0 ? @"BatteryRecord_Plan" : section == 1 ? @"LowPowerSchedule_Status" : @"BatteryRecord_History");
 }
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
+- (NSString *)footerTextForSection:(NSInteger)section
 {
     return DOLocalizedString(section == 0 ? @"BatteryRecord_PlanFooter" : section == 1 ? @"BatteryRecord_EndpointFooter" : @"BatteryRecord_CompareFooter");
 }
@@ -178,7 +180,7 @@
     } else if (indexPath.section == 1 && indexPath.row == 0) {
         [self configureStatusCell:cell];
     } else if (indexPath.section == 1) {
-        cell.textLabel.text = DOLocalizedString(self.runtimeStatus[@"Active"] ? @"BatteryRecord_Stop" : @"BatteryRecord_Start");
+        cell.textLabel.text = DOLocalizedString(@"BatteryRecord_Stop");
         cell.accessibilityTraits |= UIAccessibilityTraitButton;
         cell.detailTextLabel.text = self.pendingCommand ? DOLocalizedString(@"BatteryRecord_CommandPending") : nil;
     } else {
@@ -208,17 +210,12 @@
         [self showScheduleFeedback:DOLocalizedString(@"BatteryRecord_Copied") error:NO];
         [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
     } else if (indexPath.section == 1 && indexPath.row == 1) {
-        if (self.pendingCommand) { [self requestStatus]; return; }
-        if (!self.statusFresh) {
-            [self requestStatus];
-            [self showMessage:DOLocalizedString(@"BatteryRecord_ManualNeedsRefresh")];
-            return;
-        }
+        if (self.pendingCommand || !self.statusFresh || !self.runtimeStatus[@"Active"]) return;
         NSError *error = nil;
-        self.pendingCommand = [DOEnvironmentManager.sharedManager sendBatteryRecordCommand:self.runtimeStatus[@"Active"] ? @"stop" : @"start" error:&error];
+        self.pendingCommand = [DOEnvironmentManager.sharedManager sendBatteryRecordCommand:@"stop" error:&error];
         if (!self.pendingCommand) { [self showMessage:error.localizedDescription ?: DOLocalizedString(@"LowPowerSchedule_RuntimeFailed")]; return; }
         self.pendingCommandDate = NSDate.date;
-        [self requestStatus];
+        [self didRefreshStatus];
         [self showScheduleFeedback:DOLocalizedString(@"BatteryRecord_CommandPending") error:NO];
     } else if (indexPath.section == 2 && [self.runtimeStatus[@"History"] count]) {
         NSDictionary *record = self.runtimeStatus[@"History"][indexPath.row];

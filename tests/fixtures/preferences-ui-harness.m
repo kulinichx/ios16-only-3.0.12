@@ -183,7 +183,7 @@ static void Layout(DOPSListController *page)
     [page viewDidLayoutSubviews];
 }
 
-static void Snapshot(DOPSListController *page, NSString *name, NSString *documents)
+static void Snapshot(UIViewController *page, NSString *name, NSString *documents)
 {
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:page.view.bounds.size];
@@ -247,7 +247,7 @@ static NSDictionary *RunChecks(UIViewController *host, NSString *documents)
         [page removeFromParentViewController];
     }
     NSUInteger homeFocusCases = CheckHomeFocus(host);
-    NSUInteger scheduleUICases = CheckScheduleUI(host);
+    NSUInteger scheduleUICases = CheckScheduleUI(host, documents);
     return @{@"status": @"passed", @"viewports": @(viewports), @"scrollChecks": @(checks), @"homeFocusCases": @(homeFocusCases), @"scheduleUICases": @(scheduleUICases),
         @"note": @"Real UIKit and production callbacks/material; synthetic Preferences parent. Not an iOS 16 device test."};
 }

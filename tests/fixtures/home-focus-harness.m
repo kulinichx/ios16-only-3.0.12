@@ -192,6 +192,27 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         ]];
         home.informationVisible = YES;
         home.observingHomeThermalState = YES;
+        // Production press feedback must restore after release, cancellation and disabling.
+        UIView *pressSurface = [[UIView alloc] initWithFrame:CGRectMake(20, 20, 160, 60)];
+        DOHomePressButton *pressButton = [DOHomePressButton buttonWithType:UIButtonTypeCustom];
+        pressButton.frame = pressSurface.bounds;
+        pressButton.pressSurface = pressSurface;
+        [pressSurface addSubview:pressButton];
+        [home.view addSubview:pressSurface];
+        __block NSUInteger actionCount = 0;
+        [pressButton addAction:[UIAction actionWithHandler:^(__kindof UIAction *action) { actionCount++; }]
+            forControlEvents:UIControlEventTouchUpInside];
+        pressButton.highlighted = YES;
+        CHECK(fabs(pressSurface.transform.a - (UIAccessibilityIsReduceMotionEnabled() ? 1.0 : 0.97)) < 0.001);
+        pressButton.highlighted = NO;
+        CHECK(CGAffineTransformIsIdentity(pressSurface.transform));
+        CHECK(actionCount == 0);
+        [pressButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+        CHECK(actionCount == 1);
+        pressButton.highlighted = YES;
+        pressButton.enabled = NO;
+        CHECK(CGAffineTransformIsIdentity(pressSurface.transform));
+        [pressSurface removeFromSuperview];
         for (NSValue *size in sizes) {
             home.view.frame = (CGRect){CGPointZero, size.CGSizeValue};
             [home.view setNeedsLayout];
