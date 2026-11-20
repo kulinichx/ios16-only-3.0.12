@@ -24,6 +24,7 @@
 @end
 
 @interface HomeFocusHarness : UIViewController <UIGestureRecognizerDelegate>
+/* PRODUCTION_HOME_ENTRANCE_PROPERTIES */
 @property(nonatomic, strong) UIView *customGlassProfileView;
 @property(nonatomic, strong) UIView *customGlassJailbreakPlaceholder;
 @property(nonatomic, strong) UIView *customGlassActionGrid;
@@ -64,6 +65,7 @@
 - (void)updateHomeThermalInteriorBreath;
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated;
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated force:(BOOL)force;
+- (void)finishHomeEntrance;
 @end
 
 @implementation HomeFocusHarness
@@ -76,6 +78,7 @@
 }
 /* PRODUCTION_HOME_FOCUS */
 /* PRODUCTION_HOME_THERMAL */
+/* PRODUCTION_HOME_ENTRANCE */
 @end
 
 // The avatar moves through transform, which leaves its layout center unchanged.
@@ -105,6 +108,7 @@ static void CheckHomeAvatarRect(HomeFocusHarness *home, CGRect expected, NSStrin
 static NSUInteger CheckHomeFocus(UIViewController *host)
 {
     BOOL revealWasConsumed = DOHomeThermalLaunchRevealConsumed;
+    BOOL entranceWasConsumed = DOHomeEntranceConsumed;
     DOHomeThermalLaunchRevealConsumed = YES;
     BOOL animationsWereEnabled = UIView.areAnimationsEnabled;
     [UIView setAnimationsEnabled:NO];
@@ -126,6 +130,12 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         home.customGlassActionGrid = [UIView new];
         home.jailbreakBtn = [UIView new];
         home.updateButton = [UIView new];
+        home.homeEntranceHeader = [[UIView alloc] initWithFrame:CGRectMake(40, 8, 240, 40)];
+        home.homeEntranceLeftColumn = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, 100)];
+        home.homeEntranceRightColumn = [[UIView alloc] initWithFrame:CGRectMake(140, 0, 120, 100)];
+        [home.view addSubview:home.homeEntranceHeader];
+        [home.customGlassActionGrid addSubview:home.homeEntranceLeftColumn];
+        [home.customGlassActionGrid addSubview:home.homeEntranceRightColumn];
         home.customGlassUsernameLabel = [UILabel new];
         home.customGlassSystemLabel = [UILabel new];
         home.customGlassMottoLabel = [UILabel new];
@@ -188,6 +198,56 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             CGRect original = HomeAvatarRect(home);
             CGRect profile = home.customGlassProfileView.frame;
             CHECK(!home.customGlassAvatarContainerView.hasAmbiguousLayout);
+            // Exercise the actual launch methods: pre-frame hiding, edge directions,
+            // readiness gating, interruption, normal completion and no replay.
+            DOHomeEntranceConsumed = NO;
+            home.homeEntranceReady = NO;
+            [home prepareHomeEntrance];
+            CHECK(DOHomeEntranceConsumed);
+            if (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled) {
+                CHECK(home.homeEntrancePrepared);
+                for (UIView *view in home.homeEntranceViews) CHECK(view.alpha == 0);
+                CheckHomeAvatarRect(home, original, @"entrance avatar stays in place");
+                CHECK(CGAffineTransformIsIdentity(home.customGlassProfileView.transform));
+                CHECK(CGRectGetMaxY([home.homeEntranceHeader convertRect:home.homeEntranceHeader.bounds toView:home.view]) < 0);
+                CHECK(CGRectGetMaxX([home.homeEntranceLeftColumn convertRect:home.homeEntranceLeftColumn.bounds toView:home.view]) < 0);
+                CHECK(CGRectGetMinX([home.homeEntranceRightColumn convertRect:home.homeEntranceRightColumn.bounds toView:home.view]) > size.CGSizeValue.width);
+                CHECK(CGRectGetMinY([home.jailbreakBtn convertRect:home.jailbreakBtn.bounds toView:home.view]) > size.CGSizeValue.height);
+                [home startHomeEntranceIfReady];
+                CHECK(home.homeEntranceAnimator == nil);
+                [UIView setAnimationsEnabled:YES];
+                home.homeEntranceReady = YES;
+                [home startHomeEntranceIfReady];
+                UIViewPropertyAnimator *entrance = home.homeEntranceAnimator;
+                CHECK(entrance != nil);
+                [home startHomeEntranceIfReady];
+                CHECK(home.homeEntranceAnimator == entrance);
+                NSArray<UIView *> *entranceViews = home.homeEntranceViews;
+                if (cases == 0) {
+                    // Let one entrance really finish; other sizes interrupt halfway.
+                    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1.85]];
+                } else {
+                    [entrance pauseAnimation];
+                    entrance.fractionComplete = 0.45;
+                    [home finishHomeEntrance];
+                }
+                CHECK(!home.homeEntrancePrepared && home.homeEntranceAnimator == nil);
+                for (UIView *view in entranceViews) {
+                    CHECK(view.alpha == 1);
+                    CHECK(CGAffineTransformIsIdentity(view.transform));
+                }
+                [UIView setAnimationsEnabled:NO];
+                [home prepareHomeEntrance];
+                CHECK(!home.homeEntrancePrepared);
+                // A scene can disappear after preparation, before animation starts.
+                DOHomeEntranceConsumed = NO;
+                [home prepareHomeEntrance];
+                [home finishHomeEntrance];
+                CHECK(home.homeEntranceAnimator == nil && home.customGlassAvatarContainerView.alpha == 1);
+                CheckHomeAvatarRect(home, original, @"interrupted entrance restored");
+            } else {
+                CHECK(!home.homeEntrancePrepared && home.customGlassAvatarContainerView.alpha == 1);
+            }
             pan.testVelocity = CGPointMake(20, 400);
             CHECK(![home gestureRecognizerShouldBegin:pan]);
             for (NSNumber *direction in @[@-1, @1]) {
@@ -311,6 +371,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         [home removeFromParentViewController];
     } @finally {
         DOHomeThermalLaunchRevealConsumed = revealWasConsumed;
+        DOHomeEntranceConsumed = entranceWasConsumed;
         [UIView setAnimationsEnabled:animationsWereEnabled];
     }
     return cases;

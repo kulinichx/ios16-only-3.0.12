@@ -32,6 +32,8 @@ function harnessSource() {
     CREDITS_REFRESH: section(credits, '- (void)customGlassRefreshPageBackdrop', '- (void)customGlassRefreshPageAppearance'),
     CREDITS_LAYOUT: section(credits, '- (void)viewDidLayoutSubviews', '- (void)customGlassStyleContent:'),
     HOME_VIEWS: section(home, 'static NSString * const DOHomeThermalBreathKey', '@interface DOMainViewController'),
+    HOME_ENTRANCE_PROPERTIES: section(home, '@property(nonatomic, strong) UIView *homeEntranceHeader;', '@property(nonatomic) BOOL hideStatusBar;'),
+    HOME_ENTRANCE: section(home, '\n- (void)prepareHomeEntrance\n{', '// 显示主页时刷新信息及越狱按钮状态。'),
     HOME_FOCUS: section(home, '- (CGFloat)customGlassAvatarHiddenOffset', '- (void)configureCustomGlassHeaderView:'),
     HOME_THERMAL: section(home, '\n- (void)displayHomeThermalState:(NSProcessInfoThermalState)state animate:(BOOL)animate\n{', '\n- (void)startHomeThermalUpdates\n{'),
   };

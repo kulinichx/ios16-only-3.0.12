@@ -29,6 +29,7 @@
 static NSString * const DOHomeThermalBreathKey = @"homeThermalBreath";
 static NSString * const DOHomeAvatarTemperatureModeKey = @"DOCustomGlassTheme.AvatarTemperatureMode";
 static BOOL DOHomeThermalLaunchRevealConsumed = NO;
+static BOOL DOHomeEntranceConsumed = NO;
 static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diameter * 0.36); }
 
 // One cached feather mask; Core Animation only varies opacity while visible.
@@ -288,6 +289,15 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 @property(nonatomic) BOOL homeThermalRevealActive;
 @property(nonatomic, strong) UIView *customGlassJailbreakDisabledOverlay;
 @property(nonatomic, strong) NSProgress *customGlassAvatarImport;
+@property(nonatomic, strong) UIView *homeEntranceHeader;
+@property(nonatomic, strong) UIView *homeEntranceLeftColumn;
+@property(nonatomic, strong) UIView *homeEntranceRightColumn;
+@property(nonatomic, strong) NSArray<UIView *> *homeEntranceViews;
+@property(nonatomic, strong) NSArray<NSNumber *> *homeEntranceAlphas;
+@property(nonatomic, strong) UIViewPropertyAnimator *homeEntranceAnimator;
+@property(nonatomic) BOOL homeEntrancePrepared;
+@property(nonatomic) BOOL homeEntranceReady;
+@property(nonatomic) CGSize homeEntranceSize;
 
 @property(nonatomic) BOOL hideStatusBar;
 @property(nonatomic) BOOL hideHomeIndicator;
@@ -301,6 +311,9 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)applyHomeAvatarDisplayMode;
 - (void)updateHomeThermalInteriorBreath;
 - (void)applyCustomGlassAvatarOffset:(CGFloat)offset;
+- (void)prepareHomeEntrance;
+- (void)startHomeEntranceIfReady;
+- (void)finishHomeEntrance;
 
 @end
 
@@ -337,6 +350,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     }
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resumeSystemInformationUpdates) name:UIApplicationDidBecomeActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(stopUptimeTimer) name:UIApplicationWillResignActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(finishHomeEntrance) name:UIApplicationWillResignActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(homeThermalSceneDidActivate:)
         name:UISceneDidActivateNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(homeThermalSceneWillDeactivate:)
@@ -827,6 +841,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
+    if (self.homeEntrancePrepared && !CGSizeEqualToSize(self.homeEntranceSize, self.view.bounds.size))
+        [self finishHomeEntrance];
     self.customGlassAvatarMaterialView.layer.borderWidth = 0.0;
     if (self.customGlassAvatarHidden && !self.customGlassAvatarAnimator &&
         self.customGlassAvatarLeftEdge.state != UIGestureRecognizerStateChanged &&
@@ -844,6 +860,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture
 {
     if (!self.informationVisible || self.presentedViewController) return NO;
+    [self finishHomeEntrance];
     if ([gesture isKindOfClass:UIPanGestureRecognizer.class]) {
         CGPoint velocity = [(UIPanGestureRecognizer *)gesture velocityInView:self.view];
         if (fabs(velocity.x) <= fabs(velocity.y)) return NO;
@@ -1033,6 +1050,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     self.customGlassHeaderSubtitleLabels = headerSubtitleLabels;
 
     [mainStack addArrangedSubview:headerView];
+    self.homeEntranceHeader = headerView;
     [mainStack setCustomSpacing:headerToProfileSpacing afterView:headerView];
 
     UIView *profileView = [[UIView alloc] init];
@@ -1254,6 +1272,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     leftColumn.spacing = mainSpacing;
     leftColumn.translatesAutoresizingMaskIntoConstraints = NO;
     [actionGrid addSubview:leftColumn];
+    self.homeEntranceLeftColumn = leftColumn;
 
     UIStackView *rightColumn = [[UIStackView alloc] init];
     rightColumn.axis = UILayoutConstraintAxisVertical;
@@ -1262,6 +1281,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     rightColumn.spacing = mainSpacing;
     rightColumn.translatesAutoresizingMaskIntoConstraints = NO;
     [actionGrid addSubview:rightColumn];
+    self.homeEntranceRightColumn = rightColumn;
 
     [NSLayoutConstraint activateConstraints:@[
         [leftColumn.leadingAnchor constraintEqualToAnchor:actionGrid.leadingAnchor],
@@ -1376,6 +1396,7 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     __block DOCustomLiquidGlassView *jailbreakMaterialGlass = nil;
 
     self.jailbreakBtn = [[DOJailbreakButton alloc] initWithAction:[UIAction actionWithTitle:jailbreakButtonTitle image:jailbreakButtonImage identifier:@"jailbreak" handler:^(__kindof UIAction * _Nonnull action) {
+        [self finishHomeEntrance];
 /********************************** roothide specific ************************************/
         if (![self requireCustomGlassSupporterAuthorization])
             return;
@@ -1746,6 +1767,8 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
+        if (UIAccessibilityIsReduceMotionEnabled() || NSProcessInfo.processInfo.lowPowerModeEnabled)
+            [self finishHomeEntrance];
         if (self.observingHomeThermalState && UIAccessibilityIsReduceMotionEnabled()) {
             [self.homeThermalHalo stopBreath];
         } else if (self.observingHomeThermalState) {
@@ -1757,12 +1780,95 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
 
 - (void)homeThermalSceneDidActivate:(NSNotification *)notification
 {
-    if (notification.object == self.viewIfLoaded.window.windowScene) [self startHomeThermalUpdates];
+    if (notification.object == self.viewIfLoaded.window.windowScene) {
+        [self startHomeThermalUpdates];
+        [self startHomeEntranceIfReady];
+    }
 }
 
 - (void)homeThermalSceneWillDeactivate:(NSNotification *)notification
 {
-    if (notification.object == self.viewIfLoaded.window.windowScene) [self stopHomeThermalUpdates];
+    if (notification.object == self.viewIfLoaded.window.windowScene) {
+        [self finishHomeEntrance];
+        [self stopHomeThermalUpdates];
+    }
+}
+
+// Prepare before the first rendered frame, then wait for an active, visible scene.
+// This is process-local: returning from Settings or the background never replays it.
+- (void)prepareHomeEntrance
+{
+    if (DOHomeEntranceConsumed) return;
+    DOHomeEntranceConsumed = YES;
+    if (UIAccessibilityIsReduceMotionEnabled() || NSProcessInfo.processInfo.lowPowerModeEnabled) return;
+    [self.view layoutIfNeeded];
+    self.homeEntranceViews = @[self.homeEntranceHeader, self.customGlassAvatarContainerView,
+        self.customGlassProfileView, self.homeEntranceLeftColumn, self.homeEntranceRightColumn, self.jailbreakBtn];
+    NSMutableArray<NSNumber *> *alphas = [NSMutableArray array];
+    for (UIView *view in self.homeEntranceViews) [alphas addObject:@(view.alpha)];
+    self.homeEntranceAlphas = alphas;
+    self.homeEntranceSize = self.view.bounds.size;
+    CGRect header = [self.homeEntranceHeader convertRect:self.homeEntranceHeader.bounds toView:self.view];
+    CGRect left = [self.homeEntranceLeftColumn convertRect:self.homeEntranceLeftColumn.bounds toView:self.view];
+    CGRect right = [self.homeEntranceRightColumn convertRect:self.homeEntranceRightColumn.bounds toView:self.view];
+    CGRect footer = [self.jailbreakBtn convertRect:self.jailbreakBtn.bounds toView:self.view];
+    // Include a little extra room for the glass shadows. Constraints stay untouched.
+    CGFloat margin = 24.0;
+    self.homeEntrancePrepared = YES;
+    [UIView performWithoutAnimation:^{
+        self.homeEntranceHeader.transform = CGAffineTransformMakeTranslation(0, CGRectGetMinY(self.view.bounds) - CGRectGetMaxY(header) - margin);
+        self.homeEntranceLeftColumn.transform = CGAffineTransformMakeTranslation(CGRectGetMinX(self.view.bounds) - CGRectGetMaxX(left) - margin, 0);
+        self.homeEntranceRightColumn.transform = CGAffineTransformMakeTranslation(CGRectGetMaxX(self.view.bounds) - CGRectGetMinX(right) + margin, 0);
+        self.jailbreakBtn.transform = CGAffineTransformMakeTranslation(0, CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(footer) + margin);
+        // Avatar and profile text only fade at their own positions; no zoom or travel.
+        for (UIView *view in self.homeEntranceViews) view.alpha = 0.0;
+    }];
+}
+
+- (void)startHomeEntranceIfReady
+{
+    UIWindowScene *scene = self.viewIfLoaded.window.windowScene;
+    if (!self.homeEntrancePrepared || self.homeEntranceAnimator || !self.homeEntranceReady ||
+        !self.informationVisible || !scene || scene.activationState != UISceneActivationStateForegroundActive) return;
+    if (UIAccessibilityIsReduceMotionEnabled() || NSProcessInfo.processInfo.lowPowerModeEnabled) {
+        [self finishHomeEntrance];
+        return;
+    }
+    // A long deceleration and a small stagger keep the entrance calm, without bounce.
+    UICubicTimingParameters *timing = [[UICubicTimingParameters alloc]
+        initWithControlPoint1:CGPointMake(0.22, 0.72) controlPoint2:CGPointMake(0.26, 1.0)];
+    UIViewPropertyAnimator *animator = [[UIViewPropertyAnimator alloc] initWithDuration:1.65 timingParameters:timing];
+    self.homeEntranceAnimator = animator;
+    NSArray<NSNumber *> *delays = @[@0.0, @0.04, @0.10, @0.12, @0.18, @0.24];
+    for (NSUInteger i = 0; i < self.homeEntranceViews.count; i++) {
+        UIView *view = self.homeEntranceViews[i];
+        CGFloat alpha = self.homeEntranceAlphas[i].doubleValue;
+        [animator addAnimations:^{
+            view.transform = CGAffineTransformIdentity;
+            view.alpha = alpha;
+        } delayFactor:delays[i].doubleValue];
+    }
+    __weak typeof(self) weakSelf = self;
+    [animator addCompletion:^(UIViewAnimatingPosition position) { [weakSelf finishHomeEntrance]; }];
+    [animator startAnimation];
+}
+
+- (void)finishHomeEntrance
+{
+    if (!self.homeEntrancePrepared) return;
+    self.homeEntrancePrepared = NO;
+    UIViewPropertyAnimator *animator = self.homeEntranceAnimator;
+    self.homeEntranceAnimator = nil;
+    if (animator.state == UIViewAnimatingStateActive) [animator stopAnimation:YES];
+    [UIView performWithoutAnimation:^{
+        for (NSUInteger i = 0; i < self.homeEntranceViews.count; i++) {
+            UIView *view = self.homeEntranceViews[i];
+            view.transform = CGAffineTransformIdentity;
+            view.alpha = self.homeEntranceAlphas[i].doubleValue;
+        }
+    }];
+    self.homeEntranceViews = nil;
+    self.homeEntranceAlphas = nil;
 }
 
 // 显示主页时刷新信息及越狱按钮状态。
@@ -1774,18 +1880,23 @@ static CGFloat DOHomeThermalHaloExtent(CGFloat diameter) { return MAX(26.0, diam
     [self refreshCustomGlassButtonState];
     [self resumeSystemInformationUpdates];
     [self.jailbreakBtn.button setTitle:[self jailbreakButtonTitle] forState:UIControlStateNormal];
+    [self prepareHomeEntrance];
 }
 
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
+    self.homeEntranceReady = YES;
     [self startHomeThermalUpdates];
+    [self startHomeEntranceIfReady];
 }
 
 // 页面隐藏后停止计时，返回时按系统时钟恢复。
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
+    self.homeEntranceReady = NO;
+    [self finishHomeEntrance];
     self.informationVisible = NO;
     [self finishCustomGlassAvatarAnimation];
     [self applyCustomGlassAvatarOffset:self.customGlassAvatarHidden ? [self customGlassAvatarHiddenOffset] : 0.0];
