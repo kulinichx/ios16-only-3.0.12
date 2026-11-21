@@ -99,6 +99,12 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [nav pushViewController:container animated:NO];
     [nav.view layoutIfNeeded];
     DOLowPowerScheduleController *low = container.pages[0];
+    // Keep the first enable outside its window regardless of the test clock.
+    NSDateComponents *nowComponents = [rcLowPowerLocalCalendar() components:NSCalendarUnitHour | NSCalendarUnitMinute fromDate:NSDate.date];
+    NSInteger nowMinute = nowComponents.hour * 60 + nowComponents.minute;
+    low.lastStartMinute = (nowMinute + 10) % 1440;
+    low.lastEndMinute = (nowMinute + 20) % 1440;
+    if (low.lastEndMinute == 60) low.lastEndMinute = 61;
     low.enabledSwitch.on = YES;
     [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK([DOEnvironmentManager.sharedManager.lowConfig[@"Enabled"] boolValue]);
@@ -115,7 +121,8 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [container selectPage:0];
     [container finishPageTransition];
     CHECK(!low.hasChanges && low.lastStartMinute == 60);
-    CHECK(![low.statusText containsString:@"Waiting"]);
+    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Confirming")] ||
+        [low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Unconfirmed")]);
     for (NSString *state in @[@"timerFailed", @"calendarFailed", @"runtimeFailed"]) {
         DOEnvironmentManager.sharedManager.lowState = @{@"Revision": low.savedConfiguration[@"Revision"],
             @"Updated": NSDate.date, @"State": state};
@@ -257,10 +264,10 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.lowConfig[@"Enabled"] boolValue] && !low.hasChanges);
     CHECK([env.lowConfig[@"EndMinute"] integerValue] == 390);
-    CHECK([low.statusText isEqual:DOLocalizedString(NSProcessInfo.processInfo.lowPowerModeEnabled ? @"LowPowerSchedule_SystemOn" : @"LowPowerSchedule_Disabled")]);
+    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Stopping")]);
     NSString *stopID = env.lowConfig[@"DisableRequest"];
     env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": @"older"};
-    [low finishStopWait:stopID];
+    [low finishScheduleWait:stopID];
     CHECK([[low disabledStatusWithSystemLowPower:NO] isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
     CHECK([[low disabledStatusWithSystemLowPower:YES] isEqual:DOLocalizedString(@"LowPowerSchedule_SystemOn")]);
     env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": stopID};
@@ -276,7 +283,7 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [battery.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.batteryConfig[@"Enabled"] boolValue] && env.batteryConfig[@"DisableRequest"]);
     CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_EndUnconfirmed")]);
-    [battery finishStopWait:env.batteryConfig[@"DisableRequest"]];
+    [battery finishScheduleWait:env.batteryConfig[@"DisableRequest"]];
     CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_EndUnconfirmed")]);
     env.batteryState = nil; [battery refreshStatus];
     CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_Paused")]);

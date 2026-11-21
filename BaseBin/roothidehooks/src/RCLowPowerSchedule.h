@@ -49,6 +49,7 @@ static inline BOOL rcLowPowerConfigurationValid(id configuration)
     id version = configuration[@"Version"];
     id enabled = configuration[@"Enabled"];
     id revision = configuration[@"Revision"];
+    id skipThrough = configuration[@"SkipThrough"];
     return [version isKindOfClass:NSNumber.class] &&
         CFGetTypeID((__bridge CFTypeRef)version) != CFBooleanGetTypeID() &&
         [version doubleValue] == 1 &&
@@ -56,6 +57,7 @@ static inline BOOL rcLowPowerConfigurationValid(id configuration)
         CFGetTypeID((__bridge CFTypeRef)enabled) == CFBooleanGetTypeID() &&
         [revision isKindOfClass:NSString.class] &&
         [[NSUUID alloc] initWithUUIDString:revision] != nil &&
+        (!skipThrough || [skipThrough isKindOfClass:NSDate.class]) &&
         rcLowPowerMinuteValid(configuration[@"StartMinute"]) &&
         rcLowPowerMinuteValid(configuration[@"EndMinute"]) &&
         ![configuration[@"StartMinute"] isEqual:configuration[@"EndMinute"]];
@@ -115,6 +117,33 @@ static inline NSDictionary *rcLowPowerEvent(NSDictionary *configuration,
     NSComparisonResult order = [dates[0] compare:dates[1]];
     BOOL on = next ? order == NSOrderedAscending : order == NSOrderedDescending;
     return @{@"Date": dates[on ? 0 : 1], @"PowerMode": @(on)};
+}
+
+// A deferred first run skips both edges of the current window. Once a
+// subsequent start is reached, resume normal daily scheduling and catch-up.
+static inline BOOL rcLowPowerEventIsDeferred(NSDictionary *configuration, NSDictionary *event)
+{
+    NSDate *skipThrough = configuration[@"SkipThrough"];
+    return skipThrough && event && [event[@"Date"] compare:skipThrough] != NSOrderedDescending;
+}
+
+static inline NSDictionary *rcLowPowerNextStart(NSDictionary *configuration, NSDate *now,
+                                                NSCalendar *calendar)
+{
+    NSDate *date = rcLowPowerDateForMinute([configuration[@"StartMinute"] integerValue], now, calendar, YES);
+    return date ? @{@"Date": date, @"PowerMode": @YES} : nil;
+}
+
+static inline NSDictionary *rcLowPowerNextScheduledEvent(NSDictionary *configuration,
+                                                         NSDate *now, NSCalendar *calendar)
+{
+    NSDictionary *previous = rcLowPowerEvent(configuration, now, calendar, NO);
+    if (rcLowPowerEventIsDeferred(configuration, previous)) {
+        NSDate *skipThrough = configuration[@"SkipThrough"];
+        NSDate *after = [skipThrough compare:now] == NSOrderedDescending ? skipThrough : now;
+        return rcLowPowerNextStart(configuration, after, calendar);
+    }
+    return rcLowPowerEvent(configuration, now, calendar, YES);
 }
 
 static inline NSCalendar *rcLowPowerLocalCalendar(void)

@@ -332,7 +332,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 @property(nonatomic, strong) UIImpactFeedbackGenerator *timeFeedback;
 @property(nonatomic, copy) NSArray<NSLayoutConstraint *> *timePickerCellConstraints;
 @property(nonatomic) int statusToken;
-@property(nonatomic, copy) NSString *pendingStop;
+@property(nonatomic, copy) NSString *pendingRevision;
+@property(nonatomic) BOOL deferCurrentWindow;
 @end
 
 @implementation DOLowPowerScheduleController
@@ -576,7 +577,49 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     return [DOEnvironmentManager.sharedManager saveLowPowerScheduleConfiguration:configuration error:error];
 }
 
-- (void)settingsChanged { [self applySettings]; }
+- (void)settingsChanged
+{
+    if (self.scheduleMode != 0 || !self.enabledSwitch.on || [self.savedConfiguration[@"Enabled"] boolValue]) {
+        [self applySettings];
+        return;
+    }
+    NSDictionary *draft = @{ @"Version": @1, @"Enabled": @YES,
+        @"Revision": self.savedConfiguration[@"Revision"], @"StartMinute": @(self.lastStartMinute),
+        @"EndMinute": @(self.lastEndMinute) };
+    NSDate *now = NSDate.date;
+    NSCalendar *calendar = rcLowPowerLocalCalendar();
+    NSDictionary *previous = rcLowPowerEvent(draft, now, calendar, NO);
+    if (![previous[@"PowerMode"] boolValue]) {
+        [self applySettings];
+        return;
+    }
+    NSDate *end = rcLowPowerEvent(draft, now, calendar, YES)[@"Date"];
+    self.enabledSwitch.on = NO;
+    if (self.presentedViewController) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"LowPowerSchedule_StartNowTitle")
+        message:[NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_StartNowMessage"), DOScheduleDateText(end)]
+        preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_StartNow") style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *action) { [weakSelf enablePlanDeferringCurrentWindow:NO]; }]];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_WaitForNext") style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *action) { [weakSelf enablePlanDeferringCurrentWindow:YES]; }]];
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_AdjustTime") style:UIAlertActionStyleCancel
+        handler:^(__unused UIAlertAction *action) {
+            if (!weakSelf.timePickerExpanded || weakSelf.editingTime != 0) {
+                [weakSelf tableView:weakSelf.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
+            }
+        }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)enablePlanDeferringCurrentWindow:(BOOL)defer
+{
+    self.deferCurrentWindow = defer;
+    self.enabledSwitch.on = YES;
+    [self applySettings];
+    self.deferCurrentWindow = NO;
+}
 
 - (void)restoreControls
 {
@@ -738,20 +781,20 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     dispatch_async(dispatch_get_main_queue(), ^{ if (self.isScheduleVisible) [self refreshStatus]; });
 }
 
-- (void)finishStopWait:(NSString *)request
+- (void)finishScheduleWait:(NSString *)request
 {
-    if (![self.pendingStop isEqual:request]) return;
-    self.pendingStop = nil;
-    // Read once even if the status notification was missed. Never resend the stop.
+    if (![self.pendingRevision isEqual:request]) return;
+    self.pendingRevision = nil;
+    // Read once even if the status notification was missed.
     [self refreshStatus];
 }
 
-- (void)beginStopWait:(NSString *)request
+- (void)beginScheduleWait:(NSString *)request
 {
-    self.pendingStop = request;
+    self.pendingRevision = request;
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        [weakSelf finishStopWait:request];
+        [weakSelf finishScheduleWait:request];
     });
 }
 
@@ -762,8 +805,23 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 }
 
 
+- (BOOL)stopIsPending
+{
+    NSString *state = self.statusFresh ? self.runtimeStatus[@"State"] : nil;
+    if ([state isEqual:@"disabled"] || (self.statusFresh && self.runtimeHasError)) return NO;
+    return self.pendingRevision != nil || ([state isEqual:@"verifying"] &&
+        [self.runtimeStatus[@"Updated"] timeIntervalSinceNow] > -5);
+}
+
+- (BOOL)canRetryStop
+{
+    return self.scheduleMode == 0 && ![self.savedConfiguration[@"Enabled"] boolValue] && !self.stopIsPending &&
+        NSProcessInfo.processInfo.lowPowerModeEnabled;
+}
+
 - (NSString *)disabledStatusWithSystemLowPower:(BOOL)on
 {
+    if (self.stopIsPending) return DOLocalizedString(@"LowPowerSchedule_Stopping");
     if (!on) return DOLocalizedString(@"LowPowerSchedule_Disabled");
     if (self.statusFresh && self.runtimeHasError &&
         [self.runtimeStatus[@"DisableRequest"] isEqual:self.savedConfiguration[@"DisableRequest"]])
@@ -773,27 +831,33 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (NSString *)statusText
 {
+    BOOL systemOn = NSProcessInfo.processInfo.lowPowerModeEnabled;
+    if (![self.savedConfiguration[@"Enabled"] boolValue])
+        return [self disabledStatusWithSystemLowPower:systemOn];
     NSDictionary *status = self.runtimeStatus;
     NSString *state = self.statusFresh ? status[@"State"] : nil;
-    if (![self.savedConfiguration[@"Enabled"] boolValue])
-        return [self disabledStatusWithSystemLowPower:NSProcessInfo.processInfo.lowPowerModeEnabled];
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
-    if ([@[@"runtimeFailed", @"timerFailed", @"calendarFailed"] containsObject:state ?: @""])
+    if ([@[@"runtimeFailed", @"timerFailed", @"calendarFailed", @"invalidConfiguration"] containsObject:state ?: @""])
         return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
-    NSDictionary *next = self.statusFresh ? status[@"Next"] : nil;
-    if (![next isKindOfClass:NSDictionary.class] || ![next[@"Date"] isKindOfClass:NSDate.class] ||
-        [next[@"Date"] timeIntervalSinceNow] <= 0)
-        next = rcLowPowerEvent(self.savedConfiguration, NSDate.date, rcLowPowerLocalCalendar(), YES);
-    NSString *action = DOLocalizedString([next[@"PowerMode"] boolValue] ?
-        @"LowPowerSchedule_OnAction" : @"LowPowerSchedule_OffAction");
-    return [NSString stringWithFormat:DOLocalizedString(@"PowerSchedule_Next"), DOScheduleDateText(next[@"Date"]), action];
+    NSDictionary *next = status[@"Next"];
+    if ([state isEqual:@"verifying"]) return DOLocalizedString(@"LowPowerSchedule_Confirming");
+    if (![state isEqual:@"scheduled"] || ![next isKindOfClass:NSDictionary.class] ||
+        ![next[@"Date"] isKindOfClass:NSDate.class] || [next[@"Date"] timeIntervalSinceNow] <= 0)
+        return DOLocalizedString(self.pendingRevision ? @"LowPowerSchedule_Confirming" : @"LowPowerSchedule_Unconfirmed");
+    if (![next[@"PowerMode"] boolValue] && systemOn)
+        return [NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_OnUntil"), DOScheduleDateText(next[@"Date"])];
+    if (![next[@"PowerMode"] boolValue])
+        next = rcLowPowerNextStart(self.savedConfiguration, NSDate.date, rcLowPowerLocalCalendar());
+    if (!next) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
+    NSString *key = systemOn ? @"LowPowerSchedule_SystemOnNextStart" : @"LowPowerSchedule_WaitingForStart";
+    return [NSString stringWithFormat:DOLocalizedString(key), DOScheduleDateText(next[@"Date"])];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return section == 0 ? 4 : 1;
+    return section == 0 ? 4 : (self.canRetryStop ? 2 : 1);
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section
 {
@@ -853,7 +917,14 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self styleScheduleCell:cell];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     if (indexPath.section == 1) {
-        [self configureStatusCell:cell];
+        if (indexPath.row == 1) {
+            cell.textLabel.text = DOLocalizedString(@"LowPowerSchedule_RetryStop");
+            cell.textLabel.textColor = UIColor.systemBlueColor;
+            cell.accessibilityTraits = UIAccessibilityTraitButton;
+            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        } else {
+            [self configureStatusCell:cell];
+        }
     } else if (indexPath.row == 3) {
         if (self.timePickerExpanded) [self attachTimePickerToCell:cell];
     } else if (indexPath.row == 0) {
@@ -906,6 +977,10 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section == 1 && indexPath.row == 1 && self.canRetryStop) {
+        [self retryStoppingLowPower];
+        return;
+    }
     if (indexPath.section != 0 || indexPath.row == 0 || indexPath.row == 3) return;
     NSInteger field = [self isStartRow:indexPath] ? 0 : 1;
     if (self.timePickerExpanded && self.editingTime == field) {
@@ -923,7 +998,45 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self prepareTimeFeedback];
 }
 
-- (NSString *)prepareConfiguration:(NSMutableDictionary *)configuration { return nil; }
+- (NSString *)prepareConfiguration:(NSMutableDictionary *)configuration
+{
+    if (![configuration[@"Enabled"] boolValue]) {
+        [configuration removeObjectForKey:@"SkipThrough"];
+        return nil;
+    }
+    if ([self.savedConfiguration[@"Enabled"] boolValue]) return nil;
+
+    NSDate *now = NSDate.date;
+    NSCalendar *calendar = rcLowPowerLocalCalendar();
+    NSDictionary *previous = rcLowPowerEvent(configuration, now, calendar, NO);
+    if (![previous[@"PowerMode"] boolValue]) {
+        // Enabling outside the window must not replay an earlier OFF.
+        configuration[@"SkipThrough"] = previous[@"Date"];
+    } else if (self.deferCurrentWindow) {
+        configuration[@"SkipThrough"] = rcLowPowerEvent(configuration, now, calendar, YES)[@"Date"];
+    } else {
+        [configuration removeObjectForKey:@"SkipThrough"];
+    }
+    return nil;
+}
+
+- (void)retryStoppingLowPower
+{
+    NSMutableDictionary *configuration = [self.savedConfiguration mutableCopy];
+    NSString *request = NSUUID.UUID.UUIDString;
+    configuration[@"Revision"] = request;
+    configuration[@"DisableRequest"] = request;
+    NSError *error = nil;
+    if (![self writeConfiguration:configuration error:&error]) {
+        [self showScheduleFeedback:[NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_SaveFailed"),
+            error.localizedDescription ?: DOLocalizedString(@"Unknown")] error:YES];
+        return;
+    }
+    self.savedConfiguration = configuration;
+    [self beginScheduleWait:request];
+    [self showScheduleFeedback:nil error:NO];
+    [self refreshStatus];
+}
 
 - (BOOL)applySettings
 {
@@ -935,7 +1048,10 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     configuration[@"EndMinute"] = @(end);
     configuration[@"Revision"] = NSUUID.UUID.UUIDString;
     BOOL stopping = !self.enabledSwitch.on && [self.savedConfiguration[@"Enabled"] boolValue];
-    if (stopping) configuration[@"DisableRequest"] = configuration[@"Revision"];
+    if (stopping) {
+        configuration[@"DisableRequest"] = configuration[@"Revision"];
+        if (self.scheduleMode == 0) [configuration removeObjectForKey:@"SkipThrough"];
+    }
     else if (self.enabledSwitch.on) [configuration removeObjectForKey:@"DisableRequest"];
     NSString *message = start == end ? DOLocalizedString(@"LowPowerSchedule_SameTime") : nil;
     if (!message && !stopping) message = [self prepareConfiguration:configuration];
@@ -949,8 +1065,11 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         return NO;
     }
     self.savedConfiguration = configuration;
-    if (stopping) [self beginStopWait:configuration[@"DisableRequest"]];
-    else if (self.enabledSwitch.on) self.pendingStop = nil;
+    if (stopping || (self.scheduleMode == 0 && self.enabledSwitch.on)) {
+        [self beginScheduleWait:configuration[@"Revision"]];
+    } else if (self.enabledSwitch.on) {
+        self.pendingRevision = nil;
+    }
     [self showScheduleFeedback:nil error:NO];
     [self refreshStatus];
     return YES;
