@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { parseOpenStep } = require('./helpers/openstep.cjs');
 
 const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -164,10 +165,42 @@ test('page entry prelays out the destination and uses the reported animation dur
   assert.match(transition, /animateWithDuration:\[self transitionDuration:transitionContext\]/);
 });
 
+test('horizontal swipes share the selected tab and give edge back priority', () => {
+  const load = body(controller, '- (void)viewDidLoad');
+  assert.match(load, /\[self\.contentView addGestureRecognizer:self\.pagePan\]/);
+  assert.match(load, /UIScreenEdgePanGestureRecognizer\.class[\s\S]*?\[self\.pagePan requireGestureRecognizerToFail:gesture\]/);
+  assert.match(load, /\[page\.tableView\.panGestureRecognizer requireGestureRecognizerToFail:self\.pagePan\]/);
+  assert.match(body(controller, 'shouldReceiveTouch:(UITouch *)touch'), /UIControl\.class/);
+  assert.match(body(controller, '- (void)pagePanned:'), /\[self selectPage:\[self pageIndexForHorizontalMovement:offset\.x\]\]/);
+});
+
+test('Traditional Chinese is packaged with the full string catalog and format placeholders', () => {
+  const catalog = (locale) => parseOpenStep('{' + read(
+    'Application/Dopamine/' + locale + '.lproj/Localizable.strings') + '\n}').value;
+  const traditional = catalog('zh-Hant');
+  const english = catalog('en');
+  const placeholders = (text) => text.match(/%(?:\d+\$)?(?:[-+# 0]*\d*(?:\.\d+)?)?(?:ll|l|z)?[@diufsgx%]/g) || [];
+  for (const [key, text] of Object.entries(english)) {
+    assert.ok(traditional[key], 'Traditional Chinese is missing ' + key);
+    assert.deepEqual(placeholders(traditional[key]), placeholders(text), key);
+  }
+  assert.equal(traditional.PowerSchedule_Title, '節能與耗電記錄');
+  assert.equal(traditional.LowPowerSchedule_StartNow, '立即開啟');
+  assert.equal(traditional.LowPowerSchedule_Title, '低耗電模式');
+  const project = parseOpenStep(read('Application/Dopamine.xcodeproj/project.pbxproj')).value;
+  assert.ok(project.objects[project.rootObject].knownRegions.includes('zh-Hant'));
+  const variant = Object.values(project.objects).find(object => object.isa === 'PBXVariantGroup' && object.name === 'Localizable.strings');
+  assert.ok(variant.children.some(id => project.objects[id].path === 'zh-Hant.lproj/Localizable.strings'));
+  const lookup = body(read('Application/Dopamine/UI/DOUIManager.m'), '- (NSString *)localizedStringForKey:');
+  assert.match(lookup, /@"zh-TW"[\s\S]*?@"zh-HK"[\s\S]*?@"zh-Hant"/);
+  assert.ok(lookup.indexOf('[regionalChineseBundle localizedStringForKey:') <
+    lookup.indexOf('[traditionalChineseBundle localizedStringForKey:'));
+});
+
 test('all schedule localization keys exist in the supported release locales', () => {
   const keys = new Set([...controller.matchAll(/@"(LowPowerSchedule_\w+)"/g)].map(match => match[1]));
   keys.add('LowPowerSchedule_Title');
-  for (const locale of ['en', 'zh-CN', 'zh-Hans']) {
+  for (const locale of ['en', 'zh-CN', 'zh-Hans', 'zh-Hant']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
     for (const key of keys) {
       assert.equal([...strings.matchAll(new RegExp(`^"${key}"\\s*=`, 'gm'))].length, 1,
@@ -201,7 +234,7 @@ test('custom mount controls have complete English and Simplified Chinese copy', 
     'CustomMount_RemoveParentFirst',
     'CustomMount_SharedCopyPreserved',
   ];
-  for (const locale of ['en', 'zh-CN', 'zh-Hans']) {
+  for (const locale of ['en', 'zh-CN', 'zh-Hans', 'zh-Hant']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
     for (const key of keys) {
       assert.equal([...strings.matchAll(new RegExp(`^"${key}"\\s*=`, 'gm'))].length, 1,

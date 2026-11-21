@@ -49,7 +49,7 @@ test('all battery result and page messages have English and Simplified Chinese t
   const keys = new Set([...controller.matchAll(/@"(BatteryRecord_[A-Za-z]+)"/g)].map(m => m[1]));
   for (const result of ['complete','late','interrupted','cancelled','clockChanged','busy','missed','sampleFailed','timerFailed','expired','noActive']) keys.add(`BatteryRecord_Result_${result}`);
   for (const state of ['idle','scheduled','recording','timerFailed','runtimeFailed']) keys.add(`BatteryRecord_State_${state}`);
-  for (const locale of ['en','zh-CN','zh-Hans']) {
+  for (const locale of ['en','zh-CN','zh-Hans','zh-Hant']) {
     const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
     for (const key of keys) assert.match(strings, new RegExp(`"${key}" = "[^"\\n]+";`), `${locale}: ${key}`);
   }

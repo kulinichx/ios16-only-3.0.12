@@ -45,6 +45,17 @@ static NSString *ScheduleLocalizedString(NSString *key)
 #define DOLocalizedString(key) ScheduleLocalizedString(key)
 /* PRODUCTION_SCHEDULE_CONTROLLERS */
 
+@interface ScheduleTestPan : UIPanGestureRecognizer
+@property(nonatomic) CGPoint testOffset;
+@property(nonatomic) CGPoint testVelocity;
+@end
+
+@implementation ScheduleTestPan
+- (UIGestureRecognizerState)state { return UIGestureRecognizerStateEnded; }
+- (CGPoint)translationInView:(UIView *)view { return self.testOffset; }
+- (CGPoint)velocityInView:(UIView *)view { return self.testVelocity; }
+@end
+
 static void ScheduleLabels(UIView *view, NSString *text, NSMutableArray<UILabel *> *labels)
 {
     if (view.hidden || view.alpha == 0) return;
@@ -99,6 +110,27 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [nav pushViewController:container animated:NO];
     [nav.view layoutIfNeeded];
     DOLowPowerScheduleController *low = container.pages[0];
+    CHECK(container.pagePan.delegate == container && container.pagePan.view == container.contentView);
+    ScheduleTestPan *swipe = [[ScheduleTestPan alloc] initWithTarget:nil action:NULL];
+    swipe.testOffset = CGPointMake(-20, 80);
+    [container pagePanned:swipe];
+    CHECK(container.selectedPage == low);
+    swipe.testOffset = CGPointMake(-8, 0);
+    [container pagePanned:swipe];
+    CHECK(container.selectedPage == low);
+    swipe.testOffset = CGPointMake(-75, 5);
+    [container pagePanned:swipe];
+    [container finishPageTransition];
+    CHECK(container.selectedPage == container.pages[1] && container.modeControl.selectedIndex == 1);
+    [container pagePanned:swipe]; // No wrapping past the last page.
+    CHECK(container.selectedPage == container.pages[1]);
+    swipe.testOffset = CGPointMake(75, 5);
+    [container pagePanned:swipe];
+    [container finishPageTransition];
+    CHECK(container.selectedPage == low && container.modeControl.selectedIndex == 0);
+    container.contentView.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
+    CHECK([container pageIndexForHorizontalMovement:75] == 1);
+    container.contentView.semanticContentAttribute = UISemanticContentAttributeUnspecified;
     // Keep the first enable outside its window regardless of the test clock.
     NSDateComponents *nowComponents = [rcLowPowerLocalCalendar() components:NSCalendarUnitHour | NSCalendarUnitMinute fromDate:NSDate.date];
     NSInteger nowMinute = nowComponents.hour * 60 + nowComponents.minute;

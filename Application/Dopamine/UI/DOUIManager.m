@@ -322,7 +322,24 @@ static const BOOL DOVersionUpdateCheckEnabled = NO;
 
 - (NSString *)localizedStringForKey:(NSString*)key
 {
-    NSString *candidate = NSLocalizedString(key, nil);
+    static NSBundle *regionalChineseBundle;
+    static NSBundle *traditionalChineseBundle;
+    static dispatch_once_t localizationOnce;
+    dispatch_once(&localizationOnce, ^{
+        NSBundle *mainBundle = NSBundle.mainBundle;
+        NSString *locale = mainBundle.preferredLocalizations.firstObject;
+        if ([locale isEqualToString:@"zh-TW"] || [locale isEqualToString:@"zh-HK"]) {
+            NSString *regionalPath = [mainBundle pathForResource:locale ofType:@"lproj"];
+            NSString *traditionalPath = [mainBundle pathForResource:@"zh-Hant" ofType:@"lproj"];
+            if (regionalPath) regionalChineseBundle = [NSBundle bundleWithPath:regionalPath];
+            if (traditionalPath) traditionalChineseBundle = [NSBundle bundleWithPath:traditionalPath];
+        }
+    });
+
+    NSString *candidate = regionalChineseBundle ?
+        [regionalChineseBundle localizedStringForKey:key value:key table:nil] : NSLocalizedString(key, nil);
+    if ([candidate isEqualToString:key] && traditionalChineseBundle)
+        candidate = [traditionalChineseBundle localizedStringForKey:key value:key table:nil];
     if ([candidate isEqualToString:key]) {
         if (!_fallbackLocalizations) {
             _fallbackLocalizations = [NSDictionary dictionaryWithContentsOfFile:[[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"en.lproj/Localizable.strings"]];

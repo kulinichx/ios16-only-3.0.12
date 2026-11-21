@@ -78,6 +78,7 @@ jobs:
           plutil -lint Application/Dopamine/en.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-Hans.lproj/Localizable.strings
           plutil -lint Application/Dopamine/zh-CN.lproj/Localizable.strings
+          plutil -lint Application/Dopamine/zh-Hant.lproj/Localizable.strings
           for plist in Application/Dopamine/Exploits/*/Info.plist; do
             plutil -lint "$plist"
           done
@@ -211,7 +212,7 @@ jobs:
           unzip -p "$tipa" Payload/Dopamine.app/Info.plist > "$RUNNER_TEMP/RootHide-Info.plist"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = 'cn.zqbb.dopaRH'
           test "$(plutil -extract MinimumOSVersion raw -o - "$RUNNER_TEMP/RootHide-Info.plist")" = '16.0'
-          for locale in zh-Hans zh-CN en; do
+          for locale in zh-Hans zh-CN zh-Hant en; do
             strings="$RUNNER_TEMP/RootHide-$locale-Localizable.strings"
             unzip -p "$tipa" "Payload/Dopamine.app/$locale.lproj/Localizable.strings" > "$strings"
             plutil -lint "$strings"

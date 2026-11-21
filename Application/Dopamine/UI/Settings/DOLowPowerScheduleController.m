@@ -131,7 +131,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 }
 @end
 
-@interface DOPowerScheduleController ()
+@interface DOPowerScheduleController () <UIGestureRecognizerDelegate>
+@property(nonatomic, strong) UIPanGestureRecognizer *pagePan;
 @property(nonatomic, strong) NSArray<DOLowPowerScheduleController *> *pages;
 @property(nonatomic, strong) DOLowPowerScheduleController *selectedPage;
 @property(nonatomic, strong) DOScheduleModeControl *modeControl;
@@ -178,6 +179,10 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.contentView = [UIView new];
     self.contentView.translatesAutoresizingMaskIntoConstraints = NO;
     self.contentView.clipsToBounds = YES;
+    self.pagePan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pagePanned:)];
+    self.pagePan.maximumNumberOfTouches = 1;
+    self.pagePan.delegate = self;
+    [self.contentView addGestureRecognizer:self.pagePan];
     for (UIView *view in @[back, title, self.modeControl, self.contentView]) [self.view addSubview:view];
     [NSLayoutConstraint activateConstraints:@[
         [back.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:10],
@@ -203,6 +208,11 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         page.view.translatesAutoresizingMaskIntoConstraints = NO;
         page.view.hidden = YES;
         [self.contentView addSubview:page.view];
+        for (UIGestureRecognizer *gesture in page.view.gestureRecognizers) {
+            if ([gesture isKindOfClass:UIScreenEdgePanGestureRecognizer.class])
+                [self.pagePan requireGestureRecognizerToFail:gesture];
+        }
+        [page.tableView.panGestureRecognizer requireGestureRecognizerToFail:self.pagePan];
         [NSLayoutConstraint activateConstraints:@[
             [page.view.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
             [page.view.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
@@ -217,6 +227,43 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(stopPageMotion:)
         name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
 }
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch
+{
+    if (gesture != self.pagePan) return YES;
+    if (!self.pageVisible || self.pageAnimator || self.presentedViewController || self.selectedPage.presentedViewController)
+        return NO;
+    for (UIView *view = touch.view; view && view != self.contentView; view = view.superview) {
+        if ([view isKindOfClass:UIControl.class]) return NO;
+    }
+    return YES;
+}
+
+- (NSInteger)pageIndexForHorizontalMovement:(CGFloat)movement
+{
+    BOOL rightToLeft = self.contentView.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+    BOOL advances = rightToLeft ? movement > 0 : movement < 0;
+    return self.modeControl.selectedIndex + (advances ? 1 : -1);
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture
+{
+    if (gesture != self.pagePan) return YES;
+    CGPoint velocity = [self.pagePan velocityInView:self.contentView];
+    if (fabs(velocity.x) <= fabs(velocity.y) * 1.4) return NO;
+    NSInteger index = [self pageIndexForHorizontalMovement:velocity.x];
+    return index >= 0 && index < (NSInteger)self.pages.count;
+}
+
+- (void)pagePanned:(UIPanGestureRecognizer *)gesture
+{
+    if (gesture.state != UIGestureRecognizerStateEnded || self.pageAnimator) return;
+    CGPoint offset = [gesture translationInView:self.contentView];
+    CGPoint velocity = [gesture velocityInView:self.contentView];
+    if (fabs(offset.x) < 24 || fabs(offset.x) <= fabs(offset.y)) return;
+    if (fabs(offset.x) < 56 && (fabs(velocity.x) < 420 || offset.x * velocity.x <= 0)) return;
+    [self selectPage:[self pageIndexForHorizontalMovement:offset.x]];
+}
+
 - (void)stopPageMotion:(NSNotification *)notification { [self finishPageTransition]; }
 - (void)modeChanged:(DOScheduleModeControl *)sender { [self selectPage:sender.selectedIndex]; }
 - (void)finishPageTransition
