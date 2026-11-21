@@ -21,7 +21,6 @@
 - (BOOL)hasChanges;
 - (BOOL)statusFresh;
 - (NSString *)statusText;
-- (NSString *)unconfirmedStopText;
 - (BOOL)runtimeHasError;
 - (void)settingsChanged;
 - (BOOL)applySettings;

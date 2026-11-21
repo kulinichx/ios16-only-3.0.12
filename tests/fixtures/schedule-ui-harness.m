@@ -257,22 +257,29 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.lowConfig[@"Enabled"] boolValue] && !low.hasChanges);
     CHECK([env.lowConfig[@"EndMinute"] integerValue] == 390);
-    CHECK([low.statusText isEqual:DOLocalizedString(@"PowerSchedule_Stopping")]);
+    CHECK([low.statusText isEqual:DOLocalizedString(NSProcessInfo.processInfo.lowPowerModeEnabled ? @"LowPowerSchedule_SystemOn" : @"LowPowerSchedule_Disabled")]);
     NSString *stopID = env.lowConfig[@"DisableRequest"];
     env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": @"older"};
     [low finishStopWait:stopID];
-    CHECK([low.statusText isEqual:DOLocalizedString(@"PowerSchedule_StopUnconfirmed")]);
+    CHECK([[low disabledStatusWithSystemLowPower:NO] isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
+    CHECK([[low disabledStatusWithSystemLowPower:YES] isEqual:DOLocalizedString(@"LowPowerSchedule_SystemOn")]);
     env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": stopID};
     [low refreshStatus];
-    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
+    CHECK([[low disabledStatusWithSystemLowPower:NO] isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
+    env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"applyFailed", @"DisableRequest": stopID};
+    [low refreshStatus];
+    CHECK([[low disabledStatusWithSystemLowPower:YES] isEqual:DOLocalizedString(@"LowPowerSchedule_DisableFailed")]);
+    CHECK([[low disabledStatusWithSystemLowPower:NO] isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
     env.batteryState = @{@"Revision": battery.savedConfiguration[@"Revision"], @"Updated": NSDate.date,
         @"Active": @{@"Source": @"scheduled"}, @"History": @[]};
     battery.enabledSwitch.on = NO;
     [battery.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.batteryConfig[@"Enabled"] boolValue] && env.batteryConfig[@"DisableRequest"]);
-    CHECK([battery.statusText isEqual:DOLocalizedString(@"PowerSchedule_Stopping")]);
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_EndUnconfirmed")]);
     [battery finishStopWait:env.batteryConfig[@"DisableRequest"]];
-    CHECK([battery.statusText isEqual:DOLocalizedString(@"PowerSchedule_StopUnconfirmed")]);
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_EndUnconfirmed")]);
+    env.batteryState = nil; [battery refreshStatus];
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_Paused")]);
     NSMutableDictionary *idle = [@{@"Revision": env.batteryConfig[@"Revision"], @"Updated": NSDate.date,
         @"State": @"idle", @"History": @[@{@"Result": @"cancelled", @"Recorded": NSDate.date}]} mutableCopy];
     env.batteryState = idle; [battery refreshStatus];

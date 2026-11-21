@@ -127,9 +127,9 @@
         if (self.statusFresh && [status[@"State"] isEqual:@"idle"] &&
             [status[@"RecordEndedByStop"] isEqual:self.savedConfiguration[@"DisableRequest"]])
             return DOLocalizedString(@"BatteryRecord_StoppedAndDisabled");
-        if (!self.savedConfiguration[@"DisableRequest"] || (self.statusFresh && [status[@"State"] isEqual:@"idle"]))
-            return DOLocalizedString(@"BatteryRecord_Paused");
-        return [self unconfirmedStopText];
+        if (status[@"Active"] && self.savedConfiguration[@"DisableRequest"])
+            return DOLocalizedString(@"BatteryRecord_EndUnconfirmed");
+        return DOLocalizedString(@"BatteryRecord_Paused");
     }
     if (matching && !status[@"Active"] && [status[@"Completed"] boolValue]) {
         NSDictionary *last = [status[@"History"] firstObject];

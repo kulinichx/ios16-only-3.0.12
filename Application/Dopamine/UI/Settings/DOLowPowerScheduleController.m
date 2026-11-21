@@ -440,6 +440,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         name:UIApplicationDidBecomeActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationDidBecomeActive:)
         name:UIApplicationSignificantTimeChangeNotification object:nil];
+    if (self.scheduleMode == 0) [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(powerStateChanged:)
+        name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationWillResignActive:)
         name:UIApplicationWillResignActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleThemeDidChange:)
@@ -731,10 +733,9 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)didRefreshStatus {}
 
-- (NSString *)unconfirmedStopText
+- (void)powerStateChanged:(NSNotification *)notification
 {
-    return DOLocalizedString([self.pendingStop isEqual:self.savedConfiguration[@"DisableRequest"]] ?
-        @"PowerSchedule_Stopping" : @"PowerSchedule_StopUnconfirmed");
+    dispatch_async(dispatch_get_main_queue(), ^{ if (self.isScheduleVisible) [self refreshStatus]; });
 }
 
 - (void)finishStopWait:(NSString *)request
@@ -761,19 +762,21 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 }
 
 
+- (NSString *)disabledStatusWithSystemLowPower:(BOOL)on
+{
+    if (!on) return DOLocalizedString(@"LowPowerSchedule_Disabled");
+    if (self.statusFresh && self.runtimeHasError &&
+        [self.runtimeStatus[@"DisableRequest"] isEqual:self.savedConfiguration[@"DisableRequest"]])
+        return DOLocalizedString(@"LowPowerSchedule_DisableFailed");
+    return DOLocalizedString(@"LowPowerSchedule_SystemOn");
+}
+
 - (NSString *)statusText
 {
     NSDictionary *status = self.runtimeStatus;
     NSString *state = self.statusFresh ? status[@"State"] : nil;
-    if (![self.savedConfiguration[@"Enabled"] boolValue]) {
-        if (!self.savedConfiguration[@"DisableRequest"])
-            return DOLocalizedString(@"LowPowerSchedule_Disabled");
-        if (![status[@"DisableRequest"] isEqual:self.savedConfiguration[@"DisableRequest"]])
-            return [self unconfirmedStopText];
-        if ([state isEqual:@"disabled"]) return DOLocalizedString(@"LowPowerSchedule_Disabled");
-        if (self.statusFresh && self.runtimeHasError) return DOLocalizedString(@"LowPowerSchedule_DisableFailed");
-        return [self unconfirmedStopText];
-    }
+    if (![self.savedConfiguration[@"Enabled"] boolValue])
+        return [self disabledStatusWithSystemLowPower:NSProcessInfo.processInfo.lowPowerModeEnabled];
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
     if ([@[@"runtimeFailed", @"timerFailed", @"calendarFailed"] containsObject:state ?: @""])

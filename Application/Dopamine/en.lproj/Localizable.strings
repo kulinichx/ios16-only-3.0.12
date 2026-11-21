@@ -219,7 +219,7 @@
 "LowPowerSchedule_RuntimeFooter" = "No events run while powered off or not jailbroken.";
 "LowPowerSchedule_Waiting" = "Waiting for SpringBoard. Reload the jailbreak environment after an update.";
 "LowPowerSchedule_Disabled" = "Low Power Mode schedule is off.";
-"LowPowerSchedule_DisableFailed" = "Schedule stopped. Could not confirm that Low Power Mode is off. Check Settings > Battery.";
+"LowPowerSchedule_DisableFailed" = "Schedule off. Low Power Mode is still on; you can turn it off in Settings > Battery.";
 "LowPowerSchedule_Unsupported" = "Required system interfaces are unavailable. No schedule is running.";
 "LowPowerSchedule_ApplyFailed" = "The system rejected the last power-mode request. Retries are bounded; check again after the next event.";
 "LowPowerSchedule_RuntimeFailed" = "The schedule could not be started. Check the jailbreak environment.";
@@ -311,8 +311,8 @@
 "BatteryRecord_StartedAt" = "Recording · started on %@";
 "BatteryRecord_EndsAt" = "Scheduled to end on %@";
 "BatteryRecord_Paused" = "Battery recording schedule is off.";
-"PowerSchedule_Stopping" = "Stopping…";
-"PowerSchedule_StopUnconfirmed" = "Stop request saved. No confirmation received yet.";
+"LowPowerSchedule_SystemOn" = "Schedule off. System Low Power Mode is still on.";
+"BatteryRecord_EndUnconfirmed" = "Recording schedule off. The last recording has no confirmed end yet.";
 "BatteryRecord_StoppedAndDisabled" = "Current recording ended. The recording schedule is off.";
 "BatteryRecord_Copied" = "Recording times updated.";
 "BatteryRecord_CommandPending" = "Action submitted. Updating the record; do not submit again.";
