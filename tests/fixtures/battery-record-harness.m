@@ -44,8 +44,9 @@ static void command(NSString *action)
 }
 static void config(BOOL enabled, BOOL repeat, NSInteger start, NSInteger end, NSDate *first)
 {
-    NSDictionary *value = @{@"Version": @1, @"Enabled": @(enabled), @"Repeat": @(repeat),
-        @"StartMinute": @(start), @"EndMinute": @(end), @"FirstStart": first, @"Revision": NSUUID.UUID.UUIDString};
+    NSMutableDictionary *value = [@{@"Version": @1, @"Enabled": @(enabled), @"Repeat": @(repeat),
+        @"StartMinute": @(start), @"EndMinute": @(end), @"FirstStart": first, @"Revision": NSUUID.UUID.UUIDString} mutableCopy];
+    if (!enabled) value[@"DisableRequest"] = value[@"Revision"];
     CHECK(rcBatteryConfigurationValid(value));
     CHECK(rcLowPowerWriteDictionary(value, rcBatteryPath(testRoot, @".plist"), nil));
     [recorder refresh];
@@ -55,6 +56,18 @@ int main(int argc, const char *argv[])
 {
     @autoreleasepool {
         testRoot = [NSString stringWithUTF8String:argv[1]];
+        NSString *primary = rcLowPowerConfigurationPath(testRoot);
+        NSString *legacy = rcScheduleReadPath(primary);
+        CHECK(![primary isEqual:legacy]);
+        NSDictionary *old = rcLowPowerDefaultConfiguration();
+        CHECK(rcLowPowerWriteDictionary(old, legacy, nil));
+        CHECK(chmod(legacy.stringByDeletingLastPathComponent.fileSystemRepresentation, 0500) == 0);
+        CHECK([rcLowPowerReadDictionary(primary) isEqual:old]);
+        NSMutableDictionary *updated = [old mutableCopy]; updated[@"Enabled"] = @YES;
+        CHECK(rcLowPowerWriteDictionary(updated, primary, nil));
+        CHECK([rcLowPowerReadDictionary(primary) isEqual:updated]);
+        CHECK([rcLowPowerReadDictionary(legacy) isEqual:old]);
+        CHECK(chmod(legacy.stringByDeletingLastPathComponent.fileSystemRepresentation, 0700) == 0);
         [NSTimeZone setDefaultTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
         NSCalendar *calendar = rcLowPowerLocalCalendar();
         NSDateComponents *parts = [NSDateComponents new]; parts.year = 2030; parts.month = 1; parts.day = 2; parts.hour = 3;
@@ -119,6 +132,9 @@ int main(int argc, const char *argv[])
         now = epoch; config(YES, YES, 180, 240, epoch);
         config(NO, NO, 180, 240, epoch);
         CHECK([last()[@"Result"] isEqual:@"cancelled"] && recorder.timer == nil);
+        CHECK(last()[@"End"] != nil && recorder.state[@"NextStart"] == nil);
+        now = [epoch dateByAddingTimeInterval:86400]; [recorder refresh];
+        CHECK(!recorder.state[@"Active"] && !recorder.timer);
         for (NSUInteger index = 0; index < 65; index++)
             [recorder archive:[@{@"ID": NSUUID.UUID.UUIDString} mutableCopy] result:@"missed"];
         CHECK([recorder.state[@"History"] count] == 60);

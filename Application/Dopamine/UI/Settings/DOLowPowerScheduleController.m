@@ -135,7 +135,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 @property(nonatomic, strong) NSArray<DOLowPowerScheduleController *> *pages;
 @property(nonatomic, strong) DOLowPowerScheduleController *selectedPage;
 @property(nonatomic, strong) DOScheduleModeControl *modeControl;
-@property(nonatomic, strong) UIButton *saveButton;
 @property(nonatomic, strong) UIView *contentView;
 @property(nonatomic, strong) UIViewPropertyAnimator *pageAnimator;
 @property(nonatomic, strong) DOLowPowerScheduleController *transitionFromPage;
@@ -165,7 +164,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     self.title = DOLocalizedString(@"PowerSchedule_Title");
     UIButton *back = [self chromeButton:@"chevron.left" action:@selector(backPressed) label:DOLocalizedString(@"Button_Cancel")];
-    self.saveButton = [self chromeButton:@"checkmark" action:@selector(savePressed) label:DOLocalizedString(@"LowPowerSchedule_Save")];
     UILabel *title = [UILabel new];
     title.translatesAutoresizingMaskIntoConstraints = NO;
     title.text = self.title;
@@ -180,16 +178,13 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.contentView = [UIView new];
     self.contentView.translatesAutoresizingMaskIntoConstraints = NO;
     self.contentView.clipsToBounds = YES;
-    for (UIView *view in @[back, title, self.saveButton, self.modeControl, self.contentView]) [self.view addSubview:view];
+    for (UIView *view in @[back, title, self.modeControl, self.contentView]) [self.view addSubview:view];
     [NSLayoutConstraint activateConstraints:@[
         [back.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:10],
         [back.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:6],
         [back.widthAnchor constraintEqualToConstant:44], [back.heightAnchor constraintEqualToConstant:44],
-        [self.saveButton.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-10],
-        [self.saveButton.topAnchor constraintEqualToAnchor:back.topAnchor],
-        [self.saveButton.widthAnchor constraintEqualToConstant:44], [self.saveButton.heightAnchor constraintEqualToConstant:44],
         [title.leadingAnchor constraintEqualToAnchor:back.trailingAnchor constant:8],
-        [title.trailingAnchor constraintEqualToAnchor:self.saveButton.leadingAnchor constant:-8],
+        [title.centerXAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerXAnchor],
         [title.topAnchor constraintEqualToAnchor:back.topAnchor], [title.heightAnchor constraintGreaterThanOrEqualToConstant:44],
         [self.modeControl.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
         [self.modeControl.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
@@ -204,7 +199,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     __weak typeof(self) weakSelf = self;
     for (DOLowPowerScheduleController *page in self.pages) {
         page.backHandler = ^{ [weakSelf backPressed]; };
-        page.chromeStateDidChange = ^{ weakSelf.saveButton.enabled = weakSelf.selectedPage.saveEnabled; };
         [self addChildViewController:page];
         page.view.translatesAutoresizingMaskIntoConstraints = NO;
         page.view.hidden = YES;
@@ -225,7 +219,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 }
 - (void)stopPageMotion:(NSNotification *)notification { [self finishPageTransition]; }
 - (void)modeChanged:(DOScheduleModeControl *)sender { [self selectPage:sender.selectedIndex]; }
-- (void)savePressed { [self.selectedPage savePressed]; }
 - (void)finishPageTransition
 {
     UIViewPropertyAnimator *animator = self.pageAnimator;
@@ -255,7 +248,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     DOLowPowerScheduleController *next = self.pages[index];
     BOOL animated = previous && self.pageVisible && !UIAccessibilityIsReduceMotionEnabled() && UIView.areAnimationsEnabled;
     self.selectedPage = next;
-    self.saveButton.enabled = next.saveEnabled;
     [self.modeControl selectIndex:index animated:animated];
     self.transitionFromPage = previous;
     self.transitionToPage = next;
@@ -330,17 +322,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)backPressed
 {
     if (self.presentedViewController) return;
-    BOOL dirty = NO;
-    for (DOLowPowerScheduleController *page in self.pages) dirty |= page.isViewLoaded && page.hasChanges;
-    if (!dirty) { [self.navigationController popViewControllerAnimated:YES]; return; }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.title
-        message:DOLocalizedString(@"PowerSchedule_Discard") preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_DiscardButton")
-        style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-            [self.navigationController popViewControllerAnimated:YES];
-        }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    [self.navigationController popViewControllerAnimated:YES];
 }
 @end
 
@@ -394,7 +376,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
     self.enabledSwitch = [UISwitch new];
     self.enabledSwitch.on = [self.savedConfiguration[@"Enabled"] boolValue];
-    [self.enabledSwitch addTarget:self action:@selector(draftChanged)
+    [self.enabledSwitch addTarget:self action:@selector(settingsChanged)
                 forControlEvents:UIControlEventValueChanged];
     self.lastStartMinute = [self.savedConfiguration[@"StartMinute"] integerValue];
     self.lastEndMinute = [self.savedConfiguration[@"EndMinute"] integerValue];
@@ -578,11 +560,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         [glass reloadMaterial];
 }
 
-- (void)setSaveEnabled:(BOOL)saveEnabled
-{
-    _saveEnabled = saveEnabled;
-    if (self.chromeStateDidChange) self.chromeStateDidChange();
-}
 
 - (BOOL)hasChanges
 {
@@ -591,11 +568,20 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         self.lastEndMinute != [self.savedConfiguration[@"EndMinute"] integerValue];
 }
 
-- (void)draftChanged
+- (BOOL)writeConfiguration:(NSDictionary *)configuration error:(NSError **)error
 {
-    self.saveEnabled = self.hasChanges || self.timePickerExpanded;
-    if (self.hasChanges) [self showScheduleFeedback:DOLocalizedString(@"PowerSchedule_Unsaved") error:NO];
-    else if ([self.feedbackLabel.text isEqual:DOLocalizedString(@"PowerSchedule_Unsaved")]) self.feedbackLabel.text = nil;
+    return [DOEnvironmentManager.sharedManager saveLowPowerScheduleConfiguration:configuration error:error];
+}
+
+- (void)settingsChanged { [self applySettings]; }
+
+- (void)restoreControls
+{
+    self.enabledSwitch.on = [self.savedConfiguration[@"Enabled"] boolValue];
+    self.lastStartMinute = [self.savedConfiguration[@"StartMinute"] integerValue];
+    self.lastEndMinute = [self.savedConfiguration[@"EndMinute"] integerValue];
+    self.timePicker.date = [self dateForMinute:self.editingTime == 0 ? self.lastStartMinute : self.lastEndMinute];
+    [self updateTimeLabels];
 }
 
 - (void)prepareTimeFeedback
@@ -619,7 +605,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         [self.timeFeedback prepare];
     }
     [self updateTimeLabels];
-    [self draftChanged];
+    [self applySettings];
 }
 
 - (NSDate *)dateForMinute:(NSInteger)minute
@@ -650,10 +636,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)setTimePickerExpanded:(BOOL)expanded animated:(BOOL)animated
 {
-    if (self.timePickerExpanded == expanded) {
-        [self draftChanged];
-        return;
-    }
+    if (self.timePickerExpanded == expanded) return;
     if (!expanded) {
         // Remove the fixed-height wheel before collapsing its zero-height row.
         [NSLayoutConstraint deactivateConstraints:self.timePickerCellConstraints ?: @[]];
@@ -679,7 +662,6 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         if (cell) [self attachTimePickerToCell:cell];
     }
     [self refreshScheduleGlassFrames];
-    [self draftChanged];
 }
 
 - (BOOL)isStartRow:(NSIndexPath *)indexPath
@@ -754,23 +736,17 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     self.feedbackLabel.textColor = error ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
 }
 
-- (void)didSaveConfiguration:(NSDictionary *)configuration
-{
-    self.savedConfiguration = configuration;
-    [self setTimePickerExpanded:NO animated:YES];
-    [self draftChanged];
-    [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:UINotificationFeedbackTypeSuccess];
-    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, DOLocalizedString(@"PowerSchedule_Saved"));
-    [self showScheduleFeedback:DOLocalizedString(@"PowerSchedule_Saved") error:NO];
-    [self refreshStatus];
-}
 
 - (NSString *)statusText
 {
-    if (![self.savedConfiguration[@"Enabled"] boolValue])
-        return DOLocalizedString(@"LowPowerSchedule_Disabled");
     NSDictionary *status = self.runtimeStatus;
     NSString *state = self.statusFresh ? status[@"State"] : nil;
+    if (![self.savedConfiguration[@"Enabled"] boolValue]) {
+        if (!self.savedConfiguration[@"DisableRequest"] || [state isEqual:@"disabled"])
+            return DOLocalizedString(@"LowPowerSchedule_Disabled");
+        if (self.statusFresh && self.runtimeHasError) return DOLocalizedString(@"LowPowerSchedule_DisableFailed");
+        return DOLocalizedString(@"LowPowerSchedule_Waiting");
+    }
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
     if ([@[@"runtimeFailed", @"timerFailed", @"calendarFailed"] containsObject:state ?: @""])
@@ -901,7 +877,12 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.section != 0 || indexPath.row == 0 || indexPath.row == 3) return;
-    self.editingTime = [self isStartRow:indexPath] ? 0 : 1;
+    NSInteger field = [self isStartRow:indexPath] ? 0 : 1;
+    if (self.timePickerExpanded && self.editingTime == field) {
+        [self setTimePickerExpanded:NO animated:YES];
+        return;
+    }
+    self.editingTime = field;
     self.timePicker.date = [self dateForMinute:self.editingTime == 0 ?
         self.lastStartMinute : self.lastEndMinute];
     self.timePicker.accessibilityLabel = DOLocalizedString(self.scheduleMode == 0 ?
@@ -912,33 +893,42 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     [self prepareTimeFeedback];
 }
 
-- (void)savePressed
+- (NSString *)prepareConfiguration:(NSMutableDictionary *)configuration { return nil; }
+
+- (BOOL)applySettings
 {
-    if (!self.hasChanges) {
-        [self setTimePickerExpanded:NO animated:YES];
-        return;
-    }
-    NSInteger start = self.lastStartMinute;
-    NSInteger end = self.lastEndMinute;
-    if (start == end) {
-        [self showMessage:DOLocalizedString(@"LowPowerSchedule_SameTime")];
-        return;
-    }
+    if (!self.hasChanges) return YES;
+    NSInteger start = self.lastStartMinute, end = self.lastEndMinute;
+    NSMutableDictionary *configuration = [self.savedConfiguration mutableCopy];
+    configuration[@"Enabled"] = @(self.enabledSwitch.on);
+    configuration[@"StartMinute"] = @(start);
+    configuration[@"EndMinute"] = @(end);
+    configuration[@"Revision"] = NSUUID.UUID.UUIDString;
+    BOOL stopping = !self.enabledSwitch.on && [self.savedConfiguration[@"Enabled"] boolValue];
+    if (stopping) configuration[@"DisableRequest"] = configuration[@"Revision"];
+    else if (self.enabledSwitch.on) [configuration removeObjectForKey:@"DisableRequest"];
+    NSString *message = start == end ? DOLocalizedString(@"LowPowerSchedule_SameTime") : nil;
+    if (!message && !stopping) message = [self prepareConfiguration:configuration];
     NSError *error = nil;
-    if (![DOEnvironmentManager.sharedManager saveLowPowerScheduleEnabled:self.enabledSwitch.on
-            startMinute:start endMinute:end error:&error]) {
-        [self showMessage:[NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_SaveFailed"),
-            error.localizedDescription ?: @"Unknown"]];
-        return;
+    if (!message && ![self writeConfiguration:configuration error:&error])
+        message = [NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_SaveFailed"),
+            error.localizedDescription ?: DOLocalizedString(@"Unknown")];
+    if (message) {
+        [self restoreControls];
+        [self showScheduleFeedback:message error:YES];
+        return NO;
     }
-    [self didSaveConfiguration:[self loadScheduleConfiguration]];
+    self.savedConfiguration = configuration;
+    [self showScheduleFeedback:nil error:NO];
+    [self refreshStatus];
+    return YES;
 }
 
 - (void)showMessage:(NSString *)message
 {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.title
         message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_OK")
+    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_OK")
         style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
@@ -946,19 +936,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 - (void)backPressed
 {
     if (self.backHandler) { self.backHandler(); return; }
-    if (!self.hasChanges) {
-        [self.navigationController popViewControllerAnimated:YES];
-        return;
-    }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.title
-        message:DOLocalizedString(@"LowPowerSchedule_Discard") preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel")
-        style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"LowPowerSchedule_DiscardButton")
-        style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-            [self.navigationController popViewControllerAnimated:YES];
-        }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)edgeBack:(UIScreenEdgePanGestureRecognizer *)gesture

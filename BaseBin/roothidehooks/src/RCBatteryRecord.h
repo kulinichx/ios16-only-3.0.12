@@ -51,7 +51,7 @@ static inline BOOL rcBatteryRecordValid(id row)
 
 static inline NSDictionary *rcBatteryReadState(NSString *root)
 {
-    NSString *path = rcBatteryPath(root, @".state");
+    NSString *path = rcScheduleReadPath(rcBatteryPath(root, @".state"));
     if (!path) return nil;
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
     if (![attributes[NSFileType] isEqual:NSFileTypeRegular] ||

@@ -1115,18 +1115,8 @@ extern char **environ;
     return status ?: @{};
 }
 
-- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled
-                        startMinute:(NSInteger)startMinute
-                          endMinute:(NSInteger)endMinute
-                              error:(NSError **)error
+- (BOOL)saveLowPowerScheduleConfiguration:(NSDictionary *)configuration error:(NSError **)error
 {
-    NSDictionary *configuration = @{
-        @"Version": @1,
-        @"Enabled": @(enabled),
-        @"StartMinute": @(startMinute),
-        @"EndMinute": @(endMinute),
-        @"Revision": NSUUID.UUID.UUIDString
-    };
     if (!self.isJailbroken || !rcLowPowerConfigurationValid(configuration)) {
         if (error) {
             *error = [NSError errorWithDomain:NSPOSIXErrorDomain

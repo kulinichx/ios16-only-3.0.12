@@ -5,6 +5,7 @@
 
 @interface DOEnvironmentManager : NSObject
 @property(nonatomic, strong) NSDictionary *lowConfig;
+@property(nonatomic) BOOL rejectSave;
 @property(nonatomic, strong) NSDictionary *lowState;
 @property(nonatomic, strong) NSDictionary *batteryConfig;
 @property(nonatomic, strong) NSDictionary *batteryState;
@@ -13,7 +14,7 @@
 - (NSDictionary *)lowPowerScheduleStatus;
 - (NSDictionary *)batteryRecordConfiguration;
 - (NSDictionary *)batteryRecordStatus;
-- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)start endMinute:(NSInteger)end error:(NSError **)error;
+- (BOOL)saveLowPowerScheduleConfiguration:(NSDictionary *)configuration error:(NSError **)error;
 - (BOOL)saveBatteryRecordConfiguration:(NSDictionary *)configuration error:(NSError **)error;
 - (NSString *)sendBatteryRecordCommand:(NSString *)command error:(NSError **)error;
 @end
@@ -23,9 +24,10 @@
 - (NSDictionary *)lowPowerScheduleStatus { return self.lowState ?: @{}; }
 - (NSDictionary *)batteryRecordConfiguration { return self.batteryConfig ?: rcBatteryDefaultConfiguration(); }
 - (NSDictionary *)batteryRecordStatus { return self.batteryState ?: @{}; }
-- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)start endMinute:(NSInteger)end error:(NSError **)error
+- (BOOL)saveLowPowerScheduleConfiguration:(NSDictionary *)configuration error:(NSError **)error
 {
-    self.lowConfig = @{@"Version": @1, @"Enabled": @(enabled), @"StartMinute": @(start), @"EndMinute": @(end), @"Revision": NSUUID.UUID.UUIDString};
+    if (self.rejectSave) return NO;
+    self.lowConfig = configuration;
     return YES;
 }
 - (BOOL)saveBatteryRecordConfiguration:(NSDictionary *)configuration error:(NSError **)error { self.batteryConfig = configuration; return YES; }
@@ -98,20 +100,21 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [nav.view layoutIfNeeded];
     DOLowPowerScheduleController *low = container.pages[0];
     low.enabledSwitch.on = YES;
-    low.lastStartMinute = 60;
-    low.lastEndMinute = 390;
-    [low draftChanged];
-    CHECK(low.hasChanges && low.saveEnabled);
+    [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK([DOEnvironmentManager.sharedManager.lowConfig[@"Enabled"] boolValue]);
+    for (NSInteger field = 0; field < 2; field++) {
+        low.editingTime = field;
+        low.timePicker.date = [low dateForMinute:field ? 390 : 60];
+        [low.timePicker sendActionsForControlEvents:UIControlEventValueChanged];
+    }
+    CHECK(!low.hasChanges && [low.savedConfiguration[@"EndMinute"] integerValue] == 390);
     [container selectPage:1];
     [container finishPageTransition];
     DOBatteryRecordController *battery = (id)container.selectedPage;
     CHECK(battery != (id)low && !battery.enabledSwitch.on);
     [container selectPage:0];
     [container finishPageTransition];
-    CHECK(low.hasChanges && low.lastStartMinute == 60);
-    [low savePressed];
-    CHECK(!low.hasChanges && !low.saveEnabled);
-    CHECK([low.feedbackLabel.text isEqual:DOLocalizedString(@"PowerSchedule_Saved")]);
+    CHECK(!low.hasChanges && low.lastStartMinute == 60);
     CHECK(![low.statusText containsString:@"Waiting"]);
     for (NSString *state in @[@"timerFailed", @"calendarFailed", @"runtimeFailed"]) {
         DOEnvironmentManager.sharedManager.lowState = @{@"Revision": low.savedConfiguration[@"Revision"],
@@ -126,14 +129,18 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [battery tableView:battery.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:5 inSection:0]];
     CHECK(battery.lastStartMinute == 60 && battery.lastEndMinute == 390);
     battery.enabledSwitch.on = YES;
-    [battery draftChanged];
+    [battery.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK([battery.savedConfiguration[@"Enabled"] boolValue]);
+    battery.repeatSwitch.on = YES;
+    [battery.repeatSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK([battery.savedConfiguration[@"Repeat"] boolValue]);
     [battery tableView:battery.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
     [battery.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:3 inSection:0]
         atScrollPosition:UITableViewScrollPositionMiddle animated:NO];
     [battery.tableView layoutIfNeeded];
     CHECK(battery.timePickerExpanded && battery.timePicker.superview != nil);
-    [battery savePressed];
-    CHECK(!battery.timePickerExpanded && !battery.hasChanges && !battery.saveEnabled);
+    [battery tableView:battery.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
+    CHECK(!battery.timePickerExpanded && !battery.hasChanges);
     CHECK([battery.statusText isEqual:[NSString stringWithFormat:DOLocalizedString(@"BatteryRecord_PlannedAt"), DOScheduleDateText(battery.savedConfiguration[@"FirstStart"])]]);
     CHECK(![battery.statusText containsString:@"Unavailable"]);
     CHECK([DOEnvironmentManager.sharedManager.lowConfig[@"StartMinute"] integerValue] == 60);
@@ -236,6 +243,27 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
             cases++;
         }
     }
+    DOEnvironmentManager *env = DOEnvironmentManager.sharedManager;
+    low.editingTime = 1;
+    low.timePicker.date = [low dateForMinute:low.lastStartMinute];
+    [low.timePicker sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK(low.lastEndMinute == 390 && DOSchedulePickerMinute(low.timePicker) == 390);
+    env.rejectSave = YES;
+    low.enabledSwitch.on = NO;
+    [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK(low.enabledSwitch.on && [env.lowConfig[@"Enabled"] boolValue]);
+    env.rejectSave = NO;
+    low.enabledSwitch.on = NO;
+    [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK(![env.lowConfig[@"Enabled"] boolValue] && !low.hasChanges);
+    CHECK([env.lowConfig[@"EndMinute"] integerValue] == 390);
+    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Waiting")]);
+    env.batteryState = @{@"Revision": battery.savedConfiguration[@"Revision"], @"Updated": NSDate.date,
+        @"Active": @{@"Source": @"scheduled"}, @"History": @[]};
+    battery.enabledSwitch.on = NO;
+    [battery.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    CHECK(![env.batteryConfig[@"Enabled"] boolValue] && env.batteryConfig[@"DisableRequest"]);
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_Waiting")]);
     [nav willMoveToParentViewController:nil];
     [nav.view removeFromSuperview];
     [nav removeFromParentViewController];

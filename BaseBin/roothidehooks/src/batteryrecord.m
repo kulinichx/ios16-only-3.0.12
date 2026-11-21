@@ -213,9 +213,11 @@ static RCBatteryRecorder *recorder;
     NSDictionary *config = rcLowPowerReadDictionary(rcBatteryPath(root, @".plist"));
     if (!rcBatteryConfigurationValid(config)) config = rcBatteryDefaultConfiguration();
     if (![self.state[@"Revision"] isEqual:config[@"Revision"]]) {
-        if ([self.state[@"Active"][@"Source"] isEqual:@"scheduled"]) [self finishActive:@"cancelled" sample:NO];
+        BOOL stopping = ![config[@"Enabled"] boolValue] && config[@"DisableRequest"] != nil;
+        if (stopping || [self.state[@"Active"][@"Source"] isEqual:@"scheduled"])
+            [self finishActive:@"cancelled" sample:stopping];
         self.state[@"Revision"] = config[@"Revision"];
-        self.state[@"NextStart"] = config[@"FirstStart"];
+        self.state[@"NextStart"] = [config[@"Enabled"] boolValue] ? config[@"FirstStart"] : nil;
         [self.state removeObjectForKey:@"Completed"];
     }
     [self finishDueRecord];
@@ -304,7 +306,7 @@ void rcBatteryRecordStart(void)
                     // Clock/zone edits invalidate the scheduled interval, never invent a replacement endpoint.
                     if ([recorder.state[@"Active"][@"Source"] isEqual:@"scheduled"]) [recorder finishActive:@"clockChanged" sample:NO];
                     NSDictionary *config = rcLowPowerReadDictionary(rcBatteryPath(rcBatteryRoot(), @".plist"));
-                    if (rcBatteryConfigurationValid(config) && ![recorder.state[@"Completed"] boolValue]) {
+                    if (rcBatteryConfigurationValid(config) && [config[@"Enabled"] boolValue] && ![recorder.state[@"Completed"] boolValue]) {
                         NSDate *next = rcLowPowerDateForMinute([config[@"StartMinute"] integerValue], rcBatteryNow(), rcLowPowerLocalCalendar(), YES);
                         if (next) recorder.state[@"NextStart"] = next;
                     }

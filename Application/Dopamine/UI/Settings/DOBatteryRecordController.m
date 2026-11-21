@@ -17,13 +17,17 @@
 - (NSDictionary *)loadScheduleConfiguration { return [DOEnvironmentManager.sharedManager batteryRecordConfiguration]; }
 - (NSDictionary *)loadRuntimeStatus { return [DOEnvironmentManager.sharedManager batteryRecordStatus]; }
 - (const char *)scheduleStatusNotification { return RC_BATTERY_STATUS; }
+- (BOOL)writeConfiguration:(NSDictionary *)configuration error:(NSError **)error
+{
+    return [DOEnvironmentManager.sharedManager saveBatteryRecordConfiguration:configuration error:error];
+}
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.repeatSwitch = [UISwitch new];
     self.repeatSwitch.on = [self.savedConfiguration[@"Repeat"] boolValue];
-    [self.repeatSwitch addTarget:self action:@selector(draftChanged) forControlEvents:UIControlEventValueChanged];
+    [self.repeatSwitch addTarget:self action:@selector(settingsChanged) forControlEvents:UIControlEventValueChanged];
     self.comparison = [NSMutableArray new];
 }
 
@@ -32,35 +36,24 @@
     return [super hasChanges] || self.repeatSwitch.on != [self.savedConfiguration[@"Repeat"] boolValue];
 }
 
-- (void)draftChanged
+- (void)restoreControls
 {
-    [super draftChanged];
-    // A completed one-shot can be scheduled again without changing its time.
-    BOOL completed = [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]] &&
-        [self.runtimeStatus[@"Completed"] boolValue] && !self.runtimeStatus[@"Active"];
-    self.saveEnabled = !self.pendingCommand &&
-        (self.hasChanges || self.timePickerExpanded || (completed && self.enabledSwitch.on));
+    [super restoreControls];
+    self.repeatSwitch.on = [self.savedConfiguration[@"Repeat"] boolValue];
 }
 
-- (void)savePressed
+- (NSString *)prepareConfiguration:(NSMutableDictionary *)configuration
 {
-    if (self.lastStartMinute == self.lastEndMinute) { [self showMessage:DOLocalizedString(@"LowPowerSchedule_SameTime")]; return; }
-    // Re-read before saving in case a scheduled window started while editing.
+    if (self.pendingCommand) return DOLocalizedString(@"BatteryRecord_CommandPending");
     self.runtimeStatus = [self loadRuntimeStatus];
-    if ([self.runtimeStatus[@"Active"][@"Source"] isEqual:@"scheduled"]) {
-        [self showMessage:DOLocalizedString(@"BatteryRecord_StopBeforeEdit")]; return;
-    }
+    if ([self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]] &&
+        [self.runtimeStatus[@"Active"][@"Source"] isEqual:@"scheduled"])
+        return DOLocalizedString(@"BatteryRecord_StopBeforeEdit");
     NSDate *start = rcLowPowerDateForMinute(self.lastStartMinute, NSDate.date, rcLowPowerLocalCalendar(), YES);
-    if (!start) { [self showMessage:DOLocalizedString(@"LowPowerSchedule_RuntimeFailed")]; return; }
-    NSDictionary *configuration = @{@"Version": @1, @"Enabled": @(self.enabledSwitch.on),
-        @"StartMinute": @(self.lastStartMinute), @"EndMinute": @(self.lastEndMinute),
-        @"Repeat": @(self.repeatSwitch.on), @"FirstStart": start, @"Revision": NSUUID.UUID.UUIDString};
-    NSError *error = nil;
-    if (![DOEnvironmentManager.sharedManager saveBatteryRecordConfiguration:configuration error:&error]) {
-        [self showMessage:[NSString stringWithFormat:DOLocalizedString(@"LowPowerSchedule_SaveFailed"),
-            error.localizedDescription ?: DOLocalizedString(@"Unknown")]]; return;
-    }
-    [self didSaveConfiguration:configuration];
+    if (!start) return DOLocalizedString(@"LowPowerSchedule_RuntimeFailed");
+    configuration[@"Repeat"] = @(self.repeatSwitch.on);
+    configuration[@"FirstStart"] = start;
+    return nil;
 }
 
 - (void)didRefreshStatus
@@ -81,10 +74,6 @@
             [self showScheduleFeedback:DOLocalizedString(@"BatteryRecord_CommandPending") error:NO];
         }
     }
-    BOOL completed = [self.runtimeStatus[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]] &&
-        [self.runtimeStatus[@"Completed"] boolValue] && !self.runtimeStatus[@"Active"];
-    self.saveEnabled = !self.pendingCommand &&
-        (self.hasChanges || self.timePickerExpanded || (completed && self.enabledSwitch.on));
 }
 
 - (NSString *)dateText:(id)value
@@ -122,6 +111,8 @@
 {
     NSDictionary *status = self.runtimeStatus;
     BOOL matching = [status[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]];
+    if (self.savedConfiguration[@"DisableRequest"] && !self.statusFresh)
+        return DOLocalizedString(@"BatteryRecord_Waiting");
     if (self.statusFresh && self.runtimeHasError)
         return DOLocalizedString([@"BatteryRecord_State_" stringByAppendingString:status[@"State"]]);
     if (self.statusFresh && status[@"Active"]) {
@@ -206,7 +197,8 @@
         self.lastStartMinute = [lowPower[@"StartMinute"] integerValue];
         self.lastEndMinute = [lowPower[@"EndMinute"] integerValue];
         [self setTimePickerExpanded:NO animated:YES];
-        [self updateTimeLabels]; [self draftChanged];
+        [self updateTimeLabels];
+        if (![self applySettings]) return;
         [self showScheduleFeedback:DOLocalizedString(@"BatteryRecord_Copied") error:NO];
         [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
     } else if (indexPath.section == 1 && indexPath.row == 1) {

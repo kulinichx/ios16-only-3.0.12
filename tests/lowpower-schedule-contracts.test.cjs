@@ -45,10 +45,10 @@ test('configuration validation and local calendar handle daily and DST boundarie
 
 test('storage is bounded and atomic and writes are restricted to the unsandboxed RootHide path', () => {
   assert.match(header, /> 16384/);
-  assert.match(header, /NSDataWritingAtomic/);
+  assert.match(header, /rename\(temporary\.fileSystemRepresentation, path\.fileSystemRepresentation\)/);
   assert.match(header, /NSDataWritingFileProtectionNone/);
   assert.match(header, /NSFilePosixPermissions: @0600/);
-  const save = body(environment, '- (BOOL)saveLowPowerScheduleEnabled:');
+  const save = body(environment, '- (BOOL)saveLowPowerScheduleConfiguration:');
   assert.match(save, /!self\.isJailbroken/);
   assert.match(save, /rcLowPowerConfigurationValid\(configuration\)/);
   assert.match(save, /runUnsandboxed/);
@@ -85,8 +85,23 @@ test('settings exposes the schedule while jailbroken and UI never applies system
   const disabled = refresh.match(
     /if \(!\[configuration\[@"Enabled"\] boolValue\]\) \{([\s\S]*?)\n    \}/,
   )[1];
-  assert.match(disabled, /publishStatus:@"disabled"/);
-  assert.doesNotMatch(disabled, /setPowerMode/);
+  assert.match(disabled, /disableWithConfiguration:configuration/);
+  const stop = body(runtime, '- (void)disableWithConfiguration:');
+  assert.match(body(runtime, '- (BOOL)requestPowerOff'), /setPowerMode:0/);
+  assert.match(stop, /saved\[@"DisableRequest"\] isEqual:request/);
+  assert.match(stop, /systemLowPowerEnabled \? @"applyFailed" : @"disabled"/);
+});
+
+test('explicit disable is acknowledged once across refresh and restart and reports a failed readback', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation.' : false,
+}, t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'schedule-disable-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = require('node:child_process').execFileSync;
+  const bin = path.join(dir, 'test');
+  run('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-framework', 'Foundation', '-I',
+    path.join(root, 'BaseBin/roothidehooks/src'), path.join(root, 'tests/fixtures/lowpower-disable-harness.m'), '-o', bin]);
+  run(bin, [dir]);
 });
 
 test('low-power schedule uses the same full-screen navigation frame as settings', () => {

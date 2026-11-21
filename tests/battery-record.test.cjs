@@ -23,10 +23,10 @@ test('battery recorder is a separate SpringBoard endpoint sampler, never a power
 
 test('coincident low-power events bracket battery endpoint sampling', () => {
   const low = read('BaseBin/roothidehooks/src/lowpowerschedule.m');
-  const before = low.indexOf('rcBatteryRecordBeforePowerChange();');
   const apply = low.indexOf('applied = [power setPowerMode:');
-  const after = low.indexOf('rcBatteryRecordAfterPowerChange();');
-  assert.ok(before < apply && apply < after);
+  const before = low.lastIndexOf('rcBatteryRecordBeforePowerChange();', apply);
+  const after = low.indexOf('rcBatteryRecordAfterPowerChange();', apply);
+  assert.ok(before >= 0 && before < apply && apply < after);
   assert.match(runtime, /rcLowPowerScheduleRefresh\(\);\s*\[self refresh\]/);
 });
 

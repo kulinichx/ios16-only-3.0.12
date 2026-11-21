@@ -4,6 +4,8 @@
 #import <CoreFoundation/CoreFoundation.h>
 #include <TargetConditionals.h>
 #include <errno.h>
+#include <sys/stat.h>
+#include <stdio.h>
 
 #define RC_LOW_POWER_CHANGED "com.dopaminerh.rc9.low-power-schedule.changed"
 #define RC_LOW_POWER_STATUS_CHANGED "com.dopaminerh.rc9.low-power-schedule.status"
@@ -14,7 +16,17 @@ static inline NSString *rcLowPowerConfigurationPath(NSString *root)
     if (![root isKindOfClass:NSString.class] || !root.isAbsolutePath ||
         [root isEqualToString:@"/"]) return nil;
     return [root stringByAppendingPathComponent:
-        @"var/mobile/Library/Preferences/com.dopaminerh.rc9.low-power-schedule.plist"];
+        @"var/mobile/Library/DopaminePowerSchedules/com.dopaminerh.rc9.low-power-schedule.plist"];
+}
+
+// Import each old file on read until its first successful write in the new directory.
+static inline NSString *rcScheduleReadPath(NSString *path)
+{
+    if (!path || [path.pathExtension isEqual:@"command"]) return path;
+    struct stat entry;
+    if (lstat(path.fileSystemRepresentation, &entry) == 0 || errno != ENOENT) return path;
+    NSString *library = path.stringByDeletingLastPathComponent.stringByDeletingLastPathComponent;
+    return [[library stringByAppendingPathComponent:@"Preferences"] stringByAppendingPathComponent:path.lastPathComponent];
 }
 
 static inline NSString *rcLowPowerStatusPath(NSString *root)
@@ -114,6 +126,7 @@ static inline NSCalendar *rcLowPowerLocalCalendar(void)
 
 static inline NSDictionary *rcLowPowerReadDictionary(NSString *path)
 {
+    path = rcScheduleReadPath(path);
     if (!path) return nil;
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
     if (![attributes[NSFileType] isEqual:NSFileTypeRegular] ||
@@ -133,16 +146,22 @@ static inline BOOL rcLowPowerWriteDictionary(NSDictionary *dictionary, NSString 
     }
     NSFileManager *manager = NSFileManager.defaultManager;
     if (![manager createDirectoryAtPath:path.stringByDeletingLastPathComponent
-           withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0755}
+           withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0700}
            error:error]) return NO;
     NSData *data = [NSPropertyListSerialization dataWithPropertyList:dictionary
         format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
     if (!data) return NO;
-    NSDataWritingOptions options = NSDataWritingAtomic;
+    // Set mode before the atomic rename: no error return after a configuration is committed.
+    NSString *temporary = [path.stringByDeletingLastPathComponent stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSDataWritingOptions options = NSDataWritingWithoutOverwriting;
 #if TARGET_OS_IPHONE
     options |= NSDataWritingFileProtectionNone;
 #endif
-    if (![data writeToFile:path options:options error:error]) return NO;
-    return [manager setAttributes:@{NSFilePosixPermissions: @0600}
-                     ofItemAtPath:path error:error];
+    if (![data writeToFile:temporary options:options error:error]) return NO;
+    if ([manager setAttributes:@{NSFilePosixPermissions: @0600} ofItemAtPath:temporary error:error]) {
+        if (rename(temporary.fileSystemRepresentation, path.fileSystemRepresentation) == 0) return YES;
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+    }
+    [manager removeItemAtPath:temporary error:nil];
+    return NO;
 }

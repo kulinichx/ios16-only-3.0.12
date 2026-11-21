@@ -102,8 +102,7 @@ typedef NS_ENUM(NSInteger, DOCustomMountRemovalResult) {
 - (NSString *)sendBatteryRecordCommand:(NSString *)action error:(NSError **)error;
 - (NSDictionary *)lowPowerScheduleConfiguration;
 - (NSDictionary *)lowPowerScheduleStatus;
-- (BOOL)saveLowPowerScheduleEnabled:(BOOL)enabled startMinute:(NSInteger)startMinute
-                         endMinute:(NSInteger)endMinute error:(NSError **)error;
+- (BOOL)saveLowPowerScheduleConfiguration:(NSDictionary *)configuration error:(NSError **)error;
 @end
 
 NS_ASSUME_NONNULL_END
