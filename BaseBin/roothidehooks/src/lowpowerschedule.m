@@ -53,9 +53,9 @@ static BOOL rcPowerSetterMatches(Class power)
 static BOOL rcSubmitPowerMode(id<RCLowPowerModeAPI> power, NSInteger mode)
 {
     SEL selector = @selector(setPowerMode:fromSource:);
-    NSMethodSignature *signature = [power methodSignatureForSelector:selector];
-    if (!rcLowPowerMethodMatches(class_getInstanceMethod(object_getClass(power), selector), "vBc", "q@") || !signature)
-        return NO;
+    Method setter = class_getInstanceMethod(object_getClass(power), selector);
+    if (!rcLowPowerMethodMatches(setter, "vBc", "q@")) return NO;
+    NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(setter)];
     NSString *source = @"SpringBoard";
     NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
     invocation.selector = selector;
