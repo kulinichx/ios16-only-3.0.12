@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #include <dlfcn.h>
 #include <notify.h>
+#include <os/log.h>
 #include <string.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
@@ -15,7 +16,7 @@ extern NSString *rcLowPowerTestBootSession(void);
 
 @protocol RCLowPowerModeAPI <NSObject>
 + (instancetype)sharedInstance;
-- (BOOL)setPowerMode:(long long)mode fromSource:(NSString *)source;
+- (void)setPowerMode:(NSInteger)mode fromSource:(NSString *)source;
 @end
 
 @protocol RCPersistentTimerAPI <NSObject>
@@ -43,20 +44,41 @@ static BOOL rcLowPowerMethodMatches(Method method, const char *returns, const ch
     return YES;
 }
 
+static BOOL rcPowerSetterMatches(Class power)
+{
+    return rcLowPowerMethodMatches(class_getClassMethod(power, @selector(sharedInstance)), "@", "") &&
+        rcLowPowerMethodMatches(class_getInstanceMethod(power, @selector(setPowerMode:fromSource:)), "vBc", "q@");
+}
+
+static BOOL rcSubmitPowerMode(id<RCLowPowerModeAPI> power, NSInteger mode)
+{
+    SEL selector = @selector(setPowerMode:fromSource:);
+    NSMethodSignature *signature = [power methodSignatureForSelector:selector];
+    if (!rcLowPowerMethodMatches(class_getInstanceMethod(object_getClass(power), selector), "vBc", "q@") || !signature)
+        return NO;
+    NSString *source = @"SpringBoard";
+    NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+    invocation.selector = selector;
+    [invocation setArgument:&mode atIndex:2];
+    [invocation setArgument:&source atIndex:3];
+    [invocation invokeWithTarget:power];
+    if (signature.methodReturnLength == 0) return YES;
+    unsigned char accepted = 0;
+    [invocation getReturnValue:&accepted];
+    return accepted != 0;
+}
+
 static BOOL rcPowerSetterAvailable(void)
 {
-    Class power = NSClassFromString(@"_PMLowPowerMode");
-    return rcLowPowerMethodMatches(class_getClassMethod(power, @selector(sharedInstance)), "@", "") &&
-        rcLowPowerMethodMatches(class_getInstanceMethod(power, @selector(setPowerMode:fromSource:)), "Bc", "q@");
+    return rcPowerSetterMatches(NSClassFromString(@"_PMLowPowerMode"));
 }
 
 static BOOL rcLowPowerAPIsAvailable(void)
 {
     Class timer = NSClassFromString(@"PCPersistentTimer");
-    return rcPowerSetterAvailable() && rcLowPowerMethodMatches(class_getInstanceMethod(timer,
+    return rcLowPowerMethodMatches(class_getInstanceMethod(timer,
             @selector(initWithFireDate:serviceIdentifier:target:selector:userInfo:)), "@", "@@@:@") &&
         rcLowPowerMethodMatches(class_getInstanceMethod(timer, @selector(setDisableSystemWaking:)), "v", "b") &&
-        rcLowPowerMethodMatches(class_getInstanceMethod(timer, @selector(setUserVisible:)), "v", "b") &&
         rcLowPowerMethodMatches(class_getInstanceMethod(timer, @selector(setMinimumEarlyFireProportion:)), "v", "d") &&
         rcLowPowerMethodMatches(class_getInstanceMethod(timer, @selector(setEarlyFireConstantInterval:)), "v", "d") &&
         rcLowPowerMethodMatches(class_getInstanceMethod(timer, @selector(scheduleInRunLoop:)), "v", "@") &&
@@ -132,8 +154,13 @@ static id rcSharedLowPowerScheduler;
     if (self.disableRequest) status[@"DisableRequest"] = self.disableRequest;
     NSString *bootSession = rcLowPowerBootSession();
     if (bootSession) status[@"BootSession"] = bootSession;
-    if (rcLowPowerWriteDictionary(status, rcLowPowerStatusPath(root), nil))
+    NSError *error = nil;
+    if (rcLowPowerWriteDictionary(status, rcLowPowerStatusPath(root), &error)) {
         notify_post(RC_LOW_POWER_STATUS_CHANGED);
+    } else {
+        os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule could not publish %{public}@: %{public}@ (%ld)",
+            state, error.domain, (long)error.code);
+    }
 }
 
 - (BOOL)armForDate:(NSDate *)date
@@ -143,7 +170,8 @@ static id rcSharedLowPowerScheduler;
         target:self selector:@selector(timerFired:) userInfo:nil];
     if (!timer) return NO;
     [timer setDisableSystemWaking:NO];
-    [timer setUserVisible:YES];
+    if (rcLowPowerMethodMatches(class_getInstanceMethod([timer class], @selector(setUserVisible:)), "v", "b"))
+        [timer setUserVisible:YES];
     [timer setMinimumEarlyFireProportion:0.0];
     [timer setEarlyFireConstantInterval:0.0];
     [timer scheduleInRunLoop:NSRunLoop.mainRunLoop];
@@ -171,16 +199,18 @@ static id rcSharedLowPowerScheduler;
 
 - (BOOL)requestPowerMode:(BOOL)enabled
 {
-    if (!rcPowerSetterAvailable()) return self.systemLowPowerEnabled == enabled;
+    if (!rcPowerSetterAvailable()) return NO;
     id<RCLowPowerModeAPI> power = [(Class<RCLowPowerModeAPI>)NSClassFromString(@"_PMLowPowerMode") sharedInstance];
+    if (!power) return NO;
 #ifndef RC_LOW_POWER_TEST
     rcBatteryRecordBeforePowerChange();
 #endif
-    BOOL accepted = [power setPowerMode:enabled ? 1 : 0 fromSource:@"com.dopaminerh.rc9.low-power-schedule"];
+    // A completed invocation still requires delayed system readback.
+    BOOL submitted = rcSubmitPowerMode(power, enabled ? 1 : 0);
 #ifndef RC_LOW_POWER_TEST
     rcBatteryRecordAfterPowerChange();
 #endif
-    return accepted;
+    return submitted;
 }
 
 - (BOOL)requestPowerOff
@@ -281,7 +311,10 @@ static id rcSharedLowPowerScheduler;
     [self.timer invalidate];
     self.timer = nil;
     NSString *root = rcLowPowerRoot();
-    if (!root) return;
+    if (!root) {
+        os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule could not locate the active RootHide environment");
+        return;
+    }
     NSDictionary *configuration = rcLowPowerReadDictionary(rcLowPowerConfigurationPath(root));
     if (!configuration) {
         BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:rcScheduleReadPath(rcLowPowerConfigurationPath(root))];
@@ -316,8 +349,14 @@ static id rcSharedLowPowerScheduler;
             dlopen("/System/Library/PrivateFrameworks/LowPowerMode.framework/LowPowerMode", RTLD_LAZY | RTLD_LOCAL);
             dlopen("/System/Library/PrivateFrameworks/PersistentConnection.framework/PersistentConnection", RTLD_LAZY | RTLD_LOCAL);
         });
-        if (!rcLowPowerAPIsAvailable()) {
+        if (!rcPowerSetterAvailable()) {
+            os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule system setter unavailable");
             [self publishStatus:@"unsupported" configuration:configuration root:root next:nil];
+            return;
+        }
+        if (!rcLowPowerAPIsAvailable()) {
+            os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule persistent timer API unavailable");
+            [self publishStatus:@"timerFailed" configuration:configuration root:root next:nil];
             return;
         }
         NSDate *now = rcLowPowerNow();

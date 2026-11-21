@@ -7,6 +7,16 @@ static BOOL modeOn, accepts;
 const char *jbclient_get_jbroot(void) { return root.UTF8String; }
 NSDate *rcLowPowerTestNow(void) { return NSDate.date; }
 NSString *rcLowPowerTestBootSession(void) { return @"test"; }
+static NSInteger submittedMode = -1;
+@interface TestIOS16PowerSetter : NSObject <RCLowPowerModeAPI>
++ (instancetype)sharedInstance;
+- (void)setPowerMode:(NSInteger)mode fromSource:(NSString *)source;
+@end
+@implementation TestIOS16PowerSetter
++ (instancetype)sharedInstance { return [self new]; }
+- (void)setPowerMode:(NSInteger)mode fromSource:(NSString *)source { submittedMode = mode; }
+@end
+
 @interface TestScheduler : RCLowPowerScheduler @end
 @implementation TestScheduler
 - (BOOL)requestPowerOff { requests++; return accepts; }
@@ -68,6 +78,9 @@ int main(int argc, const char *argv[]) {
         CHECK(requests == 5 && [state() isEqual:@"verifying"]);
         modeOn = NO; waitForReadback(); CHECK([state() isEqual:@"disabled"]);
 
+        CHECK(rcPowerSetterMatches(TestIOS16PowerSetter.class));
+        CHECK(rcSubmitPowerMode(TestIOS16PowerSetter.sharedInstance, 1) && submittedMode == 1);
+        CHECK(rcSubmitPowerMode(TestIOS16PowerSetter.sharedInstance, 0) && submittedMode == 0);
         checkDeferredWindow();
         NSMutableDictionary *plan = [rcLowPowerDefaultConfiguration() mutableCopy];
         plan[@"Enabled"] = @YES;

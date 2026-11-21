@@ -72,6 +72,14 @@ test('scheduler checks private ABI, arms the next event before applying mode, an
   assert.match(refresh, /saved\[@"LastHandled"\]/);
 });
 
+test('the iOS 16 void setter is called by the backend and confirmed separately', () => {
+  assert.match(runtime, /- \(void\)setPowerMode:\(NSInteger\)mode/);
+  assert.match(body(runtime, 'static BOOL rcPowerSetterMatches'), /"vBc", "q@"/);
+  assert.match(body(runtime, '- (BOOL)requestPowerMode:'), /rcSubmitPowerMode\(power, enabled \? 1 : 0\)/);
+  assert.match(body(runtime, 'static BOOL rcSubmitPowerMode'), /\[invocation invokeWithTarget:power\]/);
+  assert.doesNotMatch(body(runtime, 'static BOOL rcLowPowerAPIsAvailable'), /setUserVisible:/);
+});
+
 test('settings exposes the schedule while jailbroken and UI never applies system mode directly', () => {
   assert.match(settings, /DOLowPowerScheduleController\.h/);
   assert.match(settings, /PowerSchedule_Title/);
