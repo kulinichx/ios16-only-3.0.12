@@ -77,7 +77,9 @@ test('settings exposes the schedule while jailbroken and UI never applies system
   assert.match(controller, /DOScheduleTimePicker\(minute, self/);
   assert.match(read('Application/Dopamine/UI/Settings/DOScheduleTimePicker.h'), /UIDatePickerModeTime/);
   assert.match(controller, /start == end/);
-  assert.doesNotMatch(controller, /RC_LOW_POWER_QUERY|notify_post|UIActivityIndicatorView|scheduledTimer|dispatch_after/);
+  assert.doesNotMatch(controller, /RC_LOW_POWER_QUERY|notify_post|UIActivityIndicatorView|scheduledTimer/);
+  assert.equal((controller.match(/dispatch_after\(/g) || []).length, 1);
+  assert.doesNotMatch(body(controller, '- (void)finishStopWait:'), /beginStopWait:|writeConfiguration:/);
   assert.match(controller, /runtimeStatus\[@"Revision"\] isEqual:self\.savedConfiguration\[@"Revision"\]/);
   assert.match(controller, /notify_cancel\(self\.statusToken\)/);
   assert.doesNotMatch(controller, /setPowerMode:/);

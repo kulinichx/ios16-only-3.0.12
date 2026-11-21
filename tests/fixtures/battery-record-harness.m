@@ -133,6 +133,7 @@ int main(int argc, const char *argv[])
         config(NO, NO, 180, 240, epoch);
         CHECK([last()[@"Result"] isEqual:@"cancelled"] && recorder.timer == nil);
         CHECK(last()[@"End"] != nil && recorder.state[@"NextStart"] == nil);
+        CHECK([recorder.state[@"RecordEndedByStop"] isEqual:recorder.state[@"Revision"]]);
         now = [epoch dateByAddingTimeInterval:86400]; [recorder refresh];
         CHECK(!recorder.state[@"Active"] && !recorder.timer);
         for (NSUInteger index = 0; index < 65; index++)

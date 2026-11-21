@@ -111,8 +111,6 @@
 {
     NSDictionary *status = self.runtimeStatus;
     BOOL matching = [status[@"Revision"] isEqual:self.savedConfiguration[@"Revision"]];
-    if (self.savedConfiguration[@"DisableRequest"] && !self.statusFresh)
-        return DOLocalizedString(@"BatteryRecord_Waiting");
     if (self.statusFresh && self.runtimeHasError)
         return DOLocalizedString([@"BatteryRecord_State_" stringByAppendingString:status[@"State"]]);
     if (self.statusFresh && status[@"Active"]) {
@@ -125,15 +123,21 @@
             [NSString stringWithFormat:DOLocalizedString(@"BatteryRecord_EndsAt"), DOScheduleDateText(status[@"Active"][@"PlannedEnd"])]];
         return text;
     }
-    if (matching && !status[@"Active"] && ([status[@"Completed"] boolValue] ||
-        (![self.savedConfiguration[@"Enabled"] boolValue] && [status[@"History"] count]))) {
+    if (![self.savedConfiguration[@"Enabled"] boolValue]) {
+        if (self.statusFresh && [status[@"State"] isEqual:@"idle"] &&
+            [status[@"RecordEndedByStop"] isEqual:self.savedConfiguration[@"DisableRequest"]])
+            return DOLocalizedString(@"BatteryRecord_StoppedAndDisabled");
+        if (!self.savedConfiguration[@"DisableRequest"] || (self.statusFresh && [status[@"State"] isEqual:@"idle"]))
+            return DOLocalizedString(@"BatteryRecord_Paused");
+        return [self unconfirmedStopText];
+    }
+    if (matching && !status[@"Active"] && [status[@"Completed"] boolValue]) {
         NSDictionary *last = [status[@"History"] firstObject];
         if (last) return [NSString stringWithFormat:@"%@ · %@",
             DOScheduleDateText(last[@"End"][@"Date"] ?: last[@"Recorded"]),
             DOLocalizedString([@"BatteryRecord_Result_" stringByAppendingString:last[@"Result"] ?: @"interrupted"])];
         return DOLocalizedString(@"BatteryRecord_OnceFinished");
     }
-    if (![self.savedConfiguration[@"Enabled"] boolValue]) return DOLocalizedString(@"BatteryRecord_Paused");
     NSDate *start = matching ? status[@"NextStart"] : nil;
     if (![start isKindOfClass:NSDate.class]) start = self.savedConfiguration[@"FirstStart"];
     if ([self.savedConfiguration[@"Repeat"] boolValue] && [start timeIntervalSinceNow] <= 0)

@@ -214,6 +214,9 @@ static RCBatteryRecorder *recorder;
     if (!rcBatteryConfigurationValid(config)) config = rcBatteryDefaultConfiguration();
     if (![self.state[@"Revision"] isEqual:config[@"Revision"]]) {
         BOOL stopping = ![config[@"Enabled"] boolValue] && config[@"DisableRequest"] != nil;
+        if (stopping && self.state[@"Active"]) self.state[@"RecordEndedByStop"] = config[@"DisableRequest"];
+        else if (![self.state[@"RecordEndedByStop"] isEqual:config[@"DisableRequest"]])
+            [self.state removeObjectForKey:@"RecordEndedByStop"];
         if (stopping || [self.state[@"Active"][@"Source"] isEqual:@"scheduled"])
             [self finishActive:@"cancelled" sample:stopping];
         self.state[@"Revision"] = config[@"Revision"];

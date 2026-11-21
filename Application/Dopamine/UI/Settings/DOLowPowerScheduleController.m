@@ -332,6 +332,7 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 @property(nonatomic, strong) UIImpactFeedbackGenerator *timeFeedback;
 @property(nonatomic, copy) NSArray<NSLayoutConstraint *> *timePickerCellConstraints;
 @property(nonatomic) int statusToken;
+@property(nonatomic, copy) NSString *pendingStop;
 @end
 
 @implementation DOLowPowerScheduleController
@@ -730,6 +731,29 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
 
 - (void)didRefreshStatus {}
 
+- (NSString *)unconfirmedStopText
+{
+    return DOLocalizedString([self.pendingStop isEqual:self.savedConfiguration[@"DisableRequest"]] ?
+        @"PowerSchedule_Stopping" : @"PowerSchedule_StopUnconfirmed");
+}
+
+- (void)finishStopWait:(NSString *)request
+{
+    if (![self.pendingStop isEqual:request]) return;
+    self.pendingStop = nil;
+    // Read once even if the status notification was missed. Never resend the stop.
+    [self refreshStatus];
+}
+
+- (void)beginStopWait:(NSString *)request
+{
+    self.pendingStop = request;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        [weakSelf finishStopWait:request];
+    });
+}
+
 - (void)showScheduleFeedback:(NSString *)message error:(BOOL)error
 {
     self.feedbackLabel.text = message;
@@ -742,10 +766,13 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
     NSDictionary *status = self.runtimeStatus;
     NSString *state = self.statusFresh ? status[@"State"] : nil;
     if (![self.savedConfiguration[@"Enabled"] boolValue]) {
-        if (!self.savedConfiguration[@"DisableRequest"] || [state isEqual:@"disabled"])
+        if (!self.savedConfiguration[@"DisableRequest"])
             return DOLocalizedString(@"LowPowerSchedule_Disabled");
+        if (![status[@"DisableRequest"] isEqual:self.savedConfiguration[@"DisableRequest"]])
+            return [self unconfirmedStopText];
+        if ([state isEqual:@"disabled"]) return DOLocalizedString(@"LowPowerSchedule_Disabled");
         if (self.statusFresh && self.runtimeHasError) return DOLocalizedString(@"LowPowerSchedule_DisableFailed");
-        return DOLocalizedString(@"LowPowerSchedule_Waiting");
+        return [self unconfirmedStopText];
     }
     if ([state isEqual:@"unsupported"]) return DOLocalizedString(@"LowPowerSchedule_Unsupported");
     if ([state isEqual:@"applyFailed"]) return DOLocalizedString(@"LowPowerSchedule_ApplyFailed");
@@ -919,6 +946,8 @@ static NSString * const DOScheduleThemeDidChangeNotification = @"DOCustomGlassTh
         return NO;
     }
     self.savedConfiguration = configuration;
+    if (stopping) [self beginStopWait:configuration[@"DisableRequest"]];
+    else if (self.enabledSwitch.on) self.pendingStop = nil;
     [self showScheduleFeedback:nil error:NO];
     [self refreshStatus];
     return YES;

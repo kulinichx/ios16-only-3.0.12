@@ -257,13 +257,28 @@ static NSUInteger CheckScheduleUI(UIViewController *host, NSString *documents)
     [low.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.lowConfig[@"Enabled"] boolValue] && !low.hasChanges);
     CHECK([env.lowConfig[@"EndMinute"] integerValue] == 390);
-    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Waiting")]);
+    CHECK([low.statusText isEqual:DOLocalizedString(@"PowerSchedule_Stopping")]);
+    NSString *stopID = env.lowConfig[@"DisableRequest"];
+    env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": @"older"};
+    [low finishStopWait:stopID];
+    CHECK([low.statusText isEqual:DOLocalizedString(@"PowerSchedule_StopUnconfirmed")]);
+    env.lowState = @{@"Revision": env.lowConfig[@"Revision"], @"Updated": NSDate.date, @"State": @"disabled", @"DisableRequest": stopID};
+    [low refreshStatus];
+    CHECK([low.statusText isEqual:DOLocalizedString(@"LowPowerSchedule_Disabled")]);
     env.batteryState = @{@"Revision": battery.savedConfiguration[@"Revision"], @"Updated": NSDate.date,
         @"Active": @{@"Source": @"scheduled"}, @"History": @[]};
     battery.enabledSwitch.on = NO;
     [battery.enabledSwitch sendActionsForControlEvents:UIControlEventValueChanged];
     CHECK(![env.batteryConfig[@"Enabled"] boolValue] && env.batteryConfig[@"DisableRequest"]);
-    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_Waiting")]);
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"PowerSchedule_Stopping")]);
+    [battery finishStopWait:env.batteryConfig[@"DisableRequest"]];
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"PowerSchedule_StopUnconfirmed")]);
+    NSMutableDictionary *idle = [@{@"Revision": env.batteryConfig[@"Revision"], @"Updated": NSDate.date,
+        @"State": @"idle", @"History": @[@{@"Result": @"cancelled", @"Recorded": NSDate.date}]} mutableCopy];
+    env.batteryState = idle; [battery refreshStatus];
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_Paused")]);
+    idle[@"RecordEndedByStop"] = env.batteryConfig[@"DisableRequest"]; [battery refreshStatus];
+    CHECK([battery.statusText isEqual:DOLocalizedString(@"BatteryRecord_StoppedAndDisabled")]);
     [nav willMoveToParentViewController:nil];
     [nav.view removeFromSuperview];
     [nav removeFromParentViewController];

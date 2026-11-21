@@ -217,7 +217,7 @@
 "LowPowerSchedule_Footer" = "每天按本地时间重复。关闭计划时，系统低电量模式也会关闭。";
 "LowPowerSchedule_RuntimeFooter" = "关机或未越狱时不执行。";
 "LowPowerSchedule_Waiting" = "等待 SpringBoard 确认；更新后请重新加载越狱环境。";
-"LowPowerSchedule_Disabled" = "计划已停用。";
+"LowPowerSchedule_Disabled" = "低电量计划已关闭。";
 "LowPowerSchedule_DisableFailed" = "计划已停用，但未能确认低电量模式已关闭。请在系统设置的“电池”中查看。";
 "LowPowerSchedule_Unsupported" = "系统接口不兼容，计划未运行。";
 "LowPowerSchedule_ApplyFailed" = "系统未接受上次省电请求。重试次数有限，请在下一事件后检查。";
@@ -304,7 +304,10 @@
 "BatteryRecord_DueAt" = "原定于 %@开始，尚无执行结果。";
 "BatteryRecord_StartedAt" = "正在记录，已于 %@开始";
 "BatteryRecord_EndsAt" = "预计于 %@结束";
-"BatteryRecord_Paused" = "记录计划未启用。设置开始、结束时间后启用并保存。";
+"BatteryRecord_Paused" = "耗电记录计划已关闭。";
+"PowerSchedule_Stopping" = "正在关闭…";
+"PowerSchedule_StopUnconfirmed" = "关闭请求已保存，尚未确认生效。";
+"BatteryRecord_StoppedAndDisabled" = "当前记录已结束，耗电记录计划已关闭。";
 "BatteryRecord_Copied" = "已更新记录时间。";
 "BatteryRecord_CommandPending" = "操作已提交，正在更新记录结果；请勿重复操作。";
 "BatteryRecord_ManualNeedsRefresh" = "已请求更新记录状态，请稍后再试。若一直无法开始，请重新加载越狱环境后重试。";
