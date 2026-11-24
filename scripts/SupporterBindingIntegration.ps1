@@ -10,7 +10,7 @@ function Get-RHProofResultText([string]$Code, [bool]$Migration = $false) {
             $next = if ($Migration) {
                 '关闭窗口，在原记录上生成普通 RHC1，让用户重新生成证明。主界面显示「同设备 · 密钥待复核」后，点击「同设备换密钥」。'
             } else {
-                '选中原记录，点击「同设备换密钥」并核对用户编号，确认后点击「补发选中绑定」。'
+                '「补发选中绑定」暂不可用。关闭提示，选中原记录，先点击「同设备换密钥」并核对用户编号；确认迁移后，补发按钮才会启用。'
             }
         }
         'HARDWARE_MISMATCH' { $meaning = '硬件与历史记录不符'; $next = '停止按原机补发，核实用户身份和设备归属。' }
@@ -40,6 +40,7 @@ function Get-RHProofErrorText([string]$Message, [bool]$Migration = $false) {
 
 function Format-RHReportedDevice([string]$Model, [string]$Version) {
     if (-not $Model -or -not $Version) { return '未上报' }
+    if ($Model -in @('iOS', 'iPadOS')) { return "型号未上报 · $Model $Version" }
     $system = if ($Model.StartsWith('iPad', [StringComparison]::OrdinalIgnoreCase)) { 'iPadOS' } else { 'iOS' }
     return "$Model · $system $Version"
 }
@@ -53,9 +54,24 @@ function Update-RHDeviceInfoDisplay {
     $state = $script:RHDeviceInfo
     $device = Normalize-DeviceCode $state.Device.Text
     $row = Get-RHDeviceInfoRow $device
-    $state.Info.Text = if ($null -ne $row) {
+    $pending = $state.Pending[$device]
+    $state.Info.Text = if ($null -ne $pending) {
+        (Format-RHReportedDevice $pending.DeviceModel $pending.OSVersion) + '（密钥待复核）'
+    } elseif ($null -ne $row) {
         Format-RHReportedDevice $row.DeviceModel $row.OSVersion
     } elseif ($state.ReadError) { '设备信息记录无法载入' } else { '未上报' }
+}
+
+function Save-RHConfirmedDeviceInfo([string]$DeviceCode, [string]$Model, [string]$Version) {
+    $state = $script:RHDeviceInfo
+    if (-not (Test-RHProofDeviceInfo $Model $Version)) { return }
+    if ($state.ReadError) { throw '设备信息记录无法读取，已保留原文件。' }
+    $row = [pscustomobject]@{ DeviceCode = $DeviceCode; DeviceModel = $Model; OSVersion = $Version }
+    $rows = @($state.Rows.Values | Where-Object { $_.DeviceCode -ne $DeviceCode }) + $row
+    Save-JsonArrayAtomic $state.Path $rows
+    $state.Rows[$DeviceCode] = $row
+    $state.Pending.Remove($DeviceCode)
+    Update-RHDeviceInfoDisplay
 }
 
 function Show-RHProofDeviceInfo($Result, [string]$OriginalDeviceCode) {
@@ -66,18 +82,17 @@ function Show-RHProofDeviceInfo($Result, [string]$OriginalDeviceCode) {
     } else { '未上报' }
     $currentText = Format-RHReportedDevice $Result.DeviceModel $Result.OSVersion
     $lines = @("上次确认 · $previousText", "本次上报 · $currentText")
-    if ($Result.DeviceModel -and $Result.OSVersion -and $Result.Policy -in @('BOUND', 'MATCH', 'SAME_DEVICE')) {
+    $state.Pending.Remove($OriginalDeviceCode)
+    if ((Test-RHProofDeviceInfo $Result.DeviceModel $Result.OSVersion) -and $Result.Policy -eq 'REVIEW_KEY_MISMATCH') {
+        $state.Pending[$OriginalDeviceCode] = [pscustomobject]@{
+            DeviceModel = $Result.DeviceModel; OSVersion = $Result.OSVersion
+        }
+    }
+    Update-RHDeviceInfoDisplay
+    if ((Test-RHProofDeviceInfo $Result.DeviceModel $Result.OSVersion) -and $Result.Policy -in @('BOUND', 'MATCH', 'SAME_DEVICE')) {
         if ($state.ReadError) { return $lines + '设备信息记录无法读取，已保留原文件。' }
         try {
-            $row = [pscustomobject]@{
-                DeviceCode = $OriginalDeviceCode
-                DeviceModel = $Result.DeviceModel
-                OSVersion = $Result.OSVersion
-            }
-            $rows = @($state.Rows.Values | Where-Object { $_.DeviceCode -ne $OriginalDeviceCode }) + $row
-            Save-JsonArrayAtomic $state.Path $rows
-            $state.Rows[$OriginalDeviceCode] = $row
-            Update-RHDeviceInfoDisplay
+            Save-RHConfirmedDeviceInfo $OriginalDeviceCode $Result.DeviceModel $Result.OSVersion
         } catch {
             $lines += '设备信息未保存，请检查签发目录。'
         }
@@ -90,6 +105,7 @@ function Initialize-RHDeviceInfo($Panel, $Device, $Name) {
         Device = $Device
         Path = Join-Path $script:BaseDir 'supporter-device-info.json'
         Rows = @{}
+        Pending = @{}
         ReadError = $false
     }
     $script:RHDeviceInfo = $state
@@ -458,7 +474,14 @@ function Start-RHIntegratedKeyMigration {
         Refresh-RHIntegratedBindingPlan -Quiet
         $state.Output.Clear()
         $state.Status.Text = "#$id 已迁移设备密钥 · 尚未补发授权"
-        Show-RHIntegratedBindingMessage "#$id 的绑定密钥已迁移，原 RH1 没有改变。`r`n备份：$($result.backup)`r`n请再点补发选中绑定，使用新的文件名输出，将 RH1 + RHB1 一起粘贴到 iPad 激活。"
+        $message = "#$id 的绑定密钥已迁移，原 RH1 没有改变。`r`n备份：$($result.backup)`r`n请再点补发选中绑定，使用新的文件名输出，将 RH1 + RHB1 一起粘贴到设备激活。"
+        if ((Get-Variable RHDeviceInfo -Scope Script -ErrorAction SilentlyContinue) -and
+            $null -ne $result.PSObject.Properties['deviceModel'] -and
+            (Test-RHProofDeviceInfo $result.deviceModel $result.osVersion)) {
+            try { Save-RHConfirmedDeviceInfo $record.deviceCode $result.deviceModel $result.osVersion }
+            catch { $message += "`r`n设备密钥迁移已完成，但设备信息未保存，请检查签发目录。" }
+        }
+        Show-RHIntegratedBindingMessage $message
     } catch {
         Refresh-RHIntegratedBindingPlan -Quiet
         Show-RHIntegratedBindingMessage $_.Exception.Message $true
@@ -487,6 +510,15 @@ function Install-RHIntegratedProofGuard {
                 } catch { }
                 Update-RHIntegratedBindingControls
                 throw '设备证明已验证，但复核记录保存失败。已暂停绑定补发；请检查磁盘后重新生成并验证设备证明，不要使用历史补发文件。'
+            }
+            Refresh-RHIntegratedBindingPlan -Quiet
+            foreach ($row in $script:RHIntegratedBinding.Grid.Rows) {
+                $record = $script:RHIntegratedBinding.ById[[string]$row.Cells['ID'].Value]
+                if ($null -ne $record -and $record.deviceCode -eq $result.DeviceCode) {
+                    $script:RHIntegratedBinding.Grid.ClearSelection()
+                    $row.Selected = $true
+                    break
+                }
             }
         }
         return $result

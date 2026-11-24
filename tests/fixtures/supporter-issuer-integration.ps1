@@ -125,6 +125,7 @@ try {
     Assert-Test ($grid.Rows[0].Cells['RHBindingState'].Value -eq '预检不可用') 'Failed preview reused old binding state.'
     [IO.File]::Delete((Join-Path $Directory 'plan-failure'))
     $null = Verify-RHP1Proof 'SYNTHETIC-PROOF-STDIN' 'NORMAL'
+    Assert-Test (-not $state.Single.Enabled -and $state.Rekey.Enabled) 'Verified device must be selected and refreshed before the proof popup.'
     Refresh-RHIntegratedBindingPlan
     $grid.ClearSelection(); $grid.Rows[2].Selected = $true
     Assert-Test (-not $state.Single.Enabled -and $state.Rekey.Enabled) 'Key mismatch did not disable supplement and enable explicit review.'

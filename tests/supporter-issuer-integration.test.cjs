@@ -312,14 +312,21 @@ test('original verifier consumes a disposable signed RHP1, preserves mismatch an
       $metadataFile = $script:RHDeviceInfo.Path
       $pending = @(Show-RHProofDeviceInfo $verified $verified.DeviceCode)
       if ($pending[0] -notlike '*未上报' -or $pending[1] -notlike '*iPhone 13 Pro*16.5.1' -or (Test-Path $metadataFile)) { throw 'Pending review overwrote confirmed information' }
-      $matching = [pscustomobject]@{Policy='MATCH'; DeviceModel='iPhone 13 Pro'; OSVersion='16.5.1'}
+      if ($script:RHDeviceInfo.Info.Text -notlike '*iPhone 13 Pro*16.5.1*密钥待复核*') { throw 'Pending metadata was not filled in the device field' }
+      if ($script:RHIntegratedBinding.Single.Enabled -or -not $script:RHIntegratedBinding.Rekey.Enabled) { throw 'Controls did not refresh before the proof dialog' }
+      $matching = [pscustomobject]@{Policy='MATCH'; DeviceModel='iPhone 13 Pro'; OSVersion='16.4'}
       $null = Show-RHProofDeviceInfo $matching $verified.DeviceCode
-      if ($script:RHDeviceInfo.Info.Text -notlike '*iPhone 13 Pro*16.5.1' -or $txtNote.Text -ne 'Keep this note') { throw 'Device information replaced the note or was not displayed' }
+      if ($script:RHDeviceInfo.Info.Text -notlike '*iPhone 13 Pro*16.4' -or $txtNote.Text -ne 'Keep this note') { throw 'Device information replaced the note or was not displayed' }
       $different = [pscustomobject]@{Policy='HARDWARE_MISMATCH'; DeviceModel='iPad13,4'; OSVersion='16.7'}
       $comparison = @(Show-RHProofDeviceInfo $different $verified.DeviceCode)
-      if ($comparison[0] -notlike '*iPhone 13 Pro*16.5.1' -or $comparison[1] -notlike '*iPad13,4*iPadOS 16.7') { throw 'Mismatch lacks previous and reported metadata' }
+      if ($comparison[0] -notlike '*iPhone 13 Pro*16.4' -or $comparison[1] -notlike '*iPad13,4*iPadOS 16.7') { throw 'Mismatch lacks previous and reported metadata' }
       $persisted = Get-Content -Raw -LiteralPath $metadataFile | ConvertFrom-Json
-      if ($persisted.DeviceModel -ne 'iPhone 13 Pro') { throw 'Different hardware overwrote confirmed metadata' }
+      if ($persisted.DeviceModel -ne 'iPhone 13 Pro' -or $persisted.OSVersion -ne '16.4') { throw 'Different hardware overwrote confirmed metadata' }
+      $null = Show-RHProofDeviceInfo $verified $verified.DeviceCode
+      if ($script:RHDeviceInfo.Info.Text -notlike '*16.5.1*密钥待复核*') { throw 'New proof lost pending metadata' }
+      $persisted = Get-Content -Raw -LiteralPath $metadataFile | ConvertFrom-Json
+      if ($persisted.OSVersion -ne '16.4') { throw 'Pending metadata overwrote the confirmed version' }
+      if ((Format-RHReportedDevice 'iOS' '16.0.2') -ne '型号未上报 · iOS 16.0.2') { throw 'An OS name was presented as a device model' }
       if ($verified.Policy -ne 'REVIEW_KEY_MISMATCH') { throw 'Original verifier lost mismatch policy' }
       Refresh-RHIntegratedBindingPlan
       $state = $script:RHIntegratedBinding
@@ -330,6 +337,9 @@ test('original verifier consumes a disposable signed RHP1, preserves mismatch an
       function Show-RHIntegratedBindingMessage($Message, $Failed = $false) { if ($Failed) { throw $Message } }
       Start-RHIntegratedKeyMigration
       if (-not $state.Single.Enabled -or $state.Rekey.Enabled) { throw 'Explicit migration did not restore supplement review' }
+      if ($script:RHDeviceInfo.Info.Text -notlike '*iPhone 13 Pro*16.5.1' -or $script:RHDeviceInfo.Pending.Count -ne 0) { throw 'Confirmed migration did not promote device information' }
+      $persisted = Get-Content -Raw -LiteralPath $metadataFile | ConvertFrom-Json
+      if ($persisted.OSVersion -ne '16.5.1' -or $txtNote.Text -ne 'Keep this note') { throw 'Rekey did not persist metadata or overwrote the note' }
       if ([string]$script:Bindings[0].KeyFingerprint -eq $oldFingerprint) { throw 'Original verifier memory not reloaded after migration' }
       [pscustomobject]@{Policy=$verified.Policy; State=$script:Challenges[0].State; SupplementEnabled=$state.Single.Enabled} | ConvertTo-Json -Compress
     } finally { $form.Close(); $form.Dispose() }

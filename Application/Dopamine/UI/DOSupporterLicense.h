@@ -10,6 +10,7 @@
 @import Security;
 #import <CommonCrypto/CommonDigest.h>
 #import <objc/runtime.h>
+#import <sys/sysctl.h>
 
 CFPropertyListRef MGCopyAnswer(CFStringRef property);
 
@@ -1026,13 +1027,25 @@ DORHSupporterParseRHC1Challenge(NSData *challengeData,
 
 static inline NSString *DORHSupporterProofModel(void)
 {
+    // Some devices return the OS name ("iOS") for MarketingProductName.
+    // Only accept device names here, then fall back to the hardware model.
     for (NSString *property in @[@"MarketingProductName", @"ProductType"]) {
         CFTypeRef answer = MGCopyAnswer((__bridge CFStringRef)property);
         id value = CFBridgingRelease(answer);
         if ([value isKindOfClass:NSString.class] &&
-            [value rangeOfString:@"\\A[A-Za-z0-9][A-Za-z0-9 ,().+-]{0,63}\\z"
+            [value rangeOfString:@"\\A(?:iPhone|iPad|iPod)[A-Za-z0-9 ,().+-]{0,58}\\z"
                          options:NSRegularExpressionSearch].location != NSNotFound) {
             return value;
+        }
+    }
+    char machine[64] = {0};
+    size_t length = sizeof(machine);
+    if (sysctlbyname("hw.machine", machine, &length, NULL, 0) == 0 &&
+        length > 1 && length <= sizeof(machine) && machine[length - 1] == '\0') {
+        NSString *model = [NSString stringWithUTF8String:machine];
+        if ([model rangeOfString:@"\\A(?:iPhone|iPad|iPod)[0-9]+,[0-9]+\\z"
+                        options:NSRegularExpressionSearch].location != NSNotFound) {
+            return model;
         }
     }
     return nil;

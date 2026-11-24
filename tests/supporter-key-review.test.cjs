@@ -143,6 +143,18 @@ test('explicit rekey preserves RH1, other users, hardware and first verification
   assert.equal(binding.verifyCertificate(certificate, old, issuer.publicKey).key_fingerprint, binding.sha256(points[1]));
 }));
 
+test('rekey returns device information from the signed proof for confirmation and persistence', () => fixture(({ directory }) => {
+  review.recordProof(directory, proof(hw, 1, { version: 2, device_model: 'iPad13,4', os_version: '16.0.2' }), issuer.publicKey, now);
+  const plan = review.migrationPlan(directory, '0029', issuer.publicKey, now);
+  assert.equal(plan.deviceModel, 'iPad13,4');
+  assert.equal(plan.osVersion, '16.0.2');
+  const result = review.migrate(directory, '0029', plan.reviewSha256, '0029', issuer.publicKey, now);
+  assert.equal(result.deviceCode, device);
+  assert.equal(result.deviceModel, plan.deviceModel);
+  assert.equal(result.osVersion, plan.osVersion);
+  assert.equal(result.signingPerformed, false);
+}));
+
 test('different hardware is recorded but never eligible for the same-device migration', () => fixture(({ directory }) => {
   assert.equal(review.recordProof(directory, proof('F'.repeat(64)), issuer.publicKey, now).status, 'HARDWARE_MISMATCH');
   assert.equal(cli(directory, 'plan').records[0].status, 'HARDWARE_MISMATCH');

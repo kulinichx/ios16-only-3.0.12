@@ -10,8 +10,10 @@ const knownPrevious = {
     'd6cab08aa685596f5c8c26fbc2b2cff84d6f3ac708a6efee082931a1cfcabf57',
     '22ebaa8c70cc369d57bb669f36ee26afd8683820384e5cd2d0d3b3cb39558c60',
     'f81549316edc11a8e1208e32e52610a0e3b327c18c7192a2a18228fe5c6916a2',
+    '3eb46879a75965071bf12cbce02c6918a4d9d9138c2dabc7faf04f7b57746a57',
   ],
-  'supporter-key-review.cjs': ['b1efacb58f26190f2af47fcb040e8de02ba9befd2fa78098161d1c6acbf99001'],
+  'supporter-key-review.cjs': ['b1efacb58f26190f2af47fcb040e8de02ba9befd2fa78098161d1c6acbf99001',
+    '8b0bfa130a5be0a93bc096bf68e42fef29e75cf4afc3f44ea51a9fec9ad0a71d'],
   'supporter-binding.cjs': ['a78695c9dc1be96c61a469dc89f5960436284cfad939b9fbdeca95e5a19463c9'],
 };
 const marker = '# RootHide binding integration v1';

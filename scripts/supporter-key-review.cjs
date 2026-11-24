@@ -169,7 +169,8 @@ function migrationPlan(directory, id, publicKey, now = Math.floor(Date.now() / 1
   const { proof } = verifyProof(row.keyReview.Proof, row.keyReview.Challenge);
   return { id: row.id, displayName: row.displayName, deviceCode: row.deviceCode, note: row.note,
     hardwareHash: row.binding.HardwareHash, oldKeyFingerprint: row.binding.KeyFingerprint,
-    newKeyFingerprint: proof.key_fingerprint, reviewSha256: binding.reviewSha256([row]) };
+    newKeyFingerprint: proof.key_fingerprint, deviceModel: proof.device_model || null,
+    osVersion: proof.os_version || null, reviewSha256: binding.reviewSha256([row]) };
 }
 
 function migrate(directory, id, digest, confirmId, publicKey, now = Math.floor(Date.now() / 1000), io = fs) {
@@ -199,7 +200,8 @@ function migrate(directory, id, digest, confirmId, publicKey, now = Math.floor(D
     { action: 'same-hardware-device-key-migration', supporterId: id, deviceCode: row.deviceCode,
       hardwareHash: plan.hardwareHash, oldKeyFingerprint: plan.oldKeyFingerprint,
       newKeyFingerprint: plan.newKeyFingerprint, reviewedSha256: digest, time: new Date(now * 1000).toISOString() }, io);
-  return { migrated: true, id, backup, licenseChanged: false, signingPerformed: false };
+  return { migrated: true, id, backup, deviceCode: row.deviceCode, deviceModel: proof.device_model || null,
+    osVersion: proof.os_version || null, licenseChanged: false, signingPerformed: false };
 }
 
 function readProofInput() {
