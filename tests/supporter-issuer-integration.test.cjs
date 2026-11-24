@@ -199,6 +199,7 @@ test('original issuer source opens with integrated controls and refreshes its da
         status: index === 0 ? 'READY_FOR_REVIEW' : 'LEGACY_UNBOUND', reviewSha256: 'B'.repeat(64) })) };
     fs.writeFileSync(path.join(directory, 'supporter-binding.cjs'),
       `if(process.argv[2] !== 'plan') process.exit(44); console.log(${JSON.stringify(JSON.stringify(preview))});`);
+    fs.copyFileSync(path.join(root, 'scripts/RootHideSupporterIssuer.ico'), path.join(directory, 'RootHideSupporterIssuer.ico'));
     const original = fs.readFileSync(process.env.DORH_ISSUER_SOURCE, 'utf8');
     const instrumented = patchIssuerSource(original).replace('[void]$form.ShowDialog()', `
       $form.Show()
@@ -217,8 +218,20 @@ test('original issuer source opens with integrated controls and refreshes its da
         $state = $script:RHIntegratedBinding
         $strip = $state.Single.Parent
         if ($strip.Right -gt $btnCopy.Left -or $strip.Top -lt 0 -or $strip.Bottom -gt $txtLicense.Top) { throw 'Original copy/output controls overlapped' }
+        $normal = Get-RHProofResultText 'REVIEW_KEY_MISMATCH'
+        $migration = Get-RHProofResultText 'REVIEW_KEY_MISMATCH' $true
+        $mismatch = Get-RHProofResultText 'HARDWARE_MISMATCH' $true
+        $expired = Get-RHProofErrorText 'challenge-expired' $true
+        if ($normal -notlike '硬件一致，设备密钥已变化（REVIEW_KEY_MISMATCH）*' -or $normal -notlike '*补发选中绑定*') { throw 'Ordinary key review guidance is missing' }
+        if ($migration -notlike '*生成普通 RHC1*' -or $mismatch -notlike '*停止按原机补发*') { throw 'Migration guidance points to the wrong action' }
+        if ($expired -notlike '*生成 Migration RHC1*' -or $expired -notlike '*challenge-expired*') { throw 'Retry guidance lost the original code' }
         $form.ClientSize = New-Object Drawing.Size(790, 930)
         $form.PerformLayout()
+        $deviceField = $script:RHDeviceInfo.Info
+        if ($deviceField.Top -ne $txtName.Top -or $txtName.Right -ge $deviceField.Left -or $deviceField.Right -ne $txtDevice.Right -or -not $deviceField.ReadOnly) { throw 'Device info layout overlaps or is editable' }
+        if ($txtNote.Right -ne $txtDevice.Right -or $deviceField.Text -ne '未上报') { throw 'Notes row or legacy placeholder changed' }
+        $nameOfIcon = 'RootHideSupporterIssuer.ico'
+        if ((Test-Path (Join-Path $script:BaseDir $nameOfIcon)) -and $form.Icon.Width -le 0) { throw 'Issuer icon failed to load' }
         if ($strip.Right -gt $btnCopy.Left -or $state.Rekey.Right -gt $strip.ClientSize.Width) { throw 'Minimum-width toolbar clipped' }
         $form.ClientSize = New-Object Drawing.Size(820, 950)
         $form.PerformLayout()
@@ -269,9 +282,10 @@ test('original verifier consumes a disposable signed RHP1, preserves mismatch an
   fs.writeFileSync(path.join(directory, 'supporter-device-proof-challenges.json'), JSON.stringify([{
     ChallengeId: challenge.challenge_id, State: 'ISSUED', DeviceCode: deviceCode, Canonical: canonical,
     ChallengeHash: binding.sha256(canonical), IssuedAt: timestamp, ExpiresAt: timestamp + 300, ConsumedAt: '' }]));
-  const unsigned = { type: 'RHP1', version: 1, challenge_id: challenge.challenge_id, challenge_hash: binding.sha256(canonical),
+  const unsigned = { type: 'RHP1', version: 2, challenge_id: challenge.challenge_id, challenge_hash: binding.sha256(canonical),
     hardware_protocol: 'rh-hw-v1', hardware_hash: hardware, key_fingerprint: binding.sha256(points[1]),
-    public_key: points[1].toString('base64url'), signature_algorithm: 'ecdsa-p256-sha256-x962' };
+    public_key: points[1].toString('base64url'), signature_algorithm: 'ecdsa-p256-sha256-x962',
+    device_model: 'iPhone 13 Pro', os_version: '16.5.1' };
   const signature = crypto.sign('sha256', Buffer.concat([Buffer.from('DopamineRH-RHP1-Sign-v1\0'),
     Buffer.from(JSON.stringify(unsigned))]), deviceKeys[1].privateKey).toString('base64url');
   fs.writeFileSync(path.join(directory, 'synthetic-proof.json'), JSON.stringify({ ...unsigned, signature }));
@@ -287,7 +301,25 @@ test('original verifier consumes a disposable signed RHP1, preserves mismatch an
     [Windows.Forms.Application]::DoEvents()
     try {
       $wire = [IO.File]::ReadAllText((Join-Path $script:BaseDir 'synthetic-proof.json'))
+      $rejected = $false
+      try { $null = Verify-RHP1Proof ($wire.Replace('16.5.1', '16.6.1')) 'NORMAL' }
+      catch { $rejected = $true }
+      if (-not $rejected -or $script:Challenges[0].State -ne 'ISSUED') { throw 'Changed device metadata was accepted or consumed the challenge' }
       $verified = Verify-RHP1Proof $wire 'NORMAL'
+      if ($verified.DeviceModel -ne 'iPhone 13 Pro' -or $verified.OSVersion -ne '16.5.1') { throw 'Signed metadata did not reach the issuer' }
+      $txtDevice.Text = [string]$verified.DeviceCode
+      $txtNote.Text = 'Keep this note'
+      $metadataFile = $script:RHDeviceInfo.Path
+      $pending = @(Show-RHProofDeviceInfo $verified $verified.DeviceCode)
+      if ($pending[0] -notlike '*未上报' -or $pending[1] -notlike '*iPhone 13 Pro*16.5.1' -or (Test-Path $metadataFile)) { throw 'Pending review overwrote confirmed information' }
+      $matching = [pscustomobject]@{Policy='MATCH'; DeviceModel='iPhone 13 Pro'; OSVersion='16.5.1'}
+      $null = Show-RHProofDeviceInfo $matching $verified.DeviceCode
+      if ($script:RHDeviceInfo.Info.Text -notlike '*iPhone 13 Pro*16.5.1' -or $txtNote.Text -ne 'Keep this note') { throw 'Device information replaced the note or was not displayed' }
+      $different = [pscustomobject]@{Policy='HARDWARE_MISMATCH'; DeviceModel='iPad13,4'; OSVersion='16.7'}
+      $comparison = @(Show-RHProofDeviceInfo $different $verified.DeviceCode)
+      if ($comparison[0] -notlike '*iPhone 13 Pro*16.5.1' -or $comparison[1] -notlike '*iPad13,4*iPadOS 16.7') { throw 'Mismatch lacks previous and reported metadata' }
+      $persisted = Get-Content -Raw -LiteralPath $metadataFile | ConvertFrom-Json
+      if ($persisted.DeviceModel -ne 'iPhone 13 Pro') { throw 'Different hardware overwrote confirmed metadata' }
       if ($verified.Policy -ne 'REVIEW_KEY_MISMATCH') { throw 'Original verifier lost mismatch policy' }
       Refresh-RHIntegratedBindingPlan
       $state = $script:RHIntegratedBinding

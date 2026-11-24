@@ -70,6 +70,16 @@ test('proof review independently verifies canonical challenge, signature, public
   assert.throws(() => review.verifyProof(proof(), challenge + ' '), /noncanonical-challenge/);
 });
 
+test('v2 device model and OS are signed and strictly validated', () => {
+  const metadata = { version: 2, device_model: 'iPhone14,2', os_version: '16.5.1' };
+  const wire = proof(hw, 1, metadata);
+  assert.equal(review.verifyProof(wire, challenge).proof.device_model, 'iPhone14,2');
+  assert.throws(() => review.verifyProof(wire.replace('16.5.1', '16.6.1'), challenge), /invalid-device-proof-signature/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, os_version: '16.05' }), challenge), /invalid-proof-device-info/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, device_model: 'invalid/model' }), challenge), /invalid-proof-device-info/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, version: 1 }), challenge), /noncanonical-proof/);
+});
+
 test('key mismatch is durable across reload and blocks single or all-user issuance before opening a private key', () => fixture(({ directory, files }) => {
   const before = fs.readFileSync(files['supporter-device-proof-bindings.json']);
   const initial = cli(directory, 'plan');

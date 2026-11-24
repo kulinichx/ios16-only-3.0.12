@@ -1,5 +1,136 @@
 ﻿# RootHide supporter binding integration v1. Dot-source from the original issuer.
 
+function Get-RHProofResultText([string]$Code, [bool]$Migration = $false) {
+    switch ($Code) {
+        'BOUND' { $meaning = '首次设备绑定成功'; $next = '如果尚未签发 RH1，先完成首次签发。然后选中对应记录，点击「补发选中绑定」。' }
+        'MATCH' { $meaning = '硬件和设备密钥均与历史记录一致'; $next = '如需恢复授权，选中原记录后点击「补发选中绑定」。' }
+        'SAME_DEVICE' { $meaning = '硬件和设备密钥均与原设备一致'; $next = '如需恢复绑定授权，关闭窗口，选中原记录后点击「补发选中绑定」。设备码变更验证仅用于比对。' }
+        'REVIEW_KEY_MISMATCH' {
+            $meaning = '硬件一致，设备密钥已变化'
+            $next = if ($Migration) {
+                '关闭窗口，在原记录上生成普通 RHC1，让用户重新生成证明。主界面显示「同设备 · 密钥待复核」后，点击「同设备换密钥」。'
+            } else {
+                '选中原记录，点击「同设备换密钥」并核对用户编号，确认后点击「补发选中绑定」。'
+            }
+        }
+        'HARDWARE_MISMATCH' { $meaning = '硬件与历史记录不符'; $next = '停止按原机补发，核实用户身份和设备归属。' }
+        'LEGACY_UNBOUND' { $meaning = '历史记录缺少可比对的设备证明'; $next = '人工核实用户和原设备归属，确认后再处理首次绑定。' }
+        'TARGET_CODE_CONFLICT' { $meaning = '新设备码已属于其他用户'; $next = '核对录入的设备码和对应的历史记录。' }
+        default { $meaning = '未知验证结果'; $next = '暂停补发，记录返回码并核对工具版本。' }
+    }
+    return "$meaning（$Code）`r`n`r`n下一步 · $next"
+}
+
+function Get-RHProofErrorText([string]$Message, [bool]$Migration = $false) {
+    $generate = if ($Migration) { '生成 Migration RHC1' } else { '生成 RHC1' }
+    $next = switch -Regex ($Message) {
+        '^challenge-(expired|consumed)' { "点击「$generate」，发给用户生成一份新的证明。"; break }
+        '^challenge-mode-mismatch' { '回到生成这条验证文本的入口，再验证对应的证明。'; break }
+        '^challenge-(not-found|mismatch)' { "核对当前签发工具和用户记录，点击「$generate」并让用户重新生成证明。"; break }
+        '^NO_CHANGE' { '在原记录上用普通 RHC1/RHP1 验证。'; break }
+        '^TARGET_CODE_CONFLICT' { '检查新设备码对应的历史记录，暂停变更。'; break }
+        '^migration-source-' { '重新载入原用户，核对历史记录后再试。'; break }
+        '^请输入有效的 NEW Device Code' { '从手机授权页复制完整的设备码，填入「新设备码」。'; break }
+        '^设备证明已验证，但复核记录保存失败' { '检查签发目录能否写入。恢复后重新生成普通 RHC1 并验证。'; break }
+        'Git Bash|OpenSSL' { '检查 Git Bash 和 OpenSSL 是否可用，再重新验证。'; break }
+        default { '核对剪贴板里是否为完整的 RHP1，按下方详情排查后再试。' }
+    }
+    return "下一步 · $next`r`n`r`n详情 · $Message"
+}
+
+function Format-RHReportedDevice([string]$Model, [string]$Version) {
+    if (-not $Model -or -not $Version) { return '未上报' }
+    $system = if ($Model.StartsWith('iPad', [StringComparison]::OrdinalIgnoreCase)) { 'iPadOS' } else { 'iOS' }
+    return "$Model · $system $Version"
+}
+
+function Get-RHDeviceInfoRow([string]$DeviceCode) {
+    if (-not $DeviceCode) { return $null }
+    return $script:RHDeviceInfo.Rows[$DeviceCode]
+}
+
+function Update-RHDeviceInfoDisplay {
+    $state = $script:RHDeviceInfo
+    $device = Normalize-DeviceCode $state.Device.Text
+    $row = Get-RHDeviceInfoRow $device
+    $state.Info.Text = if ($null -ne $row) {
+        Format-RHReportedDevice $row.DeviceModel $row.OSVersion
+    } elseif ($state.ReadError) { '设备信息记录无法载入' } else { '未上报' }
+}
+
+function Show-RHProofDeviceInfo($Result, [string]$OriginalDeviceCode) {
+    $state = $script:RHDeviceInfo
+    $previous = Get-RHDeviceInfoRow $OriginalDeviceCode
+    $previousText = if ($null -ne $previous) {
+        Format-RHReportedDevice $previous.DeviceModel $previous.OSVersion
+    } else { '未上报' }
+    $currentText = Format-RHReportedDevice $Result.DeviceModel $Result.OSVersion
+    $lines = @("上次确认 · $previousText", "本次上报 · $currentText")
+    if ($Result.DeviceModel -and $Result.OSVersion -and $Result.Policy -in @('BOUND', 'MATCH', 'SAME_DEVICE')) {
+        if ($state.ReadError) { return $lines + '设备信息记录无法读取，已保留原文件。' }
+        try {
+            $row = [pscustomobject]@{
+                DeviceCode = $OriginalDeviceCode
+                DeviceModel = $Result.DeviceModel
+                OSVersion = $Result.OSVersion
+            }
+            $rows = @($state.Rows.Values | Where-Object { $_.DeviceCode -ne $OriginalDeviceCode }) + $row
+            Save-JsonArrayAtomic $state.Path $rows
+            $state.Rows[$OriginalDeviceCode] = $row
+            Update-RHDeviceInfoDisplay
+        } catch {
+            $lines += '设备信息未保存，请检查签发目录。'
+        }
+    }
+    return $lines
+}
+
+function Initialize-RHDeviceInfo($Panel, $Device, $Name) {
+    $state = @{
+        Device = $Device
+        Path = Join-Path $script:BaseDir 'supporter-device-info.json'
+        Rows = @{}
+        ReadError = $false
+    }
+    $script:RHDeviceInfo = $state
+    if (Test-Path -LiteralPath $state.Path) {
+        try {
+            $stored = Get-Content -LiteralPath $state.Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($row in @($stored)) {
+                if ($null -eq $row -or -not (Test-DeviceCodeFormat $row.DeviceCode) -or
+                    -not (Test-RHProofDeviceInfo $row.DeviceModel $row.OSVersion) -or $state.Rows.ContainsKey($row.DeviceCode)) {
+                    throw 'invalid-device-info-store'
+                }
+                $state.Rows[$row.DeviceCode] = $row
+            }
+        } catch {
+            $state.Rows.Clear()
+            $state.ReadError = $true
+        }
+    }
+    $label = New-Object Windows.Forms.Label
+    $label.Text = '设备型号 / 系统版本'
+    $label.AutoSize = $true
+    $label.ForeColor = $colorMuted
+    $label.Location = New-Object Drawing.Point(396, 113)
+    $Panel.Controls.Add($label)
+    $Name.Anchor = 'Top, Left'
+    $Name.Width = 362
+    $info = New-Object Windows.Forms.TextBox
+    $info.SetBounds(396, 135, ($Device.Right - 396), 28)
+    $info.Anchor = 'Top, Left, Right'
+    Style-TextBox $info $true
+    $Panel.Controls.Add($info)
+    $state.Info = $info
+    $Device.Add_TextChanged({ Update-RHDeviceInfoDisplay })
+    Update-RHDeviceInfoDisplay
+}
+
+function Test-RHProofDeviceInfo($Model, $Version) {
+    return $Model -is [string] -and $Model -cmatch '\A[A-Za-z0-9][A-Za-z0-9 ,().+\-]{0,63}\z' -and
+        $Version -is [string] -and $Version -cmatch '\A[1-9][0-9]{0,2}(?:\.(?:0|[1-9][0-9]{0,2})){1,2}\z'
+}
+
 function Invoke-RHIntegratedBinding([string[]]$Arguments, [string]$InputText = '') {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $script:RHIntegratedBinding.Node

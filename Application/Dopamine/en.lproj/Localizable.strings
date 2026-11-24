@@ -177,6 +177,11 @@
 "Supporter_Copy_Device_Code" = "1. Copy Device Code";
 "Supporter_Bind_This_Device" = "2. Generate Proof";
 "Supporter_Paste_License" = "3. Paste License";
+"Supporter_Backup_Bound_License" = "Back Up License";
+"Supporter_Backup_Copied" = "License backup copied";
+"Supporter_Backup_Copied_Message" = "Save both lines somewhere private. To restore on this device, use Paste License.";
+"Supporter_Backup_Unavailable" = "Backup unavailable";
+"Supporter_Backup_Unavailable_Message" = "A valid license bound to this device is required.";
 "Supporter_Remove_License" = "Remove License";
 "Supporter_Device_Code_Copied" = "Device Code Copied";
 "Supporter_Device_Code_Copied_Message" = "Paste and send it to the author.";

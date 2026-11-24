@@ -21,7 +21,7 @@ function verifyProof(wire, canonicalChallenge) {
   need(typeof canonicalChallenge === 'string' && Buffer.byteLength(canonicalChallenge) <= 2048, 'invalid-challenge-size');
   const proof = JSON.parse(wire);
   const challenge = JSON.parse(canonicalChallenge);
-  need(proof.type === 'RHP1' && proof.version === 1 && upperHex(proof.challenge_id, 32) &&
+  need(proof.type === 'RHP1' && (proof.version === 1 || proof.version === 2) && upperHex(proof.challenge_id, 32) &&
     upperHex(proof.challenge_hash, 64) && proof.hardware_protocol === 'rh-hw-v1' &&
     upperHex(proof.hardware_hash, 64) && upperHex(proof.key_fingerprint, 64) &&
     proof.signature_algorithm === 'ecdsa-p256-sha256-x962', 'invalid-proof-fields');
@@ -37,6 +37,13 @@ function verifyProof(wire, canonicalChallenge) {
   const unsigned = { type: proof.type, version: proof.version, challenge_id: proof.challenge_id,
     challenge_hash: proof.challenge_hash, hardware_protocol: proof.hardware_protocol, hardware_hash: proof.hardware_hash,
     key_fingerprint: proof.key_fingerprint, public_key: proof.public_key, signature_algorithm: proof.signature_algorithm };
+  if (proof.version === 2) {
+    need(typeof proof.device_model === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ,().+\-]{0,63}(?![\s\S])/.test(proof.device_model) &&
+      typeof proof.os_version === 'string' && /^(?:[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){1,2}(?![\s\S])/.test(proof.os_version),
+    'invalid-proof-device-info');
+    unsigned.device_model = proof.device_model;
+    unsigned.os_version = proof.os_version;
+  }
   need(JSON.stringify({ ...unsigned, signature: proof.signature }) === wire, 'noncanonical-proof');
   const point = decode(proof.public_key);
   const key = binding.publicKeyFromPoint(point);

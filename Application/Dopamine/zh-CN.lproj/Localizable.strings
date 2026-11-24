@@ -176,6 +176,11 @@
 "Supporter_Copy_Device_Code" = "1. 复制设备码";
 "Supporter_Bind_This_Device" = "2. 生成证明码";
 "Supporter_Paste_License" = "3. 粘贴授权码";
+"Supporter_Backup_Bound_License" = "备份授权";
+"Supporter_Backup_Copied" = "两行授权已复制";
+"Supporter_Backup_Copied_Message" = "请把两行完整授权粘贴到私密备忘录或文件。原机需要恢复时，请点「粘贴授权码」。";
+"Supporter_Backup_Unavailable" = "无法备份授权";
+"Supporter_Backup_Unavailable_Message" = "备份需要本机有效的绑定授权。";
 "Supporter_Remove_License" = "移除授权";
 "Supporter_Device_Code_Copied" = "设备码已复制";
 "Supporter_Device_Code_Copied_Message" = "请粘贴发给作者。";
