@@ -268,11 +268,10 @@
 "CustomMount_SharedCopyPreserved" = "The directory was unmounted and removed from the list. Its copy was preserved because another saved mount uses the same directory tree. Copy:";
 "Maintenance_Failed" = "The system operation failed (error %d). You can try again.";
 "CustomMount_Working" = "Updating mount";
-"Home_Avatar_Display_Title" = "Circle display";
+"Home_Avatar_Display_Title" = "Avatar display";
 "Home_Avatar_Show_Photo" = "Show avatar";
-"Home_Avatar_Show_Temperature" = "Show thermal state";
-"Home_Avatar_Collapse_Hint" = "Swipe to hide, or pull inward from either screen edge to restore. Hold to choose content and visibility; your choice is remembered.";
-"Home_Avatar_Expand_Hint" = "Pull inward from either screen edge to restore and keep visible.";
+"Home_Avatar_Collapse_Hint" = "Swipe the avatar left or right to hide it. Pull inward from either screen edge to restore it. Hold to choose visibility. Your choice is remembered.";
+"Home_Avatar_Expand_Hint" = "Pull inward from either screen edge to restore the avatar. Visibility is remembered.";
 
 /* Independent interval battery recordings */
 "BatteryRecord_Title" = "Battery drain records";
@@ -336,7 +335,6 @@
 "BatteryRecord_ManualNeedsRefresh" = "A status refresh was requested. Try again shortly. If recording remains unavailable, reload the jailbreak environment and try again.";
 "BatteryRecord_Result_started" = "✓ Recording started";
 "BatteryRecord_Result_stopped" = "✓ Recording ended and added to history";
-"Home_Avatar_Auto" = "Fade out after opening";
 "Home_Avatar_Always" = "Keep visible";
 "Home_Avatar_Hidden" = "Keep hidden";
 "BatteryRecord_EndPending" = "The planned end was %@; the recording result is still pending.";

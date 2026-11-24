@@ -38,7 +38,6 @@
 @property(nonatomic, strong) NSArray<UIView *> *customGlassHeaderSubtitleLabels;
 @property(nonatomic, strong) UIImageView *customGlassAvatarPhotoView;
 @property(nonatomic, strong) UIImageView *customGlassAvatarFallbackIconView;
-@property(nonatomic, strong) DOHomeThermalHaloView *homeThermalHalo;
 @property(nonatomic, strong) DOHomeThermalStatusView *homeThermalAvatarOverlay;
 @property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarPan;
 @property(nonatomic, strong) UILongPressGestureRecognizer *customGlassAvatarLongPress;
@@ -49,7 +48,6 @@
 @property(nonatomic) BOOL customGlassAvatarHidden;
 @property(nonatomic) BOOL customGlassAvatarWasDragged;
 @property(nonatomic) CGPoint customGlassAvatarPressOrigin;
-@property(nonatomic) BOOL homeAvatarShowsTemperature;
 @property(nonatomic) BOOL customGlassAvatarHiddenRight;
 @property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarLeftEdge;
 @property(nonatomic, strong) UIPanGestureRecognizer *customGlassAvatarRightEdge;
@@ -62,9 +60,7 @@
 @property(nonatomic) NSProcessInfoThermalState homeThermalState;
 @property(nonatomic, strong) UIViewController *testPresentedController;
 - (void)applyHomeAvatarDisplayMode;
-- (void)updateHomeThermalInteriorBreath;
 - (void)revealHomeThermalStateInAvatar:(BOOL)animated;
-- (void)revealHomeThermalStateInAvatar:(BOOL)animated force:(BOOL)force;
 - (void)finishHomeEntrance;
 @end
 
@@ -109,7 +105,8 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
 {
     BOOL revealWasConsumed = DOHomeThermalLaunchRevealConsumed;
     BOOL entranceWasConsumed = DOHomeEntranceConsumed;
-    NSString *visibilityKey = @"DOCustomGlassTheme.AvatarVisibility";
+    NSString *visibilityKey = DOHomeAvatarVisibilityKey;
+    id savedSide = [NSUserDefaults.standardUserDefaults objectForKey:DOHomeAvatarHiddenRightKey];
     id savedVisibility = [NSUserDefaults.standardUserDefaults objectForKey:visibilityKey];
     DOHomeThermalLaunchRevealConsumed = YES;
     BOOL animationsWereEnabled = UIView.areAnimationsEnabled;
@@ -144,7 +141,6 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         home.customGlassHeaderSubtitleLabels = @[[UILabel new]];
         home.customGlassAvatarPhotoView = [UIImageView new];
         home.customGlassAvatarFallbackIconView = [UIImageView new];
-        home.homeThermalHalo = [[DOHomeThermalHaloView alloc] initWithFrame:CGRectMake(0, 0, 84, 84)];
         home.homeThermalAvatarOverlay = [[DOHomeThermalStatusView alloc] initWithFrame:CGRectMake(0, 0, 84, 84)];
         HomeTestLongPress *press = [HomeTestLongPress new];
         home.customGlassAvatarLongPress = press;
@@ -161,7 +157,7 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
         for (UIView *view in @[home.customGlassUsernameLabel, home.customGlassSystemLabel, home.customGlassMottoLabel])
             [home.customGlassProfileView addSubview:view];
         for (UIView *view in @[home.customGlassAvatarPhotoView, home.customGlassAvatarFallbackIconView,
-            home.homeThermalHalo, home.homeThermalAvatarOverlay])
+            home.homeThermalAvatarOverlay])
             [home.customGlassAvatarContainerView addSubview:view];
         home.customGlassJailbreakCenterYConstraint = [home.jailbreakBtn.centerYAnchor constraintEqualToAnchor:home.customGlassJailbreakPlaceholder.centerYAnchor constant:-12.0];
         [NSLayoutConstraint activateConstraints:@[
@@ -291,7 +287,10 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 CHECK(home.customGlassActionGrid.alpha == 1 && home.jailbreakBtn.alpha == 1 && home.updateButton.alpha == 1);
                 CHECK(home.customGlassActionGrid.userInteractionEnabled);
                 CHECK(CGRectEqualToRect(profile, home.customGlassProfileView.frame));
-                CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
+                CHECK([NSUserDefaults.standardUserDefaults boolForKey:DOHomeAvatarHiddenRightKey] == (dx > 0));
+                [home restoreHomeAvatarVisibilityPreference];
+                CHECK(home.customGlassAvatarHiddenRight == (dx > 0));
+                CHECK(dx < 0 ? CGRectGetMaxX(HomeAvatarRect(home)) < 0 : CGRectGetMinX(HomeAvatarRect(home)) > size.CGSizeValue.width);
                 // Restore from the opposite side, including cancellation first.
                 HomeTestPan *edge = dx < 0 ? right : left;
                 for (NSNumber *end in @[@(UIGestureRecognizerStateCancelled), @(UIGestureRecognizerStateEnded)]) {
@@ -327,77 +326,61 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
                 [home customGlassAvatarLongPressed:press];
                 CHECK((home.testPresentedController != nil) == !move.boolValue);
                 if (!move.boolValue) {
-                    CHECK(((UIAlertController *)home.testPresentedController).actions.count == 6);
+                    CHECK(((UIAlertController *)home.testPresentedController).actions.count == 3);
                     if (home.testPresentedController.popoverPresentationController)
                         CHECK(home.testPresentedController.popoverPresentationController.sourceView == home.customGlassAvatarContainerView);
                 }
             }
             home.testPresentedController = nil;
-            for (NSNumber *mode in @[@YES, @NO]) {
-                home.homeAvatarShowsTemperature = mode.boolValue;
-                [home applyHomeAvatarDisplayMode];
-                CHECK(home.homeThermalAvatarOverlay.alpha == (mode.boolValue ? 1 : 0));
-                CHECK(home.customGlassAvatarPhotoView.alpha == (mode.boolValue ? 0 : 1));
-                CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 0);
-                CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                    (mode.boolValue && (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled)));
-            }
-            home.homeAvatarShowsTemperature = YES;
             [home applyHomeAvatarDisplayMode];
+            CHECK(home.homeThermalAvatarOverlay.alpha == 0 && home.customGlassAvatarPhotoView.alpha == 1);
+            NSArray<UIColor *> *colors = @[UIColor.systemGreenColor, UIColor.systemYellowColor,
+                UIColor.systemOrangeColor, UIColor.systemRedColor];
             for (NSInteger state = 0; state < 4; state++) {
                 [home displayHomeThermalState:(NSProcessInfoThermalState)state animate:YES];
                 CHECK(home.homeThermalAvatarOverlay.statusLabel.text.length > 0);
-                if ((!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled)) CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] != nil);
-                CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                    (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled));
-                CHECK(home.homeThermalAvatarOverlay.textStack.layer.animationKeys.count == 0);
+                CHECK([home.homeThermalAvatarOverlay.statusLabel.textColor isEqual:colors[state]]);
+                CHECK(home.homeThermalAvatarOverlay.alpha == 0); // no repeat after the launch reveal
+                CHECK(home.homeThermalAvatarOverlay.layer.animationKeys.count == 0);
                 CHECK(home.homeThermalAvatarOverlay.statusLabel.layer.animationKeys.count == 0);
             }
-            // Leaving the page or stopping thermal observation must stop the
-            // interior effect, even when the persistent temperature mode is on.
+            // The launch reveal cannot appear while hidden or offscreen, or replay after return.
+            DOHomeThermalLaunchRevealConsumed = NO;
             home.informationVisible = NO;
-            [home updateHomeThermalInteriorBreath];
-            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            [home revealHomeThermalStateInAvatar:NO];
+            CHECK(!DOHomeThermalLaunchRevealConsumed && home.homeThermalRevealTimer == nil);
             home.informationVisible = YES;
-            [home updateHomeThermalInteriorBreath];
-            home.observingHomeThermalState = NO;
-            [home applyHomeAvatarDisplayMode];
-            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
-            home.observingHomeThermalState = YES;
-            home.homeAvatarShowsTemperature = NO;
-            home.homeThermalRevealActive = YES;
-            [home updateHomeThermalInteriorBreath];
-            CHECK(([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] != nil) ==
-                (!UIAccessibilityIsReduceMotionEnabled() && !NSProcessInfo.processInfo.lowPowerModeEnabled));
-            [home applyHomeAvatarDisplayMode];
-            CHECK(!home.homeThermalRevealActive);
-            CHECK([home.homeThermalAvatarOverlay.breathingLayer animationForKey:DOHomeThermalBreathKey] == nil);
-            [home.homeThermalHalo stopBreath];
-            CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
-            // Force a real reveal, then fire the one-shot timer to test its final state.
-            home.homeAvatarShowsTemperature = YES;
-            [home revealHomeThermalStateInAvatar:NO force:YES];
-            CHECK(home.homeThermalRevealTimer != nil);
-            CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 1);
-            [home.homeThermalRevealTimer fire];
-            [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
-            CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 0);
-            CHECK(home.homeThermalAvatarOverlay.alpha == 1);
-            CHECK(!home.homeThermalRevealActive);
-            [home revealHomeThermalStateInAvatar:NO force:YES];
-            [home applyHomeAvatarDisplayMode];
+            [home setCustomGlassAvatarHidden:YES right:YES animated:NO];
+            [home revealHomeThermalStateInAvatar:NO];
+            CHECK(DOHomeThermalLaunchRevealConsumed && home.homeThermalRevealTimer == nil);
+            [home setCustomGlassAvatarHidden:NO right:YES animated:NO];
+            [home revealHomeThermalStateInAvatar:NO];
             CHECK(home.homeThermalRevealTimer == nil);
-            // Automatic fading preserves automatic mode; explicit choices survive reload.
-            [home selectHomeAvatarVisibilityMode:0];
-            [home finishCustomGlassAvatarAnimation];
-            CHECK(home.homeAvatarHideTimer != nil);
-            [home.homeAvatarHideTimer fire];
-            [home finishCustomGlassAvatarAnimation];
-            CHECK(home.customGlassAvatarHidden && home.homeAvatarHideTimer == nil);
-            CHECK([NSUserDefaults.standardUserDefaults integerForKey:visibilityKey] == 0);
-            CHECK([home.homeThermalHalo.glowLayer animationForKey:DOHomeThermalBreathKey] == nil);
+            // Fire the real one-shot timer: the entire thermal overlay must disappear.
+            DOHomeThermalLaunchRevealConsumed = NO;
+            [home revealHomeThermalStateInAvatar:NO];
+            CHECK(home.homeThermalRevealTimer != nil && home.homeThermalRevealActive);
+            CHECK(home.homeThermalAvatarOverlay.textStack.alpha == 1);
+            CHECK(home.customGlassAvatarPhotoView.alpha == 0);
+            NSTimer *launchTimer = home.homeThermalRevealTimer;
+            [home displayHomeThermalState:NSProcessInfoThermalStateCritical animate:YES];
+            CHECK(home.homeThermalRevealTimer == launchTimer); // state changes do not extend the reveal
+            [launchTimer fire];
+            [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+            CHECK(home.homeThermalAvatarOverlay.alpha == 0 && home.homeThermalAvatarOverlay.textStack.alpha == 0);
+            CHECK(home.customGlassAvatarPhotoView.alpha == 1 && !home.customGlassAvatarMaterialView.hidden);
+            CHECK(!home.homeThermalRevealActive);
+            DOHomeThermalLaunchRevealConsumed = NO;
+            [home revealHomeThermalStateInAvatar:NO];
+            NSTimer *cancelledTimer = home.homeThermalRevealTimer;
+            [home setCustomGlassAvatarHidden:YES right:YES animated:NO];
+            CHECK(!cancelledTimer.valid && home.homeThermalRevealTimer == nil);
+            CHECK(home.homeThermalAvatarOverlay.alpha == 0);
+            [home setCustomGlassAvatarHidden:NO right:YES animated:NO];
+            // Legacy automatic mode upgrades to visible; explicit hidden state survives a reload.
+            [NSUserDefaults.standardUserDefaults setInteger:0 forKey:visibilityKey];
             [home restoreHomeAvatarVisibilityPreference];
-            CHECK(!home.customGlassAvatarHidden);
+            CHECK(!home.customGlassAvatarHidden && home.homeAvatarVisibilityMode == 1);
             [home selectHomeAvatarVisibilityMode:2];
             [home finishCustomGlassAvatarAnimation];
             [home restoreHomeAvatarVisibilityPreference];
@@ -409,18 +392,15 @@ static NSUInteger CheckHomeFocus(UIViewController *host)
             [home selectHomeAvatarVisibilityMode:1];
             [home finishCustomGlassAvatarAnimation];
             [home restoreHomeAvatarVisibilityPreference];
-            CHECK(!home.customGlassAvatarHidden && home.homeAvatarHideTimer == nil);
-            [home selectHomeAvatarVisibilityMode:0];
-            [home finishCustomGlassAvatarAnimation];
-            NSTimer *cancelledTimer = home.homeAvatarHideTimer;
-            [home cancelHomeAvatarAutoHide];
-            CHECK(!cancelledTimer.valid && home.homeAvatarHideTimer == nil);
+            CHECK(!home.customGlassAvatarHidden);
             cases++;
         }
         [home willMoveToParentViewController:nil];
         [home.view removeFromSuperview];
         [home removeFromParentViewController];
     } @finally {
+        if (savedSide) [NSUserDefaults.standardUserDefaults setObject:savedSide forKey:DOHomeAvatarHiddenRightKey];
+        else [NSUserDefaults.standardUserDefaults removeObjectForKey:DOHomeAvatarHiddenRightKey];
         DOHomeThermalLaunchRevealConsumed = revealWasConsumed;
         DOHomeEntranceConsumed = entranceWasConsumed;
         if (savedVisibility) [NSUserDefaults.standardUserDefaults setObject:savedVisibility forKey:visibilityKey];
