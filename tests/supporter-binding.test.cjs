@@ -515,6 +515,8 @@ int main(int argc, char **argv) { @autoreleasepool {
     for (const [marketing, product, machine, expected] of [
       ['iOS', 'iPhone14,2', '', 'iPhone14,2'],
       ['iPadOS', 'iPad13,4', '', 'iPad13,4'],
+      ['iPhoneOS', 'iPhone14,2', '', 'iPhone14,2'],
+      ['iPad', '', 'iPad13,4', 'iPad13,4'],
       ['iPhone 13 Pro', 'iPhone14,2', '', 'iPhone 13 Pro'],
       ['iPad Pro (11-inch)', 'iPad13,4', '', 'iPad Pro (11-inch)'],
       ['iOS', '', 'iPad13,4', 'iPad13,4'],

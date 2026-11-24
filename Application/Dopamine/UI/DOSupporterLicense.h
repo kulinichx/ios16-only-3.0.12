@@ -1033,7 +1033,7 @@ static inline NSString *DORHSupporterProofModel(void)
         CFTypeRef answer = MGCopyAnswer((__bridge CFStringRef)property);
         id value = CFBridgingRelease(answer);
         if ([value isKindOfClass:NSString.class] &&
-            [value rangeOfString:@"\\A(?:iPhone|iPad|iPod)[A-Za-z0-9 ,().+-]{0,58}\\z"
+            [value rangeOfString:@"\\A(?:iPhone|iPad|iPod)(?=[0-9 ])[A-Za-z0-9 ,().+-]{1,58}\\z"
                          options:NSRegularExpressionSearch].location != NSNotFound) {
             return value;
         }
