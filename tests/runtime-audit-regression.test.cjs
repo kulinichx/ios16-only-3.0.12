@@ -91,8 +91,8 @@ test('production PID cache validates current identity before reusing Foundation 
   nativeFixture(t, 'job-identity', 'job-identity-harness.mm', {
     '/* PRODUCTION_IDENTITY_CACHE */': read(file).slice(read(file).indexOf('static pthread_rwlock_t jobLock')),
     '/* PRODUCTION_JOB_INFO */': productionFunction('BaseBin/libroothider/src/xpc_hook.m', 'NSDictionary* cachedJobInfo('),
-  }, {flags:['-std=c++17','-lc++'], mutationError:/fixture regression:/,
-    mutate: source => source.replace('if (uniqueid && it->second == uniqueid) result = uniqueid;', 'result = it->second;')});
+  }, {flags:['-std=c++17','-lc++','-Wno-missing-field-initializers'], mutationError:/fixture regression:/,
+    mutate: source => source.replace('if (uniqueid && it->second == uniqueid) result = uniqueid;', '(void)uniqueid; result = it->second;')});
 });
 test('production process virtual writes call the page-table writer rather than recursing', darwinOnly, t => {
   nativeFixture(t,'proc-vwrite','proc-vwrite-harness.c', {

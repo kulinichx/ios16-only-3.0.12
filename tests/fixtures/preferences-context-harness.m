@@ -10,9 +10,15 @@
 
 #undef NSLog
 #define NSLog(...) ((void)0)
-typedef id xpc_object_t;
-typedef id xpc_connection_t;
-typedef struct { pid_t pid; uid_t uid; } audit_token_t;
+typedef id RHTestXPCObject;
+typedef id RHTestXPCConnection;
+typedef struct { pid_t pid; uid_t uid; } RHTestAuditToken;
+#define xpc_object_t RHTestXPCObject
+#define xpc_connection_t RHTestXPCConnection
+#define audit_token_t RHTestAuditToken
+#define xpc_connection_get_audit_token rh_test_connection_audit_token
+#define audit_token_to_pid rh_test_audit_pid
+#define audit_token_to_euid rh_test_audit_euid
 static void xpc_connection_get_audit_token(id connection, audit_token_t *token) {
     token->pid = [connection intValue]; token->uid = 501;
 }
