@@ -23,10 +23,18 @@ static int fixture_set_ports(int task, int mask, int port, int behavior, int fla
 #define task_set_exception_ports fixture_set_ports
 #define mach_task_self_ 1
 #define EXC_MASK_CRASH_RELATED 1
+#ifndef MACH_PORT_NULL
 #define MACH_PORT_NULL 0
+#endif
+#ifndef EXCEPTION_DEFAULT
 #define EXCEPTION_DEFAULT 1
+#endif
+#ifndef MACH_EXCEPTION_CODES
 #define MACH_EXCEPTION_CODES 2
+#endif
+#ifndef ARM_THREAD_STATE64
 #define ARM_THREAD_STATE64 6
+#endif
 #define JBLogError(...) do { badKeys++; } while (0)
 /* PRODUCTION_PAUSE */
 static dispatch_semaphore_t aPaused, bDone, releaseA;
