@@ -192,9 +192,12 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 {
 	if(!desc || !desc->attrp) {
 		posix_spawnattr_t attr=NULL;
-		posix_spawnattr_init(&attr);
+		int initResult = posix_spawnattr_init(&attr);
+		if (initResult != 0) return initResult;
 		int ret = posix_spawn(pidp, path, (desc && desc->file_actions) ? &desc->file_actions : NULL, &attr, argv, envp);
+		int spawnError = errno;
 		posix_spawnattr_destroy(&attr);
+		errno = spawnError;
 		return ret;
 	}
 	posix_spawnattr_t attrp = &desc->attrp;

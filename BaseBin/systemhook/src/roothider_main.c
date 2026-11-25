@@ -238,7 +238,7 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 			cpu_subtype_t preferredSubtypes[NBINPREFS] = {0};
 			if (posix_spawnattr_getarchpref_np(attrp, 4, preferredTypes, preferredSubtypes, &outCount) == 0) {
 				for (size_t i = 0; i < outCount; i++) {
-					if (preferredTypes[i] != 0 || preferredSubtypes[i] != UINT32_MAX) {
+					if (preferredTypes[i] != 0 || preferredSubtypes[i] != (cpu_subtype_t)UINT32_MAX) {
 						preferredArchsSet = true;
 						break;
 					}

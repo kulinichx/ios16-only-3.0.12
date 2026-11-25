@@ -1091,6 +1091,12 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 	}
 	result = 0;
 cleanup:
+	if (result != 0) {
+		const char *readError = a ? archive_error_string(a) : NULL;
+		const char *writeError = ext ? archive_error_string(ext) : NULL;
+		fprintf(stderr, "Archive extraction failed: reader=%s; writer=%s\n",
+			readError ? readError : "none", writeError ? writeError : "none");
+	}
 	if (a) {
 		if (archive_read_close(a) != ARCHIVE_OK) result = 1;
 		if (archive_read_free(a) != ARCHIVE_OK) result = 1;
