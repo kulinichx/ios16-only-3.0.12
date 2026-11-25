@@ -60,12 +60,43 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
     assert.notEqual(mutated, source, 'mutation must change the production function');
     fs.writeFileSync(sourcePath, mutated);
     execFileSync('xcrun', compileArgs, {stdio:'pipe'});
-    assert.throws(() => execFileSync(binary, options.directory ? [path.join(temp,'files')] : [], {stdio:'pipe', timeout:30000}),
-      error => error.status === 86 && (options.mutationError || /fd3 handshake regression: status=/).test(String(error.stderr)),
+    assert.throws(() => execFileSync(binary, options.directory ? [path.join(temp,'files')] : [],
+      {stdio:'pipe', timeout:30000, env:{...process.env, ...options.mutationEnv}}),
+      error => error.status === (options.mutationStatus ?? 86) && (options.mutationError || /fd3 handshake regression: status=/).test(String(error.stderr)),
       'fixture must detect the original regression');
   }
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
+
+test('production crash backtraces bound full buffers and reject invalid frames before decoding', darwinOnly, t => {
+  const file = 'BaseBin/libroothider/src/crashreporter.m', source = read(file);
+  nativeFixture(t, 'crash-backtrace', 'crash-backtrace-harness.c', {
+    '/* PRODUCTION_WALKER */': source.slice(source.indexOf('#define\tINSTACK'), source.indexOf('static crash_reporter_state')),
+    '/* PRODUCTION_DUMP */': productionFunction(file, 'static void crashreporter_dump_backtrace('),
+  }, {mutationStatus:1, mutationError:/AddressSanitizer: stack-buffer-overflow/,
+    mutationEnv:{ASAN_OPTIONS:'abort_on_error=0:exitcode=1'},
+    mutate: value => value.replace('i < count && i < capacity', 'true')});
+});
+
+test('production crash reporter keeps exception ports paused until all overlapping spawns return', darwinOnly, t => {
+  const source = read('BaseBin/libroothider/src/crashreporter.m');
+  const header = read('BaseBin/libroothider/src/crashreporter.h');
+  nativeFixture(t, 'crash-pause', 'crash-pause-harness.m', {
+    '/* PRODUCTION_STATE_TYPE */': header.slice(header.indexOf('typedef enum'), header.indexOf('void crashreporter_start')),
+    '/* PRODUCTION_PAUSE */': source.slice(source.indexOf('static int gCrashReporterStateKey'), source.indexOf('#include <execinfo.h>')),
+  }, {mutationError:/fixture regression:/,
+    mutate: value => value.replace('if (gCrashReporterPauseDepth == 0) crashreporter_activate_locked();', 'crashreporter_activate_locked();')});
+});
+
+test('production dyld policy accepts missing executable paths without dereferencing them', darwinOnly, t => {
+  const file = 'BaseBin/libroothider/src/common.m';
+  nativeFixture(t, 'dyld-path-policy', 'dyld-path-policy-harness.c', {
+    '/* PRODUCTION_POLICY */': ['bool string_has_prefix(', 'bool string_has_suffix(', 'bool process_force_dyld_patch(']
+      .map(signature => productionFunction(file, signature)).join('\n'),
+  }, {mutationStatus:1, mutationError:/runtime error: null pointer|AddressSanitizer/,
+    mutationEnv:{ASAN_OPTIONS:'abort_on_error=0:exitcode=1'},
+    mutate: value => value.replace('if (!path) return false;', 'if (!path && !argv) return false;')});
+});
 
 test('production preference requests restore their caller after nesting, exceptions and thread reuse', darwinOnly, t => {
   const file = 'BaseBin/roothidehooks/src/cfprefsd.x';

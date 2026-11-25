@@ -8,6 +8,8 @@ typedef enum {
 } crash_reporter_state;
 
 void crashreporter_start();
+// Pair every pause with exactly one resume. Overlapping scopes share a key;
+// only the final scope restores handlers. Zero means the reporter is inactive.
 int crashreporter_pause(void);
 void crashreporter_resume(int key);
 

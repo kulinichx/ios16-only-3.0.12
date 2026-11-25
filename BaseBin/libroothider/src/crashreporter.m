@@ -14,6 +14,7 @@
 #include <pthread/stack_np.h>
 #include <pthread/pthread.h>
 #include <dispatch/dispatch.h>
+#include <limits.h>
 
 #include "crashreporter.h"
 #include "common.h"
@@ -43,7 +44,7 @@ static NSUncaughtExceptionHandler* defaultNSExceptionHandler = NULL;
 
 extern CFStringRef CFCopySystemVersionString(void);
 
-#define	INSTACK(a)	((a) >= stackbot && (a) <= stacktop)
+#define	INSTACK(a)	((a) >= stackbot && (a) <= stacktop - 2 * sizeof(uintptr_t))
 #if defined(__x86_64__)
 #define	ISALIGNED(a)	((((uintptr_t)(a)) & 0xf) == 0)
 #elif defined(__i386__)
@@ -63,36 +64,24 @@ __attribute__((noinline))
 static void pthread_backtrace(pthread_t pthread, vm_address_t *buffer, unsigned max, unsigned *nb,
 		unsigned skip, void *startfp)
 {
-	void *frame, *next;
-	void *stacktop = pthread_get_stackaddr_np(pthread);
-	void *stackbot = stacktop - pthread_get_stacksize_np(pthread);
-
 	*nb = 0;
-
-	// Rely on the fact that our caller has an empty stackframe (no local vars)
-	// to determine the minimum size of a stackframe (frame ptr & return addr)
-	frame = startfp;
-	next = (void*)pthread_stack_frame_decode_np((uintptr_t)frame, NULL);
-
-	/* make sure return address is never out of bounds */
-	stacktop -= (next - frame);
-
-	if(!INSTACK(frame) || !ISALIGNED(frame))
-		return;
-	while (startfp || skip--) {
-		if (startfp && startfp < next) break;
-		if(!INSTACK(next) || !ISALIGNED(next) || next <= frame)
-			return;
-		frame = next;
-		next = (void*)pthread_stack_frame_decode_np((uintptr_t)frame, NULL);
-	}
-	while (max--) {
-		uintptr_t retaddr;
-		next = (void*)pthread_stack_frame_decode_np((uintptr_t)frame, &retaddr);
-		buffer[*nb] = retaddr;
-		(*nb)++;
-		if(!INSTACK(next) || !ISALIGNED(next) || next <= frame)
-			return;
+	if (!pthread || !buffer || !max) return;
+	uintptr_t stacktop = (uintptr_t)pthread_get_stackaddr_np(pthread);
+	size_t stacksize = pthread_get_stacksize_np(pthread);
+	if (stacksize < 2 * sizeof(uintptr_t) || stacksize > stacktop) return;
+	uintptr_t stackbot = stacktop - stacksize;
+	uintptr_t frame = (uintptr_t)startfp;
+	// The decoder does not validate addresses. Check both words of every frame
+	// before reading it, including the initial (possibly corrupt) frame pointer.
+	while (INSTACK(frame) && ISALIGNED(frame)) {
+		uintptr_t retaddr = 0;
+		uintptr_t next = pthread_stack_frame_decode_np(frame, &retaddr);
+		if (skip) skip--;
+		else {
+			buffer[(*nb)++] = retaddr;
+			if (*nb == max) return;
+		}
+		if (next <= frame) return;
 		frame = next;
 	}
 }
@@ -227,6 +216,18 @@ void crashreporter_save_outfile(FILE *f)
 	}
 }
 
+static void crashreporter_dump_backtrace(FILE *f, pthread_t thread, void *frame)
+{
+	vm_address_t addresses[100] = {0};
+	unsigned count = 0;
+	const unsigned capacity = sizeof(addresses) / sizeof(addresses[0]);
+	pthread_backtrace(thread, addresses, capacity, &count, 0, frame);
+	for (unsigned i = 0; i < count && i < capacity; i++) {
+		if (!addresses[i]) break;
+		crashreporter_dump_backtrace_line(f, addresses[i]);
+	}
+}
+
 void crashreporter_dump_mach(FILE *f, int exception, int ncode, int64_t* code, arm_thread_state64_t threadState, arm_exception_state64_t exceptionState, pthread_t pthread)
 {
 	fprintf(f, "Exception:            %s\n", crashreporter_string_for_code(exception));
@@ -278,17 +279,7 @@ for(int i=0; i < ncode; i++)
 	crashreporter_dump_backtrace_line(f, (vm_address_t)__darwin_arm_thread_state64_get_pc(strippedState));
 	crashreporter_dump_backtrace_line(f, (vm_address_t)__darwin_arm_thread_state64_get_lr(strippedState));
 
-	vm_address_t *bt = malloc(100 * sizeof(vm_address_t));
-	memset(bt, 0, 100 * sizeof(vm_address_t));
-	unsigned c = 100;
-	pthread_backtrace(pthread, bt, c, &c, 0, (void *)__darwin_arm_thread_state64_get_fp(strippedState));
-
-	int btIdx = 0;
-	vm_address_t btAddr = bt[btIdx++];
-	while (btAddr != 0) {
-		crashreporter_dump_backtrace_line(f, btAddr);
-		btAddr = bt[btIdx++];
-	}
+	crashreporter_dump_backtrace(f, pthread, (void *)__darwin_arm_thread_state64_get_fp(strippedState));
 	fprintf(f, "\n");
 }
 
@@ -447,38 +438,52 @@ void *crashreporter_listen(void *arg)
 	}
 }
 
-int gCrashReporterStateKey = 0;
+static int gCrashReporterStateKey = 0;
+static unsigned gCrashReporterPauseDepth = 0;
+
+// Caller holds CrashReporterStateKey. Startup and the final matching resume
+// share this transition; a startup activation is not a completed pause scope.
+static void crashreporter_activate_locked(void)
+{
+	if (gCrashReporterState == kCrashReporterStatePaused) {
+		task_set_exception_ports(mach_task_self_, EXC_MASK_CRASH_RELATED, gExceptionPort, EXCEPTION_DEFAULT|MACH_EXCEPTION_CODES, ARM_THREAD_STATE64);
+		defaultNSExceptionHandler = NSGetUncaughtExceptionHandler();
+		NSSetUncaughtExceptionHandler(crashreporter_catch_objc);
+		gCrashReporterState = kCrashReporterStateActive;
+	}
+}
+
 int crashreporter_pause(void)
 {
 
 	int key = 0;
 	@synchronized(@"CrashReporterStateKey")
 	{
+		if (gCrashReporterState == kCrashReporterStateNotActive) return 0;
 		if (gCrashReporterState == kCrashReporterStateActive) {
 			task_set_exception_ports(mach_task_self_, EXC_MASK_CRASH_RELATED, MACH_PORT_NULL, 0, 0);
 			NSSetUncaughtExceptionHandler(defaultNSExceptionHandler);
 			defaultNSExceptionHandler = nil;
 			gCrashReporterState = kCrashReporterStatePaused;
+			gCrashReporterStateKey = gCrashReporterStateKey == INT_MAX ? 1 : gCrashReporterStateKey + 1;
 		}
-		//only allow the last pause to be resumed
-		key = ++gCrashReporterStateKey;
+		// Every overlapping spawn keeps the ports disabled until its own orig
+		// call has returned, regardless of which spawn finishes first.
+		gCrashReporterPauseDepth++;
+		key = gCrashReporterStateKey;
 	}
 	return key;
 }
 
 void crashreporter_resume(int key)
 {
-
+	if (!key) return;
 	@synchronized(@"CrashReporterStateKey")
 	{
-		if(key == gCrashReporterStateKey)
+		if(key == gCrashReporterStateKey && gCrashReporterPauseDepth > 0)
 		{
-			if (gCrashReporterState == kCrashReporterStatePaused) {
-				task_set_exception_ports(mach_task_self_, EXC_MASK_CRASH_RELATED, gExceptionPort, EXCEPTION_DEFAULT|MACH_EXCEPTION_CODES, ARM_THREAD_STATE64);
-				defaultNSExceptionHandler = NSGetUncaughtExceptionHandler();
-				NSSetUncaughtExceptionHandler(crashreporter_catch_objc);
-				gCrashReporterState = kCrashReporterStateActive;
-			}
+			gCrashReporterPauseDepth--;
+			if (gCrashReporterPauseDepth == 0) crashreporter_activate_locked();
 		}
 		else
 		{
@@ -599,7 +604,9 @@ void crashreporter_start()
 		mach_port_allocate(mach_task_self_, MACH_PORT_RIGHT_RECEIVE, &gExceptionPort);
 		mach_port_insert_right(mach_task_self_, gExceptionPort, gExceptionPort, MACH_MSG_TYPE_MAKE_SEND);
 		pthread_create(&gExceptionThread, NULL, crashreporter_listen, "crashreporter");
-		gCrashReporterState = kCrashReporterStatePaused;
-		crashreporter_resume(0);
+		@synchronized(@"CrashReporterStateKey") {
+			gCrashReporterState = kCrashReporterStatePaused;
+			crashreporter_activate_locked();
+		}
 	}
 }

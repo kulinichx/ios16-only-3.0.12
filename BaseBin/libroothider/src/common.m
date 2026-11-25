@@ -187,7 +187,7 @@ int unrestrict(pid_t pid, int (*callback)(pid_t), bool resume)
 
 bool process_force_dyld_patch(const char* path, const char** argv)
 {
-    if(!path && !argv) return false;
+    if (!path) return false;
 
     {
         bool is_stock_binary = string_has_prefix(path, "/System/") || string_has_prefix(path, "/private/preboot/");
