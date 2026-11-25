@@ -10,6 +10,7 @@ pid_t __thread gCurrentClientPid = 0;
 
 BOOL preferencePlistNeedsRedirection(NSString *plistPath)
 {
+    if (![plistPath isKindOfClass:NSString.class] || !plistPath.length) return NO;
     NSString *pattern = @"^(/private)?/var/(\\w+)/Library/Preferences/";
     NSRegularExpression* regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
     NSTextCheckingResult* match = [regex firstMatchInString:plistPath options:0 range:NSMakeRange(0, plistPath.length)];
@@ -116,9 +117,16 @@ void* new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, xpc_obje
 	// NSLog(@"CFPrefsDaemon: handleMessage Operation=%lld, msg=%s", xpc_dictionary_get_int64(message, "CFPreferencesOperation"), desc);
 	// if(desc) free(desc);
 
+	// Request handling can reenter on the same thread. Do not leak the nested
+	// caller into the outer request, or the last caller into unrelated work.
+	pid_t previousClientPid = gCurrentClientPid;
 	gCurrentClientPid = clientPid;
-
-	return DISPATCH_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, message, connection, replyHandler);
+	@try {
+		return DISPATCH_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, message, connection, replyHandler);
+	}
+	@finally {
+		gCurrentClientPid = previousClientPid;
+	}
 }
 void* LEGACY_new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, SEL selector, xpc_object_t message, xpc_connection_t connection, void* replyHandler)
 {

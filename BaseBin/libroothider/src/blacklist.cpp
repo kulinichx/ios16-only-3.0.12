@@ -164,23 +164,40 @@ static void init_job_cache()
 
 extern "C" void register_job(pid_t pid)
 {
+    if (pid <= 0) return;
     init_job_cache();
 
     pthread_rwlock_wrlock(&jobLock);
-    (*jobCache)[pid] = proc_get_uniqueid(pid);
+    uint64_t uniqueid = proc_get_uniqueid(pid);
+    if (uniqueid) (*jobCache)[pid] = uniqueid;
+    else jobCache->erase(pid);
     pthread_rwlock_unlock(&jobLock);
 }
 
 extern "C" uint64_t get_job_cache(pid_t pid)
 {
+    if (pid <= 0) return 0;
     init_job_cache();
 
+	// A PID alone is not an identity: it can be reused before a launchd spawn
+	// finishes registering its replacement. Never serve the previous job's data.
+	uint64_t uniqueid = proc_get_uniqueid(pid);
     uint64_t result = 0;
     pthread_rwlock_rdlock(&jobLock);
     auto it = jobCache->find(pid);
     if (it != jobCache->end()) {
-        result = it->second;
+        if (uniqueid && it->second == uniqueid) result = uniqueid;
     }
     pthread_rwlock_unlock(&jobLock);
+    if (!result) {
+        pthread_rwlock_wrlock(&jobLock);
+        auto stale = jobCache->find(pid);
+        // A concurrent registration may already have replaced the stale entry.
+        if (stale != jobCache->end()) {
+            uint64_t currentUniqueid = proc_get_uniqueid(pid);
+            if (!currentUniqueid || stale->second != currentUniqueid) jobCache->erase(stale);
+        }
+        pthread_rwlock_unlock(&jobLock);
+    }
     return result;
 }

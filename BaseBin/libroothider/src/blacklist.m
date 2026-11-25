@@ -45,7 +45,7 @@ NSString *getAppIdentifierFromPath(const char *path)
     if (!appInfo) return nil;
 
     NSString *identifier = appInfo[@"CFBundleIdentifier"];
-    if (!identifier) return nil;
+    if (![identifier isKindOfClass:NSString.class] || !identifier.length) return nil;
 
     return identifier;
 }
@@ -66,23 +66,30 @@ NSSet* builtinApps()
     return apps;
 }
 
+// Match the existing boolValue behavior for supported plist scalars only.
+// Collections and dates are valid plist values but cannot answer boolValue.
+static BOOL blacklistConfigurationEnabled(id value)
+{
+    if (![value isKindOfClass:NSNumber.class] && ![value isKindOfClass:NSString.class]) return NO;
+    return [value boolValue];
+}
+
 bool isBlacklistedApp(const char* identifier)
 {
     if(!identifier) return false;
 
-    if([builtinApps() containsObject:@(identifier)]) return false;
+    NSString *bundleIdentifier = [NSString stringWithUTF8String:identifier];
+    if (!bundleIdentifier.length) return false;
+    if([builtinApps() containsObject:bundleIdentifier]) return false;
 
     NSString* configFilePath = JBROOT_PATH(@"/var/mobile/Library/RootHide/RootHideConfig.plist");
     NSDictionary* roothideConfig = [NSDictionary dictionaryWithContentsOfFile:configFilePath];
     if(!roothideConfig) return false;
 
     NSDictionary* appconfig = roothideConfig[@"appconfig"];
-    if(!appconfig) return false;
+    if(![appconfig isKindOfClass:NSDictionary.class]) return false;
 
-    NSNumber* blacklisted = appconfig[@(identifier)];
-    if(!blacklisted) return false;
-
-    return blacklisted.boolValue;
+    return blacklistConfigurationEnabled(appconfig[bundleIdentifier]);
 }
 
 // 按原有应用标识黑名单判断。
@@ -106,7 +113,7 @@ static BOOL zqbb_wantsBlacklist(NSString *execName) {
     NSDictionary* wantsBlacklistConfig = [NSDictionary dictionaryWithContentsOfFile:configFilePath];
     if(!wantsBlacklistConfig) return NO;
 
-    return [wantsBlacklistConfig[execName] boolValue];
+    return blacklistConfigurationEnabled(wantsBlacklistConfig[execName]);
 }
 
 // 按可执行文件名判断白名单，并应用指定进程的黑名单覆盖。

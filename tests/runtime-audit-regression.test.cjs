@@ -48,7 +48,7 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
   const sourcePath = path.join(temp, fixture), binary = path.join(temp, 'test');
   if (options.directory) fs.mkdirSync(path.join(temp,'files'));
   fs.writeFileSync(sourcePath, source);
-  const objc = fixture.endsWith('.m');
+  const objc = /\.mm?$/.test(fixture);
   const compileArgs = ['clang', '-fblocks', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
     '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
     ...(objc ? ['-fobjc-arc'] : ['-std=gnu11']), sourcePath,
@@ -60,12 +60,40 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
     assert.notEqual(mutated, source, 'mutation must change the production function');
     fs.writeFileSync(sourcePath, mutated);
     execFileSync('xcrun', compileArgs, {stdio:'pipe'});
-    assert.throws(() => execFileSync(binary, [], {stdio:'pipe', timeout:30000}),
-      error => error.status === 86 && /fd3 handshake regression: status=/.test(String(error.stderr)),
+    assert.throws(() => execFileSync(binary, options.directory ? [path.join(temp,'files')] : [], {stdio:'pipe', timeout:30000}),
+      error => error.status === 86 && (options.mutationError || /fd3 handshake regression: status=/).test(String(error.stderr)),
       'fixture must detect the original regression');
   }
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
+
+test('production preference requests restore their caller after nesting, exceptions and thread reuse', darwinOnly, t => {
+  const file = 'BaseBin/roothidehooks/src/cfprefsd.x';
+  nativeFixture(t, 'preferences-context', 'preferences-context-harness.m', {
+    '/* PRODUCTION_CONTEXT */': productionFunction(file, 'void* new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__('),
+    '/* PRODUCTION_PATH_POLICY */': productionFunction(file, 'BOOL preferencePlistNeedsRedirection('),
+  }, {flags:['-Wno-unused-variable'], mutationError:/fixture regression:/,
+    mutate: source => source.replace('gCurrentClientPid = previousClientPid;', '(void)previousClientPid;')});
+});
+
+test('production blacklist configuration rejects collections while preserving boolValue scalar behavior', darwinOnly, t => {
+  const file = 'BaseBin/libroothider/src/blacklist.m';
+  nativeFixture(t, 'blacklist-configuration', 'blacklist-configuration-harness.m', {
+    '/* PRODUCTION_CONFIGURATION */': ['NSString *getAppIdentifierFromPath(', 'static BOOL blacklistConfigurationEnabled(',
+      'bool isBlacklistedApp(', 'static BOOL zqbb_wantsBlacklist('].map(s => productionFunction(file, s)).join('\n'),
+  }, {directory:true, mutationError:/fixture regression:/,
+    mutate: source => source.replace('return blacklistConfigurationEnabled(appconfig[bundleIdentifier]);',
+      'return [appconfig[bundleIdentifier] boolValue];')});
+});
+
+test('production PID cache validates current identity before reusing Foundation job information', darwinOnly, t => {
+  const file = 'BaseBin/libroothider/src/blacklist.cpp';
+  nativeFixture(t, 'job-identity', 'job-identity-harness.mm', {
+    '/* PRODUCTION_IDENTITY_CACHE */': read(file).slice(read(file).indexOf('static pthread_rwlock_t jobLock')),
+    '/* PRODUCTION_JOB_INFO */': productionFunction('BaseBin/libroothider/src/xpc_hook.m', 'NSDictionary* cachedJobInfo('),
+  }, {flags:['-std=c++17','-lc++'], mutationError:/fixture regression:/,
+    mutate: source => source.replace('if (uniqueid && it->second == uniqueid) result = uniqueid;', 'result = it->second;')});
+});
 test('production process virtual writes call the page-table writer rather than recursing', darwinOnly, t => {
   nativeFixture(t,'proc-vwrite','proc-vwrite-harness.c', {
     '/* PRODUCTION_PROC_VWRITE */': productionFunction('BaseBin/libjailbreak/src/primitives.c','int proc_vwritebuf('),
