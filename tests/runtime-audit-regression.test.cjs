@@ -49,11 +49,20 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
   if (options.directory) fs.mkdirSync(path.join(temp,'files'));
   fs.writeFileSync(sourcePath, source);
   const objc = fixture.endsWith('.m');
-  execFileSync('xcrun', ['clang', '-fblocks', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+  const compileArgs = ['clang', '-fblocks', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
     '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
     ...(objc ? ['-fobjc-arc'] : ['-std=gnu11']), sourcePath,
-    ...(objc ? ['-framework', 'Foundation'] : []), ...(options.flags || []), '-o', binary], {stdio:'pipe'});
+    ...(objc ? ['-framework', 'Foundation'] : []), ...(options.flags || []), '-o', binary];
+  execFileSync('xcrun', compileArgs, {stdio:'pipe'});
   execFileSync(binary, options.directory ? [path.join(temp, 'files')] : [], {stdio:'pipe', timeout:30000});
+  if (options.mutate) {
+    const mutated = options.mutate(source);
+    assert.notEqual(mutated, source, 'mutation must change the production function');
+    fs.writeFileSync(sourcePath, mutated);
+    execFileSync('xcrun', compileArgs, {stdio:'pipe'});
+    assert.throws(() => execFileSync(binary, [], {stdio:'pipe', timeout:30000}),
+      error => /Assertion failed/.test(String(error.stderr)), 'fixture must detect the original regression');
+  }
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
 test('production process virtual writes call the page-table writer rather than recursing', darwinOnly, t => {
@@ -90,14 +99,17 @@ test('production job cache bounds retention and keeps active UTF8String owners a
     '/* PRODUCTION_CACHE */': productionFunction('BaseBin/libroothider/src/xpc_hook.m','NSDictionary* cachedJobInfo('),
   });
 });
-test('production App and jbctl synchronize a real child after privilege restoration and reject broken handshakes', darwinOnly, t => {
+test('production App/jbctl handles iOS 16 fd-3 inheritance, raw child status and interrupted waits', darwinOnly, t => {
   const jbctl = read('BaseBin/jbctl/src/main.m');
   const start = jbctl.indexOf("char release = 0;"), end = jbctl.indexOf("if (received != sizeof(release) || release != 'w') return 1;", start);
   assert.ok(start >= 0 && end > start);
   nativeFixture(t, 'jbctl-launch', 'jbctl-launch-harness.m', {
     '/* PRODUCTION_LAUNCH */': productionFunction('Application/Dopamine/Jailbreak/DOEnvironmentManager.m','- (int)spawnJbctlAsRootWithArgs:'),
+    '/* PRODUCTION_WAIT_STATUS */': productionFunction('BaseBin/libjailbreak/src/util.c','int cmd_wait_for_exit(')
+      .replace('int cmd_wait_for_exit(', 'static int production_cmd_wait_for_exit('),
     '/* PRODUCTION_WAIT */': jbctl.slice(start, end) + "if (received != sizeof(release) || release != 'w') return 1;",
-  });
+  }, {mutate: source => source.replace('r = posix_spawn_file_actions_addinherit_np(&act, 3);',
+    'r = (0 ? posix_spawn_file_actions_addinherit_np(&act, 3) : 0);')});
 });
 test('production libarchive extraction preserves supported links and propagates traversal and writer errors', darwinOnly, t => {
   const util = 'BaseBin/libjailbreak/src/util.c';

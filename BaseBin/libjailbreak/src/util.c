@@ -682,12 +682,13 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 int cmd_wait_for_exit(pid_t pid)
 {
 	int status = 0;
-	do {
+	while (true) {
 		if (waitpid(pid, &status, 0) == -1) {
+			if (errno == EINTR) continue;
 			return -1;
 		}
-	} while (!WIFEXITED(status) && !WIFSIGNALED(status));
-	return status;
+		if (WIFEXITED(status) || WIFSIGNALED(status)) return status;
+	}
 }
 
 int __exec_cmd_internal_va(bool suspended, bool root, bool waitForExit, pid_t *pidOut, const char *binary, int argc, va_list va_args, char **envp)

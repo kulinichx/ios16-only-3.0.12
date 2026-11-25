@@ -400,6 +400,10 @@ extern char **environ;
                 fcntl(waitPipe[1], F_SETFD, FD_CLOEXEC) != 0) { r = errno; break; }
             r = posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
             if (r != 0) break;
+            // iOS 16's dup2(fd, fd) leaves FD_CLOEXEC set. Explicitly
+            // inherit the destination even when the pipe already occupies 3.
+            r = posix_spawn_file_actions_addinherit_np(&act, 3);
+            if (r != 0) break;
             if (waitPipe[0] != 3) {
                 r = posix_spawn_file_actions_addclose(&act, waitPipe[0]);
                 if (r != 0) break;
