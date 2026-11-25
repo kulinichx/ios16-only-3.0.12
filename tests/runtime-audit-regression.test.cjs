@@ -156,14 +156,22 @@ test('production process virtual writes call the page-table writer rather than r
     '/* PRODUCTION_PROC_VWRITE */': productionFunction('BaseBin/libjailbreak/src/primitives.c','int proc_vwritebuf('),
   });
 });
-test('production spawn pre/post hooks preserve initialization and syscall failures across cleanup', darwinOnly, t => {
+test('production spawn and exec preserve ZQBB injected shared-region policy, initialization cleanup and syscall errors', darwinOnly, t => {
+  const app = read('Application/Dopamine/Jailbreak/DOJailbreaker.m');
+  const appStart = app.indexOf('// don\'t use dyld-in-cache due to dyldhooks');
+  const appEnd = app.indexOf('/******************************** roothide specific', appStart);
+  assert.ok(appStart >= 0 && appEnd > appStart, 'actual jailbreak environment setup');
   nativeFixture(t,'spawn-posthook','spawn-posthook-harness.c', {
     '/* PRODUCTION_ENVBUF */': read('BaseBin/systemhook/src/common/envbuf.c'),
-    '/* PRODUCTION_POSTHOOK */': ['int roothide_systemhook___posix_spawn_prehook(', 'int roothide_systemhook___posix_spawn_posthook(']
+    '/* PRODUCTION_POSTHOOK */': ['int roothide_systemhook___posix_spawn_prehook(', 'int roothide_systemhook___posix_spawn_posthook(',
+      'int roothide_systemhook___execve_posthook(']
       .map(s => productionFunction('BaseBin/systemhook/src/roothider_main.c',s)).join('\n'),
     '/* PRODUCTION_LAUNCHD_ATTRIBUTE_SETUP */': productionFunction('BaseBin/launchdhook/src/roothider.m','int roothide_launchd___posix_spawn_prehook(')
       .split('posix_spawnattr_t attrp = &desc->attrp;')[0] + 'return 0;\n}',
-  });
+    '/* PRODUCTION_INITIALIZATION */': productionFunction('BaseBin/systemhook/src/roothider_main.c', 'void roothide_init('),
+    '/* PRODUCTION_APP_ENVIRONMENT */': app.slice(appStart, appEnd),
+  }, {mutationError:/fixture regression: shared-region/,
+    mutate: source => source.replaceAll('envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");', '')});
 });
 test('production basebin trust collection never uploads a partial result after a file or allocation failure', darwinOnly, t => {
   nativeFixture(t, 'basebin-collection', 'basebin-collection-harness.m', {

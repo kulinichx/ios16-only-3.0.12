@@ -750,7 +750,7 @@ test('first-party runtime has no non-16 availability dispatch or removed module 
       assert.equal(match[1], '16', `${file}: ${match[0]}`);
     assert.doesNotMatch(source, /\b(?:SPTMArgs|ksymbol_sptm|ksymbol_txm|txm_address_space|hookd_send_msg|hookd_provider_init|init_hookd_external_support|proc_fix_spinlock|jbdSpinlockFixOnly|arm64_kcall_init|fugu14_kcall_init|kread_IOSurface|kwrite_IOSurface|proc__task|SOC_A17|XNU_MAJOR_GREATER_THAN)\b/, file);
     assert.doesNotMatch(source, /major\s*>=\s*17|majorVersion\s*==\s*(?:15|17|18|19)/, file);
-    assert.doesNotMatch(source, /DYLD_SHARED_REGION|__ZN5dyld45gAPIsE/, file);
+    assert.doesNotMatch(source, /__ZN5dyld45gAPIsE/, file);
     assert.doesNotMatch(source, /\b(?:IOSurface_kalloc_15|IOSurface_kalloc_getSurfacePort_15|crashBackboardd_15|isA18Device|is_a18_devices|CPUFAMILY_ARM_TYPHOON|CPUFAMILY_ARM_COLL|CPUFAMILY_ARM_TUPAI|CPUFAMILY_ARM_TAHITI|CPUFAMILY_ARM_IBIZA|CPUFAMILY_ARM_DONAN)\b/, file);
   }
 });

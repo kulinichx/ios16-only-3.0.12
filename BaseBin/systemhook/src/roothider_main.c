@@ -293,6 +293,7 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv((const char **)envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
 
 	if(!jbclient_dyld_patch_enabled())
@@ -378,6 +379,7 @@ int roothide_systemhook___execve_posthook(const char *path, char *const argv[], 
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv((const char **)envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
 
 	int ret = __execve_inline(path, argv, envc);
@@ -580,6 +582,10 @@ void roothide_init()
 		const char* DYLD_IN_CACHE = getenv("DYLD_IN_CACHE");
 		if(DYLD_IN_CACHE && strcmp(DYLD_IN_CACHE, "0") == 0) {
 			unsetenv("DYLD_IN_CACHE");
+		}
+		const char* DYLD_SHARED_REGION = getenv("DYLD_SHARED_REGION");
+		if(DYLD_SHARED_REGION && strcmp(DYLD_SHARED_REGION, "use") == 0) {
+			unsetenv("DYLD_SHARED_REGION");
 		}
 	}
 

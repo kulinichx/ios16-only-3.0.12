@@ -674,6 +674,7 @@ now we can enable dyld patching for new process */
 
 // don't use dyld-in-cache due to dyldhooks
 setenv("DYLD_IN_CACHE", "0", 1);
+setenv("DYLD_SHARED_REGION", "use", 1);
 // don't load tweak during jailbreaking
 setenv("DISABLE_TWEAKS", "1", 1);
 // using the stock path during jailbreaking
