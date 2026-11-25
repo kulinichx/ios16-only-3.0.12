@@ -95,9 +95,11 @@ static int wait_for_release(int fd) {
 }
 int main(int argc, const char **argv) {
     if(argc>=2 && !strcmp(argv[1],"--child")) {
+        alarm(5); // A broken descriptor must not leave the test child blocked.
         if(argc>=4 && !strcmp(argv[argc-2],"--waitfor")) {
             int result=wait_for_release(atoi(argv[argc-1])); if(result) return result;
         }
+        alarm(0);
         if(argc>=3 && !strcmp(argv[2],"exit1")) return 1;
         if(argc>=3 && !strcmp(argv[2],"signal")) raise(SIGTERM);
         return 0;
@@ -107,7 +109,12 @@ int main(int argc, const char **argv) {
         DOEnvironmentManager *env=[DOEnvironmentManager new]; env.jailbrokenVersion=@"3.0.12";
         int saved3=fcntl(3,F_DUPFD_CLOEXEC,100); close(3);
         interruptWrite=true; interruptWait=true; pipeLayout=1;
-        assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==0 && spawnCalls==1 && waits==1);
+        int firstStatus=[env spawnJbctlAsRootWithArgs:@[@"--child"]];
+        if(firstStatus!=0) {
+            fprintf(stderr,"fd3 handshake regression: status=%d\n",firstStatus);
+            fflush(stderr); _exit(86); // Avoid macOS crash-report handling in the mutant run.
+        }
+        assert(spawnCalls==1 && waits==1);
         assert(reapedChildren==1);
         assert(fcntl(3,F_GETFD)==-1 && errno==EBADF);
         pipeLayout=2;

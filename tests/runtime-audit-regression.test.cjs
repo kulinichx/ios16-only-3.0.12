@@ -61,7 +61,8 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
     fs.writeFileSync(sourcePath, mutated);
     execFileSync('xcrun', compileArgs, {stdio:'pipe'});
     assert.throws(() => execFileSync(binary, [], {stdio:'pipe', timeout:30000}),
-      error => /Assertion failed/.test(String(error.stderr)), 'fixture must detect the original regression');
+      error => error.status === 86 && /fd3 handshake regression: status=/.test(String(error.stderr)),
+      'fixture must detect the original regression');
   }
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
