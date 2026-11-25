@@ -12,9 +12,10 @@
 #include <string.h>
 #include <alloca.h>
 
-#ifndef CPU_SUBTYPE_ARM64E_ABI_V2
-#define CPU_SUBTYPE_ARM64E_ABI_V2 0x80000000u
+#ifdef CPU_SUBTYPE_ARM64E_ABI_V2
+#undef CPU_SUBTYPE_ARM64E_ABI_V2
 #endif
+#define CPU_SUBTYPE_ARM64E_ABI_V2 ((cpu_subtype_t)0x80000000)
 #define CS_CDHASH_LEN 20
 /* PRODUCTION_STRUCTS */
 
