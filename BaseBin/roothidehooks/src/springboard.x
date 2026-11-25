@@ -61,6 +61,11 @@
 		return %orig;
 	}
 
+	// Private helper selectors can differ between system builds.
+	if (![snapshot respondsToSelector:@selector(_configureDefaultPathWithinGroupForFormat:)] ||
+		![[self class] respondsToSelector:@selector(_outputFormatForSnapshot:)]) {
+		return %orig;
+	}
 	NSString *path = [snapshot _configureDefaultPathWithinGroupForFormat:
 		[[self class] _outputFormatForSnapshot:snapshot]];
 	if (!path) {

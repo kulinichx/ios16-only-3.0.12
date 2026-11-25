@@ -3,6 +3,7 @@
 #include <choma/Host.h>
 #include <mach-o/dyld.h>
 #include <libjailbreak/trustcache.h>
+#include <libjailbreak/signatures.h>
 
 #include <sys/stat.h>
 #include <sys/mount.h>
@@ -44,8 +45,6 @@ MachO* fat_find_preferred_slice(Fat *fat)
 
 	return candidateSlice;
 }
-
-extern bool csd_superblob_is_adhoc_signed(CS_DecodedSuperBlob *superblob);
 
 NSString* resolveLoaderExecutablePaths(NSString *loadPath, NSString *loaderPath, NSString *mainExecutablePath, NSString* workingDir)
 {
@@ -137,9 +136,10 @@ NSString *resolveLoadPath(NSString *loadPath, NSString *loaderPath, NSString *ma
 	return loadPath; //absolute path
 }
 
-static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *mainExecutablePath, NSString *workingDir, NSMutableArray* fileCaches, NSMutableArray* rpathStack, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
+static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *mainExecutablePath, NSString *workingDir, NSMutableArray* fileCaches, NSMutableArray* rpathStack, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut, int *result)
 {
 @autoreleasepool {
+	if (*result != 0) return;
 
 	DEBUG_LOG("Recursing into loadPath: %s\n\tloader: %s\n\tmainExecutable: %s\nworkingDir: %s\n", loadPath.fileSystemRepresentation, loaderPath.fileSystemRepresentation, mainExecutablePath.fileSystemRepresentation, workingDir.fileSystemRepresentation);
 
@@ -152,9 +152,11 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 		return false;
 	};
 	void (^cdhashesAdd)(cdhash_t) = ^(cdhash_t cdhash) {
-		(*cdhashCountOut)++;
-		(*cdhashesOut) = realloc((*cdhashesOut), (*cdhashCountOut) * sizeof(cdhash_t));
-		memcpy((*cdhashesOut)[(*cdhashCountOut)-1], cdhash, sizeof(cdhash_t));
+		if (*cdhashCountOut == UINT32_MAX) { *result = -1; return; }
+		cdhash_t *expanded = realloc(*cdhashesOut, ((size_t)*cdhashCountOut + 1) * sizeof(cdhash_t));
+		if (!expanded) { *result = -1; return; }
+		*cdhashesOut = expanded;
+		memcpy(expanded[(*cdhashCountOut)++], cdhash, sizeof(cdhash_t));
 	};
 
 
@@ -217,6 +219,7 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 	Fat *fat = fat_init_from_path(realLoadPath.fileSystemRepresentation);
 	if (!fat) {
 		JBLogError("Failed to parse fat binary at path: %s", realLoadPath.fileSystemRepresentation);
+		*result = -1;
 		return;
 	}
 
@@ -235,6 +238,7 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 		macho = fat_find_preferred_slice(fat);
 		if (!macho) {
 			JBLogError("Failed to find preferred slice for file: %s", realLoadPath.fileSystemRepresentation);
+			*result = -1;
 			fat_free(fat);
 			return;
 		}
@@ -243,58 +247,52 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 	// Calculate cdhash and add it to our array
 	bool cdhashWasKnown = true;
 	bool isAdhocSigned = false;
-	CS_SuperBlob *superblob = macho_read_code_signature(macho);
-	if (superblob) {
-		CS_DecodedSuperBlob *decodedSuperblob = csd_superblob_decode(superblob);
-		if (decodedSuperblob) {
-			if (csd_superblob_is_adhoc_signed(decodedSuperblob)) {
-				isAdhocSigned = true;
-				cdhash_t cdhash = {0};
-				if (csd_superblob_calculate_best_cdhash(decodedSuperblob, cdhash, NULL) == 0) {
-					if (!cdhashesContains(cdhash)) {
-						if (!is_cdhash_trustcached(cdhash)) {
-							// If something is trustcached we do not want to add it to your array
-							// We do want to parse it's dependencies however, as one may have been updated since we added the binary to trustcache
-							// Potential optimization: If trustcached, save in some array so we don't recheck
-
-							int ret = ensure_randomized_cdhash_for_slice(realLoadPath.fileSystemRepresentation, macho->archDescriptor.offset, cdhash);
-							if(ret==0) {
-								cdhashesAdd(cdhash);
-							} else {
-								JBLogError("ensure_randomized_cdhash_for_slice(%llx) failed: %s -> (%d)", macho->archDescriptor.offset, realLoadPath.fileSystemRepresentation, ret);
-							}
-						}
-						cdhashWasKnown = false;
-					}
-				}
+	cdhash_t cdhash = {0};
+	int signatureResult = macho_collect_adhoc_cdhash(macho, cdhash);
+	if (signatureResult < 0) *result = -1;
+	isAdhocSigned = signatureResult == 1;
+	if (isAdhocSigned && !cdhashesContains(cdhash)) {
+		if (!is_cdhash_trustcached(cdhash)) {
+			// Dependencies may have changed even when this image is already trusted.
+			int ret = ensure_randomized_cdhash_for_slice(realLoadPath.fileSystemRepresentation, macho->archDescriptor.offset, cdhash);
+			if (ret == 0) {
+				cdhashesAdd(cdhash);
+			} else {
+				JBLogError("ensure_randomized_cdhash_for_slice(%llx) failed: %s -> (%d)", macho->archDescriptor.offset, realLoadPath.fileSystemRepresentation, ret);
+				*result = ret;
 			}
-			csd_superblob_free(decodedSuperblob);
 		}
-		free(superblob);
+		cdhashWasKnown = false;
 	}
 
-	if (cdhashWasKnown || // If we already knew the cdhash, we can skip parsing dependencies
+	if (*result != 0 || cdhashWasKnown || // If we already knew the cdhash, we can skip parsing dependencies
 		!isAdhocSigned) { // If it was not ad hoc signed, we can safely skip it aswell
 		fat_free(fat);
 		return;
 	}
 
 	// Recurse this block on all dependencies
-	macho_enumerate_dependencies(macho, ^(const char *pathCStr, uint32_t cmd, struct dylib* dylib, bool *stop) {
+	int dependencyResult = macho_enumerate_dependencies(macho, ^(const char *pathCStr, uint32_t cmd, struct dylib* dylib, bool *stop) {
 
 		NSMutableArray* nextChain = rpathStack.mutableCopy;
 		[nextChain addObject:realLoadPath]; //Loading dependencies, add current macho itself to the rpath stack
 		
-		recurse_handler(@(pathCStr), realLoadPath, mainExecutablePath, workingDir, fileCaches, nextChain, preferredArch, cdhashesOut, cdhashCountOut);
+		recurse_handler(@(pathCStr), realLoadPath, mainExecutablePath, workingDir, fileCaches, nextChain, preferredArch, cdhashesOut, cdhashCountOut, result);
+		if (*result != 0) *stop = true;
 	});
+	if (dependencyResult != 0) *result = dependencyResult;
 
 	fat_free(fat);
 	
 } //autoreleasepool
 }
 
-void recurse_collect_untrusted_cdhashes(const char *path, const char *callerImagePath, const char *callerExecutablePath, const char *workingDir, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
+int recurse_collect_untrusted_cdhashes(const char *path, const char *callerImagePath, const char *callerExecutablePath, const char *workingDir, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
 {
+	if (!cdhashesOut || !cdhashCountOut) return -1;
+	*cdhashesOut = NULL;
+	*cdhashCountOut = 0;
+	if (!path) return -1;
 	if(!callerExecutablePath) {
 		callerExecutablePath = path;
 	}
@@ -313,8 +311,15 @@ void recurse_collect_untrusted_cdhashes(const char *path, const char *callerImag
 
 	NSMutableArray* fileCaches = [NSMutableArray array];
 
-	recurse_handler(@(path), @(callerImagePath), @(callerExecutablePath), workingDir ? @(workingDir) : nil, fileCaches, rpathStack, preferredArch, cdhashesOut, cdhashCountOut);
+	int result = 0;
+	recurse_handler(@(path), @(callerImagePath), @(callerExecutablePath), workingDir ? @(workingDir) : nil, fileCaches, rpathStack, preferredArch, cdhashesOut, cdhashCountOut, &result);
+	if (result != 0) {
+		free(*cdhashesOut);
+		*cdhashesOut = NULL;
+		*cdhashCountOut = 0;
+	}
 
 	DEBUG_LOG("fileCaches: %s", path, fileCaches.description.UTF8String);
 	DEBUG_LOG("Finished collecting cdhashes for path: %s, found %u cdhashes, processed %d files", path, *cdhashCountOut, fileCaches.count);
+	return result;
 }

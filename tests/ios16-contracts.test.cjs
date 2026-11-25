@@ -61,7 +61,9 @@ test('production signature classification and trustcache append preserve legacy 
         .replace('#include <choma/CSBlob.h>', '').replace('#include "signatures.h"', ''))
       .replace('/* PRODUCTION_MAPPABLE */', productionFunction('BaseBin/libjailbreak/src/signatures.c', 'bool macho_is_mappable(MachO *macho)'))
       .replace('/* PRODUCTION_APPEND */', productionFunction('BaseBin/libjailbreak/src/trustcache.c',
-        'int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount)'));
+        'int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount)'))
+      .replace('/* PRODUCTION_ADD_CDHASHES */', productionFunction('BaseBin/libjailbreak/src/trustcache.c',
+        'int jb_trustcache_add_cdhashes(cdhash_t *hashes, uint32_t hashCount)'));
     const file = path.join(temp, 'test.c');
     const binary = path.join(temp, 'test');
     fs.writeFileSync(file, source);

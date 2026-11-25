@@ -35,6 +35,7 @@ static struct mach_header *macho_get_mach_header(MachO *macho) { return &macho->
 #define MAX_PAGES 8
 static unsigned char pages[MAX_PAGES][JB_TRUSTCACHE_SIZE];
 static size_t pageCount, reads, writes;
+static bool failGrow, failRead, failWrite;
 static uint64_t pageAddress(size_t page) { return 0x100000000ULL + page * JB_TRUSTCACHE_SIZE; }
 static void *kernelPointer(uint64_t address, size_t size)
 {
@@ -51,15 +52,19 @@ static uint32_t kread32(uint64_t address)
     reads++;
     return value;
 }
-static void kreadbuf(uint64_t address, void *output, size_t size)
+static int kreadbuf(uint64_t address, void *output, size_t size)
 {
+    if (failRead) return -1;
     memcpy(output, kernelPointer(address, size), size);
     reads++;
+    return 0;
 }
-static void kwritebuf(uint64_t address, const void *input, size_t size)
+static int kwritebuf(uint64_t address, const void *input, size_t size)
 {
+    if (failWrite) return -1;
     memcpy(kernelPointer(address, size), input, size);
     writes++;
+    return 0;
 }
 static void _jb_trustcache_enumerate(void (^block)(uint64_t, bool *))
 {
@@ -71,6 +76,7 @@ static void _jb_trustcache_enumerate(void (^block)(uint64_t, bool *))
 }
 static uint64_t _jb_trustcache_grow(void)
 {
+    if (failGrow) return 0;
     assert(pageCount < MAX_PAGES);
     memset(pages[pageCount], 0, JB_TRUSTCACHE_SIZE);
     return pageAddress(pageCount++);
@@ -86,6 +92,7 @@ static void _trustcache_file_sort(trustcache_file_v1 *file)
 }
 
 /* PRODUCTION_APPEND */
+/* PRODUCTION_ADD_CDHASHES */
 
 static trustcache_entry_v1 entryFor(uint32_t identifier)
 {
@@ -172,6 +179,28 @@ int main(int argc, const char *argv[])
         checkAppend(nearFull, 1, 2);
         checkAppend(full, 1, 2 * JB_TRUSTCACHE_ENTRY_COUNT + 3);
         checkAppend(partial, 2, 5);
+        trustcache_entry_v1 entry = entryFor(42);
+        pageCount = reads = writes = 0;
+        assert(jb_trustcache_add_entries(NULL, 1) != 0);
+        assert(jb_trustcache_add_cdhashes(NULL, 1) != 0);
+        assert(jb_trustcache_add_cdhashes(NULL, 0) == 0);
+        assert(reads == 0 && writes == 0 && pageCount == 0);
+        failGrow = true;
+        assert(jb_trustcache_add_entries(&entry, 1) != 0);
+        assert(reads == 0 && writes == 0 && pageCount == 0);
+        failGrow = false;
+        _jb_trustcache_grow();
+        failRead = true;
+        assert(jb_trustcache_add_entries(&entry, 1) != 0);
+        assert(writes == 0);
+        failRead = false;
+        failWrite = true;
+        assert(jb_trustcache_add_entries(&entry, 1) != 0);
+        assert(((jb_trustcache *)pages[0])->file.length == 0);
+        failWrite = false;
+        cdhash_t hashes[2] = {{1}, {2}};
+        assert(jb_trustcache_add_cdhashes(hashes, 2) == 0);
+        assert(((jb_trustcache *)pages[0])->file.length == 2);
     }
     puts("PASS production classification/trustcache regression");
     return 0;

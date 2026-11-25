@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 #include "kernel.h"
 #include "info.h"
 #include "primitives.h"
@@ -28,11 +29,13 @@ uint64_t _trustcache_list_get_start(void)
 	return 0;
 }
 
-void _trustcache_list_set_start(uint64_t newStart)
+int _trustcache_list_set_start(uint64_t newStart)
 {
 	if (ksymbol(ppl_trust_cache_rt)) {  // iOS >=16
-		kwrite64(kread64(ksymbol(ppl_trust_cache_rt) + 0x20), newStart);
+		uint64_t head = kread64(ksymbol(ppl_trust_cache_rt) + 0x20);
+		if (head) return kwrite64(head, newStart);
 	}
+	return -1;
 }
 
 void _trustcache_list_enumerate(void (^enumerateBlock)(uint64_t tcKaddr, bool *stop))
@@ -52,14 +55,12 @@ int trustcache_list_insert(uint64_t tcToInsert)
 
 	{
 		uint64_t previousStartTC = _trustcache_list_get_start();
-		kwrite64(tcToInsert + koffsetof(trustcache, nextptr), previousStartTC);
-		if (koffsetof(trustcache, prevptr)) {
-			kwrite64(previousStartTC + koffsetof(trustcache, prevptr), tcToInsert);
+		if (kwrite64(tcToInsert + koffsetof(trustcache, nextptr), previousStartTC) != 0) return -1;
+		if (previousStartTC && koffsetof(trustcache, prevptr)) {
+			if (kwrite64(previousStartTC + koffsetof(trustcache, prevptr), tcToInsert) != 0) return -1;
 		}
-		_trustcache_list_set_start(tcToInsert);
+		return _trustcache_list_set_start(tcToInsert);
 	}
-
-	return 0;
 }
 
 int trustcache_list_remove(uint64_t tcKaddr)
@@ -73,7 +74,7 @@ int trustcache_list_remove(uint64_t tcKaddr)
 		return -1;
 	}
 	else if (curTc == tcKaddr) {
-		_trustcache_list_set_start(nextTc);
+		if (_trustcache_list_set_start(nextTc) != 0) return -1;
 		if (nextTc && koffsetof(trustcache, prevptr)) {
 			kwrite64(nextTc + koffsetof(trustcache, prevptr), 0);
 		}
@@ -154,13 +155,18 @@ uint64_t _jb_trustcache_grow(void)
 	if (koffsetof(trustcache, type)) {
 		*(uint64_t *)(jbTc->trustcache + koffsetof(trustcache, type)) = 0x5;
 	}
-	kwritebuf(jbTcKern, jbTc, sizeof(*jbTc));
-	trustcache_list_insert(jbTcKern);
+	if (kwritebuf(jbTcKern, jbTc, sizeof(*jbTc)) != 0 || trustcache_list_insert(jbTcKern) != 0) return 0;
 	return jbTcKern;
 }
 
 int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount)
 {
+	if (entryCount == 0) return 0;
+	if (!entries) return -1;
+	// Reuse one buffer; alloca in this loop grows the stack for every page.
+	jb_trustcache *jbTc = malloc(JB_TRUSTCACHE_SIZE);
+	if (!jbTc) return -1;
+	int result = 0;
 	uint32_t remainingEntryCount = entryCount;
 	uint32_t consumedEntryCount = 0;
 	while (remainingEntryCount > 0) {
@@ -177,35 +183,51 @@ int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entr
 		if (freeJbTcKaddr == 0) {
 			freeJbTcKaddr = _jb_trustcache_grow();
 		}
+		if (!freeJbTcKaddr || kreadbuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE) != 0) {
+			result = -1;
+			break;
+		}
+		if (jbTc->file.length != freeJbTcCurrentLength || jbTc->file.length >= JB_TRUSTCACHE_ENTRY_COUNT) {
+			result = -1;
+			break;
+		}
 
 		uint32_t entryCountToInsert = JB_TRUSTCACHE_ENTRY_COUNT - freeJbTcCurrentLength;
 		if (remainingEntryCount < entryCountToInsert) {
 			entryCountToInsert = remainingEntryCount;
 		}
 
-		jb_trustcache *jbTc = alloca(JB_TRUSTCACHE_SIZE);
-		kreadbuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE);
 		for (uint32_t i = 0; i < entryCountToInsert; i++) {
 			jbTc->file.entries[freeJbTcCurrentLength+i] = entries[consumedEntryCount+i];
 		}
 		jbTc->file.length += entryCountToInsert;
 		_trustcache_file_sort(&jbTc->file);
-		kwritebuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE);
+		if (kwritebuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE) != 0) {
+			result = -1;
+			break;
+		}
 		remainingEntryCount -= entryCountToInsert;
 		consumedEntryCount += entryCountToInsert;
 	}
-	return 0;
+	free(jbTc);
+	return result;
 }
 
 int jb_trustcache_add_cdhashes(cdhash_t *hashes, uint32_t hashCount)
 {
-	struct trustcache_entry_v1 entries[hashCount];
-	for (int i = 0; i < hashCount; i++) {
+	if (hashCount == 0) return 0;
+	size_t count = hashCount;
+	if (!hashes || count > SIZE_MAX / sizeof(struct trustcache_entry_v1)) return -1;
+	struct trustcache_entry_v1 *entries = malloc((size_t)hashCount * sizeof(*entries));
+	if (!entries) return -1;
+	for (uint32_t i = 0; i < hashCount; i++) {
 		memcpy(entries[i].hash, hashes[i], sizeof(cdhash_t));
 		entries[i].hash_type = 1;
 		entries[i].flags = 0;
 	}
-	return jb_trustcache_add_entries(entries, hashCount);
+	int result = jb_trustcache_add_entries(entries, hashCount);
+	free(entries);
+	return result;
 }
 
 int jb_trustcache_add_entry(struct trustcache_entry_v1 entry)
@@ -300,6 +322,7 @@ void jb_trustcache_debug_print(FILE *f)
 
 int trustcache_file_upload(trustcache_file_v1 *tc)
 {
+	if (!tc) return -1;
 	uint64_t tcSize = ksizeof(trustcache) + sizeof(trustcache_file_v1) + (tc->length * sizeof(trustcache_entry_v1));
 	if (tcSize > 0x4000) return -1;
 
@@ -363,8 +386,7 @@ int trustcache_file_upload(trustcache_file_v1 *tc)
 		kwrite64(tcKaddr + koffsetof(trustcache, type), 0x5);
 	}
 
-	trustcache_list_insert(tcKaddr);
-	return 0;
+	return trustcache_list_insert(tcKaddr);
 }
 
 int trustcache_file_upload_with_uuid(trustcache_file_v1 *tc, uuid_t uuid)
@@ -375,10 +397,13 @@ int trustcache_file_upload_with_uuid(trustcache_file_v1 *tc, uuid_t uuid)
 
 int trustcache_file_build_from_cdhashes(cdhash_t *CDHashes, uint32_t CDHashCount, trustcache_file_v1 **tcOut)
 {
-	if (!CDHashes || CDHashCount == 0 || !tcOut) return -1;
+	if (!tcOut) return -1;
+	*tcOut = NULL;
+	if (!CDHashes || CDHashCount == 0) return -1;
 
 	size_t tcSize = sizeof(trustcache_file_v1) + (sizeof(trustcache_entry_v1) * CDHashCount);
 	trustcache_file_v1 *file = malloc(tcSize);
+	if (!file) return -1;
 	_trustcache_file_init(file);
 
 	file->length = CDHashCount;
@@ -395,19 +420,29 @@ int trustcache_file_build_from_cdhashes(cdhash_t *CDHashes, uint32_t CDHashCount
 
 int trustcache_file_build_from_path(const char *filePath, trustcache_file_v1 **tcOut)
 {
+	if (!tcOut) return -1;
+	*tcOut = NULL;
+	if (!filePath) return -1;
 	int fd = open(filePath, O_RDONLY);
+	if (fd < 0) return -1;
 	struct stat s = { 0 };
-	fstat(fd, &s);
-
-	size_t tcSize = s.st_size;
-	if (tcSize < (sizeof(trustcache_file_v1))) {
-		// To small to be a TrustCache, file is probably malformed
+	if (fstat(fd, &s) != 0 || s.st_size < (off_t)sizeof(trustcache_file_v1) || !S_ISREG(s.st_mode)) {
+		close(fd);
 		return -1;
 	}
 
+	size_t tcSize = s.st_size;
 	trustcache_file_v1 *file = malloc(tcSize);
-	read(fd, file, tcSize);
+	if (!file) { close(fd); return -1; }
+	size_t consumed = 0;
+	while (consumed < tcSize) {
+		ssize_t size = read(fd, (uint8_t *)file + consumed, tcSize - consumed);
+		if (size < 0 && errno == EINTR) continue;
+		if (size <= 0) break;
+		consumed += (size_t)size;
+	}
 	close(fd);
+	if (consumed != tcSize) { free(file); return -1; }
 
 	size_t actualTcSize = sizeof(trustcache_file_v1) + (sizeof(trustcache_entry_v1) * file->length);
 	if (actualTcSize != tcSize) {

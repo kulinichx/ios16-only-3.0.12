@@ -130,14 +130,12 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 /************************ roothide specfic ************************/
 cdhash_t *cdhashes = NULL;
 uint32_t cdhashCount = 0;
-file_collect_untrusted_cdhashes(fd, &cdhashes, &cdhashCount);
+int retval = file_collect_untrusted_cdhashes(fd, &cdhashes, &cdhashCount);
 
-int retval = 0;
-
-if (cdhashes && cdhashCount > 0) {
+if (retval == 0 && cdhashCount > 0) {
 	retval = jb_trustcache_add_cdhashes(cdhashes, cdhashCount);
-	free(cdhashes);
 }
+free(cdhashes);
 
 close(fd);
 

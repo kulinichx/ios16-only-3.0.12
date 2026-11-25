@@ -219,7 +219,11 @@ void jbupdate_finalize_stage2(const char *prevVersion, const char *newVersion)
 	// Update dyld trustcache
 	cdhash_t *cdhashes = NULL;
 	uint32_t cdhashesCount = 0;
-	file_collect_untrusted_cdhashes_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"), &cdhashes, &cdhashesCount);
+	r = file_collect_untrusted_cdhashes_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"), &cdhashes, &cdhashesCount);
+	if (r != 0) {
+		abort_with_reason(7, 1, "Dopamine: Collecting updated dyld signatures failed, cannot continue.", 0);
+		return;
+	}
 
 	if (cdhashesCount > 1) {
 		char msg[4000];

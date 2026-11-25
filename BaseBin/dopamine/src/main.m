@@ -107,8 +107,8 @@ void activate_basebin(NSString *basebinPath)
 
 	cdhash_t *cdhashes = NULL;
 	uint32_t cdhashesCount = 0;
-	file_collect_untrusted_cdhashes_by_path(fakelibDyldPath.fileSystemRepresentation, &cdhashes, &cdhashesCount);
-	if (cdhashesCount != 1) {
+	int collectResult = file_collect_untrusted_cdhashes_by_path(fakelibDyldPath.fileSystemRepresentation, &cdhashes, &cdhashesCount);
+	if (collectResult != 0 || cdhashesCount != 1) {
 		printf("Activating basebin failed: cdhashesCount != 1\n");
 		exit(-1);
 	}

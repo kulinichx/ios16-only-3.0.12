@@ -22,7 +22,7 @@ bool roothide_domain_allowed(audit_token_t clientToken)
 	return true;
 }
 
-void recurse_collect_untrusted_cdhashes(const char *path, const char *callerImagePath, const char *callerExecutablePath, const char *workingDir, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut);
+int recurse_collect_untrusted_cdhashes(const char *path, const char *callerImagePath, const char *callerExecutablePath, const char *workingDir, preferredArchInfo* preferredArch, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut);
 
 static int trust_macho_recurse(const char *machoPath, const char *dlopenCallerImagePath, const char *dlopenCallerExecutablePath, const char *workingDir, xpc_object_t preferredArchsArray)
 {
@@ -46,12 +46,12 @@ static int trust_macho_recurse(const char *machoPath, const char *dlopenCallerIm
 
 	cdhash_t *cdhashes = NULL;
 	uint32_t cdhashesCount = 0;
-	recurse_collect_untrusted_cdhashes(machoPath, dlopenCallerImagePath, dlopenCallerExecutablePath, workingDir, &preferredArch, &cdhashes, &cdhashesCount);
-	if (cdhashes && cdhashesCount > 0) {
-		jb_trustcache_add_cdhashes(cdhashes, cdhashesCount);
-		free(cdhashes);
+	int result = recurse_collect_untrusted_cdhashes(machoPath, dlopenCallerImagePath, dlopenCallerExecutablePath, workingDir, &preferredArch, &cdhashes, &cdhashesCount);
+	if (result == 0 && cdhashesCount > 0) {
+		result = jb_trustcache_add_cdhashes(cdhashes, cdhashesCount);
 	}
-	return 0;
+	free(cdhashes);
+	return result;
 }
 
 int roothide_trust_executable_recurse(const char *executablePath, const char *processWorkingDir, xpc_object_t preferredArchsArray)
