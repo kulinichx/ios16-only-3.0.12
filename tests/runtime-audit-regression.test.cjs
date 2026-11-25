@@ -54,7 +54,9 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
     ...(objc ? ['-fobjc-arc'] : ['-std=gnu11']), sourcePath,
     ...(objc ? ['-framework', 'Foundation'] : []), ...(options.flags || []), '-o', binary];
   execFileSync('xcrun', compileArgs, {stdio:'pipe'});
-  execFileSync(binary, options.directory ? [path.join(temp, 'files')] : [], {stdio:'pipe', timeout:30000});
+  for (const args of options.runs || [options.directory ? [path.join(temp, 'files')] : []]) {
+    execFileSync(binary, args, {stdio:'pipe', timeout:30000});
+  }
   if (options.mutate) {
     const mutated = options.mutate(source);
     assert.notEqual(mutated, source, 'mutation must change the production function');
@@ -67,6 +69,16 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
   }
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
+
+test('production exec tracing rejects missing receivers, supplies port capacity and releases failed setup state', darwinOnly, t => {
+  const file='BaseBin/libroothider/src/exec_trace.m', source=read(file);
+  nativeFixture(t, 'exec-trace-setup', 'exec-trace-setup-harness.m', {
+    '/* PRODUCTION_TRACE_TYPE */': source.slice(source.indexOf('typedef struct {'), source.indexOf('static void finish_process_trace')),
+    '/* PRODUCTION_TRACE_SETUP */': productionFunction(file, 'static int start_exec_exception_server(') + '\n' +
+      productionFunction(file, 'int execTraceProcess('),
+  }, {runs:[[], ['allocate'], ['insert'], ['thread']], mutationError:/fixture regression:/,
+    mutate: value => value.replace('trace_data->saved_exception_types_count = EXC_TYPES_COUNT;', 'trace_data->saved_exception_types_count = 0;')});
+});
 
 test('production exec setup stops after failed attribute initialization or flags', darwinOnly, t => {
   nativeFixture(t, 'exec-setup', 'exec-setup-harness.c', {

@@ -247,25 +247,48 @@ out:
 	}
 }
 
+static int start_exec_exception_server(mach_port_t *port)
+{
+    *port = MACH_PORT_NULL;
+    kern_return_t kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, port);
+    if (kr != KERN_SUCCESS) {
+        JBLogError("exec exception port allocation failed: %x", kr);
+        return -1;
+    }
+    kr = mach_port_insert_right(mach_task_self(), *port, *port, MACH_MSG_TYPE_MAKE_SEND);
+    if (kr != KERN_SUCCESS) {
+        JBLogError("exec exception send right creation failed: %x", kr);
+        mach_port_destroy(mach_task_self(), *port);
+        *port = MACH_PORT_NULL;
+        return -1;
+    }
+    pthread_t thread;
+    int error = pthread_create(&thread, NULL, exception_server, (void *)(uintptr_t)*port);
+    if (error != 0) {
+        JBLogError("exec exception server creation failed: %d", error);
+        mach_port_destroy(mach_task_self(), *port);
+        *port = MACH_PORT_NULL;
+        return -1;
+    }
+    pthread_detach(thread);
+    return 0;
+}
+
 int execTraceProcess(pid_t pid, uint64_t traced)
 {
     static mach_port_t exception_port = MACH_PORT_NULL;
+    static bool exception_server_ready = false;
     
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         trace_data_lock = [[NSLock alloc] init];
         trace_data_record = [[NSMutableDictionary alloc] init];
 
-        mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &exception_port);
-        mach_port_insert_right(mach_task_self(), exception_port, exception_port, MACH_MSG_TYPE_MAKE_SEND);
-
-        pthread_t thread;
-        pthread_create(&thread, NULL, exception_server, (void*)(uintptr_t)exception_port);
-
-        __uint64_t tid = 0;
-        pthread_threadid_np(thread, &tid);
-        JBLogDebug("exception_server thread: %x tid=%d", thread, tid);
+        exception_server_ready = start_exec_exception_server(&exception_port) == 0;
     });
+
+    // Never attach a task to a port with no receiver: the caller waits for SIGSTOP.
+    if (!exception_server_ready) return -1;
 
     if(!proc_cantrace(pid)) {
         JBLogError("can't be able to trace process: %d", pid);
@@ -281,10 +304,15 @@ int execTraceProcess(pid_t pid, uint64_t traced)
 
     int ret = 0;
     
-    trace_data_t* trace_data = (trace_data_t*)malloc(sizeof(trace_data_t));
-    memset(trace_data, 0, sizeof(trace_data_t));
+    trace_data_t* trace_data = (trace_data_t*)calloc(1, sizeof(trace_data_t));
+    if (!trace_data) {
+        mach_port_deallocate(mach_task_self(), task);
+        return -1;
+    }
     trace_data->traced_flag_addr = traced;
     trace_data->pid = pid;
+    // This is an in/out capacity, not an output-only field.
+    trace_data->saved_exception_types_count = EXC_TYPES_COUNT;
 
     kr = task_get_exception_ports(task, EXC_MASK_SOFTWARE, trace_data->saved_masks, &trace_data->saved_exception_types_count, 
                                             trace_data->saved_ports, trace_data->saved_behaviors, trace_data->saved_flavors);
@@ -308,7 +336,10 @@ int execTraceProcess(pid_t pid, uint64_t traced)
             if(ret != 0) {
                 JBLogError("attach error: %d, %s", errno, strerror(errno));
                 [trace_data_record removeObjectForKey:@(pid)];
-                free(trace_data);
+                for (uint32_t i = 0; i < trace_data->saved_exception_types_count; ++i) {
+                    task_set_exception_ports(task, trace_data->saved_masks[i], trace_data->saved_ports[i],
+                        trace_data->saved_behaviors[i], trace_data->saved_flavors[i]);
+                }
                 kill(pid, SIGKILL);
                 ret = -1;
             }
@@ -322,9 +353,18 @@ int execTraceProcess(pid_t pid, uint64_t traced)
     
     } else {
         JBLogError("task_get_exception_ports error: %x, %s", kr, mach_error_string(kr));
+        // No send rights were returned on failure.
+        trace_data->saved_exception_types_count = 0;
         ret = -1;
     }
 
+    if (ret != 0) {
+        for (uint32_t i = 0; i < trace_data->saved_exception_types_count; ++i) {
+            if (MACH_PORT_VALID(trace_data->saved_ports[i]))
+                mach_port_deallocate(mach_task_self(), trace_data->saved_ports[i]);
+        }
+        free(trace_data);
+    }
     mach_port_deallocate(mach_task_self(), task);
 
     return ret;
