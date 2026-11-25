@@ -12,7 +12,7 @@ static void *churn(void *input) {
     unsigned first=(unsigned)(uintptr_t)input;
     for (unsigned i=first;i<first+2000;i++) @autoreleasepool {
         NSDictionary *value=cachedJobInfo((pid_t)i,false);
-        assert([value[@"identifier"] isEqualToString:[NSString stringWithFormat:@"app.%u",i]]);
+        assert(([value[@"identifier"] isEqualToString:[NSString stringWithFormat:@"app.%u",i]]));
     }
     return NULL;
 }

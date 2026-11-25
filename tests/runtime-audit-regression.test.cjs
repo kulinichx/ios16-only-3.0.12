@@ -56,6 +56,18 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
   execFileSync(binary, options.directory ? [path.join(temp, 'files')] : [], {stdio:'pipe', timeout:30000});
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
+test('production process virtual writes call the page-table writer rather than recursing', darwinOnly, t => {
+  nativeFixture(t,'proc-vwrite','proc-vwrite-harness.c', {
+    '/* PRODUCTION_PROC_VWRITE */': productionFunction('BaseBin/libjailbreak/src/primitives.c','int proc_vwritebuf('),
+  });
+});
+test('production spawn pre/post hooks preserve initialization and syscall failures across cleanup', darwinOnly, t => {
+  nativeFixture(t,'spawn-posthook','spawn-posthook-harness.c', {
+    '/* PRODUCTION_ENVBUF */': read('BaseBin/systemhook/src/common/envbuf.c'),
+    '/* PRODUCTION_POSTHOOK */': ['int roothide_systemhook___posix_spawn_prehook(', 'int roothide_systemhook___posix_spawn_posthook(']
+      .map(s => productionFunction('BaseBin/systemhook/src/roothider_main.c',s)).join('\n'),
+  });
+});
 test('production basebin trust collection never uploads a partial result after a file or allocation failure', darwinOnly, t => {
   nativeFixture(t, 'basebin-collection', 'basebin-collection-harness.m', {
     '/* PRODUCTION_BASEBIN */': productionFunction('BaseBin/libroothider/src/common.m', 'int randomizeAndLoadBasebinTrustcache('),
@@ -87,10 +99,11 @@ test('production App and jbctl synchronize a real child after privilege restorat
 });
 test('production libarchive extraction preserves supported links and propagates traversal and writer errors', darwinOnly, t => {
   const util = 'BaseBin/libjailbreak/src/util.c';
+  const prefix = execFileSync('brew',['--prefix','libarchive'],{encoding:'utf8'}).trim();
   nativeFixture(t, 'archive-extraction', 'archive-extraction-harness.c', {
     '/* PRODUCTION_ARCHIVE */': 'static int\n' + productionFunction(util,'copy_data(') + '\n' +
       productionFunction(util,'static int prepare_extraction_path(') + '\n' + productionFunction(util,'int libarchive_unarchive('),
-  }, {directory:true, flags:['-larchive']});
+  }, {directory:true, flags:['-I',path.join(prefix,'include'),'-L',path.join(prefix,'lib'),'-larchive']});
 });
 
 test('spawn inputs use independent token state and owned configuration values', () => {

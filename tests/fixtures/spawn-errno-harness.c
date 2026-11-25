@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <math.h>
 #include <sys/param.h>
+#define min(a,b) ((a)<(b)?(a):(b))
 #define HOOK_DYLIB_PATH "/test/systemhook.dylib"
 #define POSIX_SPAWN_PROC_TYPE_DRIVER 0x700
 #define POSIX_SPAWN_START_SUSPENDED 0x80

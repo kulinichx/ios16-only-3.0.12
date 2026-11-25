@@ -360,7 +360,7 @@ extern char **environ;
 {
     bool needsLegacySolution = false;
     if (self.jailbrokenVersion) {
-        needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
+        needsLegacySolution = [self.jailbrokenVersion compare:@"3.0.5" options:NSNumericSearch] == NSOrderedAscending;
     }
 
     if (args.count > SIZE_MAX / sizeof(char *) - 4) return EOVERFLOW;

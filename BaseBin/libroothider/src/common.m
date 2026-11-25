@@ -454,7 +454,7 @@ int randomizeAndLoadBasebinTrustcache(const char *basebinPath)
         if (fd < 0) goto cleanup;
         uint32_t magic = 0;
         ssize_t size = 0;
-        while (size < sizeof(magic)) {
+        while ((size_t)size < sizeof(magic)) {
             ssize_t n = read(fd, (char *)&magic + size, sizeof(magic) - size);
             if (n < 0 && errno == EINTR) continue;
             if (n < 0) { size = -1; break; }

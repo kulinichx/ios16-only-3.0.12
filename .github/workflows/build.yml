@@ -69,6 +69,7 @@ jobs:
 
       - name: Check iOS 16 source contracts
         run: |
+          brew install libarchive
           node scripts/prepare-xpf-ios16.cjs
           node --test tests/ios16-contracts.test.cjs tests/runtime-audit-regression.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/battery-record.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj

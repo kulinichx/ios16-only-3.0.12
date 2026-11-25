@@ -62,6 +62,7 @@ static int wait_for_release(int fd) {
 }
 int main(int argc, const char **argv) {
     if(argc==4 && !strcmp(argv[1],"--child")) return wait_for_release(atoi(argv[3]));
+    if(argc==2 && !strcmp(argv[1],"--child")) return 0;
     assert(argc==1); selfPath=argv[0];
     @autoreleasepool {
         DOEnvironmentManager *env=[DOEnvironmentManager new]; env.jailbrokenVersion=@"3.0.13";
@@ -73,6 +74,8 @@ int main(int argc, const char **argv) {
         assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==ENOMEM && spawnCalls==2); failActions=false;
         skipPrivilege=true;
         assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==EPERM && waits==1); skipPrivilege=false;
+        env.jailbrokenVersion=@"3.0.4";
+        assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==0 && waits==2);
         int fds[2]; assert(pipe(fds)==0); interruptRead=true;
         assert(write(fds[1],"w",1)==1 && wait_for_release(fds[0])==0); close(fds[1]);
         assert(pipe(fds)==0); close(fds[1]); assert(wait_for_release(fds[0])==1);
