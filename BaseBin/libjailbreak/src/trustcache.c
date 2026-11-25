@@ -162,6 +162,7 @@ uint64_t _jb_trustcache_grow(void)
 int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount)
 {
 	uint32_t remainingEntryCount = entryCount;
+	uint32_t consumedEntryCount = 0;
 	while (remainingEntryCount > 0) {
 		__block uint64_t freeJbTcKaddr = 0;
 		__block uint32_t freeJbTcCurrentLength = 0;
@@ -185,12 +186,13 @@ int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entr
 		jb_trustcache *jbTc = alloca(JB_TRUSTCACHE_SIZE);
 		kreadbuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE);
 		for (uint32_t i = 0; i < entryCountToInsert; i++) {
-			jbTc->file.entries[freeJbTcCurrentLength+i] = entries[i];
+			jbTc->file.entries[freeJbTcCurrentLength+i] = entries[consumedEntryCount+i];
 		}
 		jbTc->file.length += entryCountToInsert;
 		_trustcache_file_sort(&jbTc->file);
 		kwritebuf(freeJbTcKaddr, jbTc, JB_TRUSTCACHE_SIZE);
 		remainingEntryCount -= entryCountToInsert;
+		consumedEntryCount += entryCountToInsert;
 	}
 	return 0;
 }

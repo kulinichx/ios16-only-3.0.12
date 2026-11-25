@@ -37,6 +37,63 @@ function iosurfaceConnectionFix() {
   return source.slice(start, end);
 }
 
+function productionFunction(file, signature) {
+  const source = read(file);
+  const start = source.indexOf(signature);
+  assert.ok(start >= 0, signature);
+  const masked = mask(source);
+  const opening = masked.indexOf('{', start + signature.length);
+  let depth = 1;
+  for (let at = opening + 1; at < masked.length; at++) {
+    if (masked[at] === '{') depth++;
+    if (masked[at] === '}' && --depth === 0) return source.slice(start, at + 1);
+  }
+  assert.fail(`Unclosed production function: ${signature}`);
+}
+
+test('production signature classification and trustcache append preserve legacy libraries and every page entry', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS clang/Blocks; uses production functions and trustcache layout with fake kernel pages.' : false,
+}, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-trust-regression-'));
+  try {
+    const source = read('tests/fixtures/signature-trustcache-harness.c')
+      .replace('/* PRODUCTION_STRUCTS */', read('BaseBin/libjailbreak/src/trustcache_structs.h')
+        .replace('#include <choma/CSBlob.h>', '').replace('#include "signatures.h"', ''))
+      .replace('/* PRODUCTION_MAPPABLE */', productionFunction('BaseBin/libjailbreak/src/signatures.c', 'bool macho_is_mappable(MachO *macho)'))
+      .replace('/* PRODUCTION_APPEND */', productionFunction('BaseBin/libjailbreak/src/trustcache.c',
+        'int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount)'));
+    const file = path.join(temp, 'test.c');
+    const binary = path.join(temp, 'test');
+    fs.writeFileSync(file, source);
+    const compile = contents => {
+      fs.writeFileSync(file, contents);
+      execFileSync('xcrun', ['clang', '-std=gnu11', '-fblocks', '-Wall', '-Wextra', '-Werror',
+        '-Wno-gnu-variable-sized-type-not-at-end', file, '-o', binary], { stdio: 'pipe' });
+    };
+    compile(source);
+    for (const scenario of ['arm64e', 'arm64e-capability', 'arm64', 'append'])
+      execFileSync(binary, [scenario], { stdio: 'pipe', timeout: 20000 });
+    // Prove that the scenarios detect both original defects, independently.
+    const { spawnSync } = require('node:child_process');
+    for (const [before, after, scenario] of [
+      ['header->filetype != MH_EXECUTE', 'header->filetype == MH_EXECUTE', 'arm64e'],
+      ['entries[consumedEntryCount+i]', 'entries[i]', 'append'],
+    ]) {
+      assert.ok(source.includes(before), before);
+      let broken = source.replace(before, after);
+      if (scenario === 'append') broken = broken
+        .replace('uint32_t consumedEntryCount = 0;', '')
+        .replace('consumedEntryCount += entryCountToInsert;', '');
+      compile(broken);
+      const failed = spawnSync(binary, [scenario], { encoding: 'utf8', timeout: 20000 });
+      assert.ifError(failed.error);
+      assert.equal(failed.signal, 'SIGABRT', `${scenario} must reject the original bug`);
+    }
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('launchd IOSurface lookup avoids the ElleKit sharedCachePath crash path', () => {
   const source = iosurfaceConnectionFix();
   assert.doesNotMatch(source, /\bMSFindSymbol\b|\bMSGetImageByName\b/);
