@@ -114,7 +114,7 @@ int main(int argc, const char **argv) {
         assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==0 && spawnCalls==2 && waits==2);
         pipeLayout=0;
         assert([env spawnJbctlAsRootWithArgs:@[@"--child"]]==0 && spawnCalls==3 && waits==3);
-        assert([env spawnJbctlAsRootWithArgs:@[@"--child",@"exit1"]]==256 && waits==4);
+        assert(([env spawnJbctlAsRootWithArgs:@[@"--child",@"exit1"]]==256 && waits==4));
         int signaled=[env spawnJbctlAsRootWithArgs:@[@"--child",@"signal"]];
         assert(WIFSIGNALED(signaled) && WTERMSIG(signaled)==SIGTERM && waits==5);
         env.jailbrokenVersion=@"3.0.13";
