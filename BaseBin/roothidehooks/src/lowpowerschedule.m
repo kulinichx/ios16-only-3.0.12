@@ -1,4 +1,5 @@
 #import "RCLowPowerSchedule.h"
+#import "RCScheduleRuntime.h"
 #import <objc/runtime.h>
 #include <dlfcn.h>
 #include <notify.h>
@@ -6,10 +7,7 @@
 #include <string.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
-#ifndef RC_LOW_POWER_TEST
-#include <libjailbreak/jbclient_xpc.h>
-#else
-extern const char *jbclient_get_jbroot(void);
+#ifdef RC_LOW_POWER_TEST
 extern NSDate *rcLowPowerTestNow(void);
 extern NSString *rcLowPowerTestBootSession(void);
 #endif
@@ -88,8 +86,7 @@ static BOOL rcLowPowerAPIsAvailable(void)
 
 static NSString *rcLowPowerRoot(void)
 {
-    const char *root = jbclient_get_jbroot();
-    return root && root[0] == '/' ? [NSString stringWithUTF8String:root] : nil;
+    return rcScheduleRuntimeRoot();
 }
 
 static NSDate *rcLowPowerNow(void)
@@ -154,13 +151,12 @@ static id rcSharedLowPowerScheduler;
     if (self.disableRequest) status[@"DisableRequest"] = self.disableRequest;
     NSString *bootSession = rcLowPowerBootSession();
     if (bootSession) status[@"BootSession"] = bootSession;
-    NSError *error = nil;
-    if (rcLowPowerWriteDictionary(status, rcLowPowerStatusPath(root), &error)) {
-        notify_post(RC_LOW_POWER_STATUS_CHANGED);
-    } else {
-        os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule could not publish %{public}@: %{public}@ (%ld)",
-            state, error.domain, (long)error.code);
-    }
+    rcSchedulePublishDictionary(status, rcLowPowerStatusPath(root), RC_LOW_POWER_STATUS_CHANGED,
+        ^(BOOL success, NSError *error) {
+            if (!success)
+                os_log_error(OS_LOG_DEFAULT, "Dopamine low power schedule could not publish %{public}@: %{public}@ (%ld)",
+                    state, error.domain, (long)error.code);
+        });
 }
 
 - (BOOL)armForDate:(NSDate *)date
@@ -423,6 +419,6 @@ void rcLowPowerScheduleStart(void)
                     [scheduler refresh];
                 }];
         }
-        dispatch_async(dispatch_get_main_queue(), ^{ [scheduler refresh]; });
+        // The shared post-launch coordinator performs the initial refresh once.
     });
 }

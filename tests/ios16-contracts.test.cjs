@@ -29,6 +29,52 @@ const info = read('BaseBin/libjailbreak/src/info.h');
 const workflow = read('.github/workflows/build.yml');
 const uiWorkflow = read('.github/workflows/uikit-layout.yml');
 
+function iosurfaceConnectionFix() {
+  const source = read('BaseBin/libroothider/src/launchd.m');
+  const start = source.indexOf('void fix__iosConnect()');
+  const end = source.indexOf('\nint (*orig_bind)', start);
+  assert.ok(start >= 0 && end > start);
+  return source.slice(start, end);
+}
+
+test('launchd IOSurface lookup avoids the ElleKit sharedCachePath crash path', () => {
+  const source = iosurfaceConnectionFix();
+  assert.doesNotMatch(source, /\bMSFindSymbol\b|\bMSGetImageByName\b/);
+  assert.match(source, /litehook_find_dsc_symbol\(imagePath, "__iosService"\)/);
+  assert.match(source, /litehook_find_dsc_symbol\(imagePath, "__iosConnect"\)/);
+  assert.match(read('BaseBin/libroothider/Makefile'), /-I\.\.\/_external\/modules\/litehook\/src/);
+  assert.match(read('BaseBin/libjailbreak/Makefile'), /wildcard[^\n]*litehook\/src\/\*\.c/);
+});
+
+test('production IOSurface fix preserves inactive ports and opens the replacement before closing the old port', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS clang; exercises production C function with fake IOSurface ports.' : false,
+}, () => {
+  const { spawnSync } = require('node:child_process');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-iosurface-'));
+  try {
+    const source = read('tests/fixtures/iosurface-connection-harness.c')
+      .replace('/* PRODUCTION_FUNCTION */', iosurfaceConnectionFix());
+    const file = path.join(temp, 'test.c');
+    const binary = path.join(temp, 'test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', file, '-o', binary], { stdio: 'pipe' });
+    for (const scenario of ['inactive', 'active']) {
+      execFileSync(binary, [scenario], { stdio: 'pipe' });
+    }
+    // Preserve fail-fast checks: missing symbols or an unsuccessful open must
+    // never silently continue with an invalid connection or close the old one.
+    for (const scenario of ['missing-service', 'missing-connection', 'open-failure']) {
+      const result = spawnSync(binary, [scenario], { encoding: 'utf8' });
+      assert.ifError(result.error);
+      assert.equal(result.signal, 'SIGABRT', scenario);
+      assert.match(result.stderr, scenario.startsWith('missing-')
+        ? /__iosService != NULL && __iosConnect != NULL/ : /kr == KERN_SUCCESS/, scenario);
+    }
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('manual TIPA builds use one Intel macOS job without simulator gating', () => {
   const buildJob = workflow.slice(workflow.indexOf('\n  build:'));
   assert.match(buildJob, /if: github\.event_name == 'workflow_dispatch'/);

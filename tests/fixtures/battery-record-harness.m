@@ -1,5 +1,6 @@
 #define RC_BATTERY_TEST 1
 #import "RCBatteryRecord.h"
+#import "RCScheduleRuntime.h"
 #import <Foundation/Foundation.h>
 #define CHECK(value) do { if (!(value)) { NSLog(@"FAIL line %d: %s", __LINE__, #value); abort(); } } while (0)
 static NSString *testRoot;
@@ -8,7 +9,7 @@ static NSDate *epoch;
 static double level = 82;
 static BOOL charging, lowPower, failSample, failTimer;
 static NSUInteger samples;
-const char *jbclient_get_jbroot(void) { return testRoot.UTF8String; }
+char *JB_RootPath;
 NSDate *rcBatteryTestNow(void) { return now; }
 NSDictionary *rcBatteryTestSnapshot(void)
 {
@@ -37,10 +38,21 @@ void rcLowPowerScheduleRefresh(void) {}
 
 /* RUNTIME */
 
+static void drainStatusWrites(void)
+{
+    __block BOOL done = NO;
+    dispatch_async(rcScheduleIOQueue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ done = YES; }); });
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!done && limit.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    CHECK(done);
+}
+
 static void command(NSString *action)
 {
     CHECK(rcLowPowerWriteDictionary(@{@"ID": NSUUID.UUID.UUIDString, @"Date": now, @"Action": action}, rcBatteryPath(testRoot, @".command"), nil));
     [recorder refresh];
+    drainStatusWrites();
 }
 static void config(BOOL enabled, BOOL repeat, NSInteger start, NSInteger end, NSDate *first)
 {
@@ -50,12 +62,14 @@ static void config(BOOL enabled, BOOL repeat, NSInteger start, NSInteger end, NS
     CHECK(rcBatteryConfigurationValid(value));
     CHECK(rcLowPowerWriteDictionary(value, rcBatteryPath(testRoot, @".plist"), nil));
     [recorder refresh];
+    drainStatusWrites();
 }
 static NSDictionary *last(void) { return [recorder.state[@"History"] firstObject]; }
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
         testRoot = [NSString stringWithUTF8String:argv[1]];
+        JB_RootPath = (char *)testRoot.UTF8String;
         NSString *primary = rcLowPowerConfigurationPath(testRoot);
         NSString *legacy = rcScheduleReadPath(primary);
         CHECK(![primary isEqual:legacy]);
@@ -119,6 +133,7 @@ int main(int argc, const char *argv[])
         failTimer = YES; now = epoch; config(YES, NO, 180, 240, epoch);
         CHECK([recorder.state[@"State"] isEqual:@"timerFailed"] && recorder.timer == nil);
         CHECK([last()[@"Result"] isEqual:@"timerFailed"]);
+        drainStatusWrites();
         CHECK(rcBatteryReadState(testRoot) != nil);
         failTimer = NO;
         config(NO, NO, 180, 240, epoch);
@@ -139,7 +154,19 @@ int main(int argc, const char *argv[])
         for (NSUInteger index = 0; index < 65; index++)
             [recorder archive:[@{@"ID": NSUUID.UUID.UUIDString} mutableCopy] result:@"missed"];
         CHECK([recorder.state[@"History"] count] == 60);
-        [recorder publish]; CHECK(rcBatteryReadState(testRoot) != nil);
+        [recorder publish]; drainStatusWrites(); CHECK(rcBatteryReadState(testRoot) != nil);
+        // Failed asynchronous persistence stops the current timer, but an older
+        // failure cannot stop a newer publication that subsequently succeeds.
+        RCBatteryRecorder *writer = [RCBatteryRecorder new];
+        writer.state = [@{@"History": @[]} mutableCopy];
+        PCPersistentTimer *pendingTimer = [PCPersistentTimer new]; pendingTimer.valid = YES;
+        writer.timer = (id<RCBatteryTimerAPI>)pendingTimer;
+        JB_RootPath = NULL; [writer publish];
+        JB_RootPath = (char *)testRoot.UTF8String; [writer publish];
+        drainStatusWrites(); CHECK(writer.timer == (id)pendingTimer && pendingTimer.valid);
+        JB_RootPath = NULL; [writer publish]; drainStatusWrites();
+        CHECK(writer.timer == nil && !pendingTimer.valid);
+        JB_RootPath = (char *)testRoot.UTF8String;
         CHECK(!rcBatterySnapshotValid(@{@"Level": @-1}));
         CHECK(rcBatteryDropRate(@{@"Result": @"complete", @"Start": @[], @"End": @[]}) == nil);
         [NSTimeZone setDefaultTimeZone:[NSTimeZone timeZoneWithName:@"America/Los_Angeles"]];

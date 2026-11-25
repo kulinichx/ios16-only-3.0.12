@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #include <roothide.h>
 #include "common.h"
+#import "RCScheduleRuntime.h"
 
 @interface XBSnapshotContainerIdentity : NSObject
 @property NSString* bundleIdentifier;
@@ -132,8 +133,5 @@ void sbInit(void)
 {
 	NSLog(@"sbInit...");
 	%init();
-	extern void rcLowPowerScheduleStart(void);
-	rcLowPowerScheduleStart();
-	extern void rcBatteryRecordStart(void);
-	rcBatteryRecordStart();
+	rcScheduleServicesStartAfterLaunch();
 }

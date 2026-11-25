@@ -4,7 +4,7 @@
 static NSString *root;
 static NSUInteger requests, onRequests;
 static BOOL modeOn, accepts;
-const char *jbclient_get_jbroot(void) { return root.UTF8String; }
+char *JB_RootPath;
 NSDate *rcLowPowerTestNow(void) { return NSDate.date; }
 NSString *rcLowPowerTestBootSession(void) { return @"test"; }
 static NSInteger submittedMode = -1;
@@ -25,7 +25,19 @@ static NSInteger submittedMode = -1;
 @end
 
 #define CHECK(x) do { if (!(x)) { NSLog(@"Failed at line %d", __LINE__); abort(); } } while (0)
-static NSString *state(void) { return rcLowPowerReadDictionary(rcLowPowerStatusPath(root))[@"State"]; }
+static void drainStatusWrites(void)
+{
+    __block BOOL done = NO;
+    dispatch_async(rcScheduleIOQueue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ done = YES; }); });
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!done && limit.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    CHECK(done);
+}
+static NSString *state(void) {
+    drainStatusWrites();
+    return rcLowPowerReadDictionary(rcLowPowerStatusPath(root))[@"State"];
+}
 static void writePlan(BOOL stop)
 {
     NSMutableDictionary *plan = [rcLowPowerDefaultConfiguration() mutableCopy];
@@ -64,6 +76,7 @@ static void checkDeferredWindow(void)
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         root = [NSString stringWithUTF8String:argv[1]];
+        JB_RootPath = (char *)root.UTF8String;
         TestScheduler *s = [TestScheduler new];
         modeOn = accepts = YES;
         writePlan(NO); [s refresh]; CHECK(requests == 0);

@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <IOKit/IOKitLib.h>
+#include <litehook.h>
 
 #include <libjailbreak/libjailbreak.h>
 
@@ -154,12 +155,12 @@ void hideDeveloperMode()
 
 void fix__iosConnect()
 {
-    MSImageRef IOSurfaceImage = MSGetImageByName("/System/Library/Frameworks/IOSurface.framework/IOSurface");
-    JBLogDebug("IOSurfaceImage=%p\n", IOSurfaceImage);
-    assert(IOSurfaceImage != NULL);
-
-    io_service_t* __iosService = MSFindSymbol(IOSurfaceImage, "__iosService");
-    io_connect_t* __iosConnect = MSFindSymbol(IOSurfaceImage, "__iosConnect");
+    // This runs on launchd's spawn queue. ElleKit's private-symbol lookup calls
+    // Swift/Objective-C sharedCachePath here (see the 2026-11-25 launchd crash).
+    // Use the same libsystem-only cache reader already used by systemhook.
+    const char *imagePath = "/System/Library/Frameworks/IOSurface.framework/IOSurface";
+    io_service_t* __iosService = litehook_find_dsc_symbol(imagePath, "__iosService");
+    io_connect_t* __iosConnect = litehook_find_dsc_symbol(imagePath, "__iosConnect");
     assert(__iosService != NULL && __iosConnect != NULL);
 
     JBLogDebug("__iosService=%p __iosConnect=%p\n", __iosService, __iosConnect);
