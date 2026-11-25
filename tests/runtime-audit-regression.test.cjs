@@ -68,6 +68,20 @@ function nativeFixture(t, name, fixture, substitutions, options = {}) {
 }
 const darwinOnly = {skip: process.platform !== 'darwin' ? 'Requires macOS native libraries and compiler.' : false};
 
+test('production exec setup stops after failed attribute initialization or flags', darwinOnly, t => {
+  nativeFixture(t, 'exec-setup', 'exec-setup-harness.c', {
+    '/* PRODUCTION_EXEC_SETUP */': productionFunction('BaseBin/systemhook/src/roothider_main.c', 'int roothide_systemhook___execve_prehook('),
+  }, {mutationError:/fixture regression:/,
+    mutate: value => value.replace('errno = ret;\n\t\treturn -1;', 'errno = ret;')});
+});
+
+test('production jailbreakd transport never releases a missing pipe and balances failed replies', darwinOnly, t => {
+  nativeFixture(t, 'jailbreakd-transport', 'jailbreakd-transport-harness.c', {
+    '/* PRODUCTION_TRANSPORT */': productionFunction('BaseBin/libroothider/src/jailbreakd.c', 'xpc_object_t jailbreakdXpcRequest('),
+  }, {mutationError:/fixture regression:/,
+    mutate: value => value.replace('if (pipe) xpc_release(pipe);', 'xpc_release(pipe);')});
+});
+
 test('production crash backtraces bound full buffers and reject invalid frames before decoding', darwinOnly, t => {
   const file = 'BaseBin/libroothider/src/crashreporter.m', source = read(file);
   nativeFixture(t, 'crash-backtrace', 'crash-backtrace-harness.c', {

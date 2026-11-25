@@ -334,9 +334,13 @@ int roothide_systemhook___execve_prehook(const char *path, char *const argv[], c
 {
 	//try POSIX_SPAWN_SETEXEC first
 	posix_spawnattr_t attr = NULL;
-	posix_spawnattr_init(&attr);
-	posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETEXEC);
-	int ret = posix_spawn(NULL, path, NULL, &attr, argv, envp);
+	int ret = posix_spawnattr_init(&attr);
+	if (ret != 0) {
+		errno = ret;
+		return -1;
+	}
+	ret = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETEXEC);
+	if (ret == 0) ret = posix_spawn(NULL, path, NULL, &attr, argv, envp);
 	posix_spawnattr_destroy(&attr);
 
 	//posix_spawn with POSIX_SPAWN_SETEXEC failed
