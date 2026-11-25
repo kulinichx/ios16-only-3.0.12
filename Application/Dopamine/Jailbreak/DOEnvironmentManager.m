@@ -16,6 +16,7 @@
 #import <sys/stat.h>
 #import <sys/wait.h>
 #import <unistd.h>
+#import <fcntl.h>
 #import <mach-o/dyld.h>
 #import <libgrabkernel2/libgrabkernel2.h>
 #import <libjailbreak/info.h>
@@ -362,11 +363,9 @@ extern char **environ;
         needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
     }
 
-    int waitPipe[2] = {-1, -1};
-    if (!needsLegacySolution && pipe(waitPipe) != 0)
-        return errno;
-
-    char **argBuf = malloc((args.count + 4) * sizeof(char *));
+    if (args.count > SIZE_MAX / sizeof(char *) - 4) return EOVERFLOW;
+    char **argBuf = calloc(args.count + 4, sizeof(char *));
+    if (!argBuf) return ENOMEM;
     argBuf[0] = strdup(JBROOT_PATH("/basebin/jbctl"));
     int i = 1;
     for (NSString *arg in args) {
@@ -377,55 +376,71 @@ extern char **environ;
         argBuf[i++] = strdup("--waitfor");
         argBuf[i++] = strdup("3");
     }
-    argBuf[i++] = NULL;
-
     posix_spawn_file_actions_t act = NULL;
-	posix_spawn_file_actions_init(&act);
     posix_spawnattr_t attr = NULL;
-    posix_spawnattr_init(&attr);
-
-    if (!needsLegacySolution) {
-        posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
-    }
-    else {
-        posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
-    }
-
-    __block int pid = 0;
-    __block int r = -1;
-
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
-            if (needsLegacySolution && r == 0 && pid > 0) {
-                // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
-                // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
-                kill(pid, SIGCONT);
-            }
-        }];
-        // --waitfor resumes jbctl after leaving the privileged scope.
-    }];
-
-    posix_spawnattr_destroy(&attr);
-    posix_spawn_file_actions_destroy(&act);
-    for (int y = 0; y < i; y++) {
-        free(argBuf[y]);
-    }
-    free(argBuf);
-
-    if (!needsLegacySolution) {
-        if (r == 0) {
-            // We left the root/unsandbox block, now resume jbctl by writing to pipe
-            char w = 'w';
-            write(waitPipe[1], &w, sizeof(w));
+    bool actionsInitialized = false, attributesInitialized = false;
+    int waitPipe[2] = {-1, -1};
+    __block pid_t pid = -1;
+    __block int r = ENOMEM;
+    do {
+        bool argumentsAllocated = true;
+        for (int y = 0; y < i; y++) {
+            if (!argBuf[y]) argumentsAllocated = false;
         }
-
-        close(waitPipe[0]);
-        close(waitPipe[1]);
-    }
-
-    if (r != 0 || pid <= 0)
-        return r != 0 ? r : -1;
+        if (!argumentsAllocated) break;
+        r = posix_spawn_file_actions_init(&act);
+        if (r != 0) break;
+        actionsInitialized = true;
+        r = posix_spawnattr_init(&attr);
+        if (r != 0) break;
+        attributesInitialized = true;
+        if (!needsLegacySolution) {
+            if (pipe(waitPipe) != 0) { r = errno; break; }
+            if (fcntl(waitPipe[0], F_SETFD, FD_CLOEXEC) != 0 ||
+                fcntl(waitPipe[1], F_SETFD, FD_CLOEXEC) != 0) { r = errno; break; }
+            r = posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
+            if (r != 0) break;
+            if (waitPipe[0] != 3) {
+                r = posix_spawn_file_actions_addclose(&act, waitPipe[0]);
+                if (r != 0) break;
+            }
+            if (waitPipe[1] != 3) {
+                r = posix_spawn_file_actions_addclose(&act, waitPipe[1]);
+                if (r != 0) break;
+            }
+        } else {
+            r = posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
+            if (r != 0) break;
+        }
+        r = EPERM;
+        [self runAsRoot:^{
+            [self runUnsandboxed:^{
+                r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
+                if (needsLegacySolution && r == 0 && pid > 0) kill(pid, SIGCONT);
+            }];
+        }];
+        if (r != 0) break;
+        if (pid <= 0) { r = ECHILD; break; }
+        if (!needsLegacySolution) {
+            // Release jbctl only after restoring this process's credentials.
+            // Keep our read end until after the write so a child exit cannot SIGPIPE us.
+            char w = 'w';
+            ssize_t written;
+            do { written = write(waitPipe[1], &w, sizeof(w)); } while (written < 0 && errno == EINTR);
+            if (written != sizeof(w)) {
+                r = written < 0 ? errno : EIO;
+                kill(pid, SIGKILL);
+                (void)cmd_wait_for_exit(pid);
+            }
+        }
+    } while (false);
+    if (attributesInitialized) posix_spawnattr_destroy(&attr);
+    if (actionsInitialized) posix_spawn_file_actions_destroy(&act);
+    for (int y = 0; y < i; y++) free(argBuf[y]);
+    free(argBuf);
+    if (waitPipe[0] >= 0) close(waitPipe[0]);
+    if (waitPipe[1] >= 0) close(waitPipe[1]);
+    if (r != 0 || pid <= 0) return r != 0 ? r : ECHILD;
     return cmd_wait_for_exit(pid);
 }
 

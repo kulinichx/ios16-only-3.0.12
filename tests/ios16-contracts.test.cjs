@@ -519,6 +519,7 @@ test('3.0.13 extracted C limit changes restore caller bytes on reuse and failure
 #include <stdint.h>
 #include <limits.h>
 #include <math.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -537,6 +538,7 @@ static int invoke(void *attr, bool shouldInsertJBEnv, double jetsamMultiplier,
         assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) == expectedActive);
         assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) == expectedInactive);
     }
+    int spawnError = errno;
     ${restore}
     return result;
 }

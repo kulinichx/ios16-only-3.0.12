@@ -1,5 +1,6 @@
 #include "common.h"
 #include "_zqbb.h"
+#include <errno.h>
 #include <limits.h>
 #include "../roothider.h"
 #include <xpc/xpc.h>
@@ -233,12 +234,14 @@ static int spawn_exec_hook_common(bool isExec,
 	}
 
 	int r = -1;
+	int spawnError = 0;
 
 	pid_t childPid = -1;
 
 	if ((shouldInsertJBEnv && JBEnvAlreadyInsertedCount == 1) || (!shouldInsertJBEnv && JBEnvAlreadyInsertedCount == 0 && !hasSafeModeVariable)) {
 		// we're already good, just call orig
 		r = orig(&childPid, envp);
+		spawnError = errno;
 	}
 	else {
 		// the state we want to be in is not the state we are in right now
@@ -288,6 +291,7 @@ static int spawn_exec_hook_common(bool isExec,
 		}
 
 		r = orig(&childPid, envc);
+		spawnError = errno;
 
 		envbuf_free(envc);
 	}
@@ -299,6 +303,7 @@ static int spawn_exec_hook_common(bool isExec,
 		*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) = memlimitInactiveOrig;
 	}
 
+	errno = spawnError;
 	return r;
 }
 
@@ -321,6 +326,7 @@ int posix_spawn_hook_shared(pid_t *restrict pid,
 		}
 		return rr;
 	});
+	int spawnError = errno;
 
 	if (r == 0 && pid && desc) {
 		posix_spawnattr_t attr = desc->attrp;
@@ -335,6 +341,7 @@ int posix_spawn_hook_shared(pid_t *restrict pid,
 		}
 	}
 
+	errno = spawnError;
 	return r;
 }
 

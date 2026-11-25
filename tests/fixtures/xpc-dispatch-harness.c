@@ -73,6 +73,7 @@ static int handler(void *a, void *b, void *c, void *d, void *e, void *f, void *g
 }
 int main(void)
 {
+    /* PRODUCTION_ARGUMENT_ARRAYS */
     // Allocate the flexible action array using the production public structs.
     struct jbserver_domain *domain = calloc(1,sizeof(*domain) + 2 * sizeof(struct jbserver_action));
     assert(domain);

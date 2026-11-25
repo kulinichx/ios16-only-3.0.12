@@ -1,6 +1,7 @@
 #include "jbserver_global.h"
 
 #include <stdio.h>
+#include <errno.h>
 #include <time.h>
 #include <libjailbreak/util.h>
 #include "../crashreporter.h"
@@ -10,14 +11,15 @@
 static bool watchdog_domain_allowed(audit_token_t clientToken)
 {
 	xpc_object_t entitlementValue = xpc_copy_entitlement_for_token("com.apple.private.iowatchdog.user-access", &clientToken);
-	if (entitlementValue && xpc_get_type(entitlementValue) == XPC_TYPE_BOOL) {
-		return xpc_bool_get_value(entitlementValue);
-	}
-	return false;
+	bool allowed = entitlementValue && xpc_get_type(entitlementValue) == XPC_TYPE_BOOL &&
+		xpc_bool_get_value(entitlementValue);
+	if (entitlementValue) xpc_release(entitlementValue);
+	return allowed;
 }
 
 static int watchdog_intercept_userspace_panic(const char *panicMessage)
 {
+	if (!panicMessage) return EINVAL;
 	FILE *outFile = crashreporter_open_outfile("userspace-panic", NULL);
 	if (outFile) {
 		fprintf(outFile, "\n%s", panicMessage);
@@ -27,7 +29,7 @@ static int watchdog_intercept_userspace_panic(const char *panicMessage)
 
 	setenv("WATCHDOG_PANIC_MESSAGE", panicMessage, 1);
 	FILE *touchFile = fopen(JBROOT_PATH("/basebin/.safe_mode"), "w");
-	fclose(touchFile);
+	if (touchFile) fclose(touchFile);
 	
 /*************************** roothide specific *******************/
 	setBasebinDependency(false);
