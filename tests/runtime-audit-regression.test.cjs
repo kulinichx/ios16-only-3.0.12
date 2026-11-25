@@ -18,6 +18,32 @@ function productionFunction(file, signature) {
   }
   assert.fail(`Unclosed function ${signature}`);
 }
+
+test('spawn inputs use independent token state and owned configuration values', () => {
+  const source = read('BaseBin/systemhook/src/common/common.c');
+  assert.doesNotMatch(mask(source), /\bstrtok\s*\(|static\s+xpc_object_t\s+configDict|jbuserconfig_get_value/);
+  assert.match(source, /#include <libroothider\/_configuration.h>/);
+  assert.match(source, /if \(blacklistedPath && !strcmp/);
+});
+
+test('production spawn inputs survive nested enumeration, atomic replacement and concurrent readers', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS clang/Blocks/XPC; no process hooks are installed.' : false,
+}, t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-spawn-inputs-'));
+  t.after(() => fs.rmSync(temp, {recursive:true, force:true}));
+  const file = 'BaseBin/systemhook/src/common/common.c';
+  const functions = ['void string_enumerate_components(',
+    'static XPC_RETURNS_RETAINED xpc_object_t jbuserconfig_copy_value(',
+    'static kSpawnConfig spawn_config_for_executable('];
+  const source = read('tests/fixtures/spawn-input-harness.c').replace('/* PRODUCTION_INPUTS */',
+    functions.map(s => productionFunction(file, s)).join('\n'));
+  const cfile = path.join(temp, 'test.c'), binary = path.join(temp, 'test');
+  fs.writeFileSync(cfile, source);
+  execFileSync('xcrun', ['clang', '-std=gnu11', '-fblocks', '-Wall', '-Wextra', '-Werror',
+    '-Wno-unused-parameter', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+    '-I', path.join(root, 'BaseBin/libroothider/src'), cfile, '-o', binary], {stdio:'pipe'});
+  execFileSync(binary, [temp], {stdio:'pipe', timeout:30000});
+});
 test('production signature transaction restores partial writes and repairs stale branded files', {
   skip: process.platform !== 'darwin' ? 'Requires macOS clang/Blocks/CommonCrypto and initialized ChOma headers.' : false,
 }, t => {
