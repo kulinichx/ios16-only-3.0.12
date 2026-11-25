@@ -66,6 +66,8 @@ test('production spawn pre/post hooks preserve initialization and syscall failur
     '/* PRODUCTION_ENVBUF */': read('BaseBin/systemhook/src/common/envbuf.c'),
     '/* PRODUCTION_POSTHOOK */': ['int roothide_systemhook___posix_spawn_prehook(', 'int roothide_systemhook___posix_spawn_posthook(']
       .map(s => productionFunction('BaseBin/systemhook/src/roothider_main.c',s)).join('\n'),
+    '/* PRODUCTION_LAUNCHD_ATTRIBUTE_SETUP */': productionFunction('BaseBin/launchdhook/src/roothider.m','int roothide_launchd___posix_spawn_prehook(')
+      .split('posix_spawnattr_t attrp = &desc->attrp;')[0] + 'return 0;\n}',
   });
 });
 test('production basebin trust collection never uploads a partial result after a file or allocation failure', darwinOnly, t => {

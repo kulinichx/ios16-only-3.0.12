@@ -21,6 +21,8 @@ static void entry(struct archive *a, const char *name, const char *hardlink, con
     struct archive_entry *e=archive_entry_new(); assert(e);
     archive_entry_set_pathname(e,name);
     archive_entry_set_perm(e,0644);
+    archive_entry_set_uid(e,getuid());
+    archive_entry_set_gid(e,getgid());
     archive_entry_set_filetype(e,symlink ? AE_IFLNK : AE_IFREG);
     if(hardlink) archive_entry_set_hardlink(e,hardlink);
     if(symlink) archive_entry_set_symlink(e,symlink);

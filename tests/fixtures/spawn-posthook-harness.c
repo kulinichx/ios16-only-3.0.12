@@ -48,6 +48,7 @@ static int jbdSpawnPatchChild(pid_t pid,bool resume) { assert(pid==123 && resume
 static void trust_insert_libraries(char **env) { (void)env; }
 /* PRODUCTION_ENVBUF */
 /* PRODUCTION_POSTHOOK */
+/* PRODUCTION_LAUNCHD_ATTRIBUTE_SETUP */
 int main(void) {
     struct _posix_spawn_args_desc desc={.attrp=(void *)1};
     char *env[]={NULL};
@@ -61,6 +62,11 @@ int main(void) {
     assert(roothide_systemhook___posix_spawn_prehook(NULL,"/test/bin",NULL,NULL,env,NULL,NULL,NULL,0)==ENOMEM && publicSpawns==0);
     initError=0;
     assert(roothide_systemhook___posix_spawn_prehook(NULL,"/test/bin",NULL,NULL,env,NULL,NULL,NULL,0)==ENOEXEC);
+    assert(errno==ENOEXEC && publicSpawns==1);
+    publicSpawns=0; initError=ENOMEM;
+    assert(roothide_launchd___posix_spawn_prehook(NULL,"/test/bin",NULL,NULL,env)==ENOMEM && publicSpawns==0);
+    initError=0;
+    assert(roothide_launchd___posix_spawn_prehook(NULL,"/test/bin",NULL,NULL,env)==ENOEXEC);
     assert(errno==ENOEXEC && publicSpawns==1);
     puts("PASS production spawn pre/post hooks stop failed initialization and preserve syscall errno through child RPC and cleanup");
 }
