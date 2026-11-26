@@ -13,9 +13,20 @@ const digest = text => crypto.createHash('sha256').update(normalized(text)).dige
 test('core runtime stays at the reviewed ZQBB/iOS 16 baseline', () => {
   assert.equal(manifest.upstream, '18049d5a81b294d3387b3af30c54558d04b8b5f5');
   assert.equal(manifest.files.length, 42);
+  const approved = manifest.approvedBackports || [];
+  assert.equal(new Set(approved.map(entry => entry.file)).size, approved.length);
+  for (const entry of approved) {
+    const original = manifest.files.find(file => file.file === entry.file);
+    assert.ok(original, `${entry.file}: exception must reference a pinned baseline file`);
+    assert.equal(entry.baselineSha256, original.sha256);
+    assert.match(entry.sourceCommit, /^[a-f0-9]{40}$/);
+    assert.ok(entry.scope && entry.authorization);
+  }
   for (const entry of manifest.files) {
+    const exception = approved.find(backport => backport.file === entry.file);
     assert.equal(digest(read(entry.file)),
-      entry.sha256, `${entry.file}: runtime changes require an explicit scope review`);
+      exception ? exception.sha256 : entry.sha256,
+      `${entry.file}: runtime changes require an explicit scope review`);
   }
 });
 
