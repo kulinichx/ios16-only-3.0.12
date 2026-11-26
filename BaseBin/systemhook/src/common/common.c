@@ -178,6 +178,9 @@ static int spawn_exec_hook_common(bool isExec,
 	posix_spawnattr_t attr = NULL;
 	if (desc) attr = desc->attrp;
 
+	// Callers may reuse attr; keep the MB adjustment local to this spawn.
+	int memlimitActiveOrig = -1, memlimitInactiveOrig = -1;
+
 	kSpawnConfig spawnConfig = spawn_config_for_executable(path, argv);
 
 	if (spawnConfig & kSpawnConfigTrust) {
@@ -252,10 +255,12 @@ static int spawn_exec_hook_common(bool isExec,
                 int jetsamAddend = configuredAddend >= INT_MAX ? INT_MAX : (int)configuredAddend;
 				int memlimit_active = *(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE);
 				if (memlimit_active != -1) {
+					memlimitActiveOrig = memlimit_active;
 					*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) = (int)min((int64_t)INT_MAX, (int64_t)memlimit_active + jetsamAddend);
 				}
 				int memlimit_inactive = *(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE);
 				if (memlimit_inactive != -1) {
+					memlimitInactiveOrig = memlimit_inactive;
 					*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) = (int)min((int64_t)INT_MAX, (int64_t)memlimit_inactive + jetsamAddend);
 				}
 			}
@@ -320,6 +325,13 @@ static int spawn_exec_hook_common(bool isExec,
 		r = orig(&childPid, envc);
 
 		envbuf_free(envc);
+	}
+
+	if (memlimitActiveOrig != -1) {
+		*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) = memlimitActiveOrig;
+	}
+	if (memlimitInactiveOrig != -1) {
+		*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) = memlimitInactiveOrig;
 	}
 
 	return r;

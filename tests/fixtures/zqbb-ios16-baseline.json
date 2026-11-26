@@ -269,6 +269,16 @@
       "sourceCommit": "473d52e44d14e3ccc7cf4e86d1095d26be2e6987",
       "scope": "Only the exact logd_helper entry in the existing iOS 16 tweak-loading exclusion list",
       "authorization": "2026-11-26: user accepted the first-batch recommendation after the 3.0.13 assessment"
+    },
+    {
+      "id": "dopamine3013-spawn-memlimit",
+      "file": "BaseBin/systemhook/src/common/common.c",
+      "baselineSha256": "0a54b8566d13d35eb859f895e20196213f9b086e0f9ffc9b955586593e08e202",
+      "sha256": "8fc7aedf8477a7b657d46533b5f2b8877de1418ecf5d498e4a44fbc2b0e0a81f",
+      "sourceRepository": "opa334/Dopamine",
+      "sourceCommit": "f3cd2b82af8d5fa3baea193384ac61b50d2e44bb",
+      "scope": "Save and restore the two modified memory-limit fields only; retain the ZQBB MB-additive policy",
+      "authorization": "2026-11-26: user accepted the first-batch recommendation after the 3.0.13 assessment"
     }
   ]
 }

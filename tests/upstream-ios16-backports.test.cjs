@@ -95,3 +95,51 @@ int main(void) {
     return 0;
 }
 `, /PASS approved tweak policy/));
+
+const common = read('BaseBin/systemhook/src/common/common.c');
+const spawnStart = common.indexOf('static int spawn_exec_hook_common(');
+const spawnEnd = common.indexOf('\nint posix_spawn_hook_shared(', spawnStart);
+assert.ok(spawnStart >= 0 && spawnEnd > spawnStart);
+const spawn = common.slice(spawnStart, spawnEnd);
+
+test('approved spawn backport restores only memory fields and preserves the ZQBB MB policy', () => {
+  for (const [kind, saved] of [['active', 'Active'], ['inactive', 'Inactive']]) {
+    assert.ok(spawn.includes('memlimit' + saved + 'Orig = memlimit_' + kind + ';'));
+    const restore = spawn.indexOf('if (memlimit' + saved + 'Orig != -1)');
+    assert.ok(restore > spawn.lastIndexOf('orig(&childPid,'));
+    assert.ok(restore > spawn.indexOf('envbuf_free(envc);'));
+    assert.ok(restore < spawn.lastIndexOf('return r;'));
+  }
+  assert.match(spawn, /zqbb_getJetsamAddend\(path\) \+ round\(jetsamMultiplier \* 10\)/);
+  assert.match(spawn, /memlimit_active \+ jetsamAddend/);
+  assert.match(spawn, /memlimit_inactive \+ jetsamAddend/);
+  assert.doesNotMatch(spawn, /personaModified|flagsModified|personaOrig|memlimit_\w+ \* jetsamMultiplier/);
+});
+
+test('production spawn function passes temporary child limits and restores caller bytes across reuse and failure', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS clang/Blocks; runs in the native build job.' : false,
+}, t => {
+  const componentsStart = common.indexOf('void string_enumerate_components(');
+  const componentsEnd = common.indexOf('\nint timespec_compare(', componentsStart);
+  assert.ok(componentsStart >= 0 && componentsEnd > componentsStart);
+  const offsets = read('BaseBin/systemhook/src/common/private.h')
+    .match(/^#define POSIX_SPAWNATTR_OFF_MEMLIMIT_(?:ACTIVE|INACTIVE) .+$/gm).join('\n');
+  const fixture = read('tests/fixtures/approved-spawn-memlimit-harness.c')
+    .replace('/* PRODUCTION_OFFSETS */', () => offsets)
+    .replace('/* PRODUCTION_ENVBUF */', () => read('BaseBin/systemhook/src/common/envbuf.c'))
+    .replace('/* PRODUCTION_COMPONENTS */', () => common.slice(componentsStart, componentsEnd))
+    .replace('/* PRODUCTION_SPAWN */', () => spawn);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-spawn-memlimit-'));
+  try {
+    const source = path.join(directory, 'test.c');
+    const binary = path.join(directory, 'test');
+    fs.writeFileSync(source, fixture);
+    execFileSync('xcrun', ['clang', '-std=c11', '-fblocks', '-Wall', '-Wextra', '-Werror',
+      '-Wno-unused-parameter', '-fsanitize=address,undefined', source, '-o', binary]);
+    const output = execFileSync(binary, { encoding: 'utf8' });
+    assert.match(output, /PASS approved spawn memlimit: 8640 calls/);
+    t.diagnostic(output.trim());
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
