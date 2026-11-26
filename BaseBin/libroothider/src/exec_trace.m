@@ -63,9 +63,9 @@ static void* exception_server(void* arg)
 
     int bufsize = 4096;
     mach_msg_header_t* msg = (mach_msg_header_t*)malloc(bufsize);
-    
+
 	while (true) {
-        
+
         memset(msg, 0, bufsize);
         msg->msgh_size = bufsize;
         mach_msg_return_t ret = mach_msg(msg, MACH_RCV_MSG|MACH_RCV_LARGE, 0, msg->msgh_size, port, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
@@ -97,11 +97,11 @@ static void* exception_server(void* arg)
         arm_exception_state64_t exceptionState;
         mach_msg_type_number_t exceptionStateCount = ARM_EXCEPTION_STATE64_COUNT;
         thread_get_state(request->thread.name, ARM_EXCEPTION_STATE64, (thread_state_t)&exceptionState, &exceptionStateCount);
-        
+
         __darwin_arm_thread_state64_ptrauth_strip(threadState);
         uint64_t pc = (uint64_t)__darwin_arm_thread_state64_get_pc(threadState);
 
-        JBLogDebug("pid=%d exception: type=%d ncode=%d code=0x%llX(%lld) subcode=0x%llX(%lld) thread=%x pc=%p\n", pid, request->exception, request->codeCnt, 
+        JBLogDebug("pid=%d exception: type=%d ncode=%d code=0x%llX(%lld) subcode=0x%llX(%lld) thread=%x pc=%p\n", pid, request->exception, request->codeCnt,
             request->code[0], request->code[0], request->code[1], request->code[1],
             request->thread.name, (void*)pc);
 
@@ -111,7 +111,7 @@ static void* exception_server(void* arg)
         if(!trace_data) {
             JBLogError("no trace data for pid=%d, %s\n", pid, proc_get_path(pid,NULL));
         }
-        else if (request->exception == EXC_SOFTWARE && request->codeCnt == 2 && request->code[0] == EXC_SOFT_SIGNAL) 
+        else if (request->exception == EXC_SOFTWARE && request->codeCnt == 2 && request->code[0] == EXC_SOFT_SIGNAL)
         {
             JBLogDebug("exec* pid=%d cancelled=%d got signal: %d\n", pid, trace_data->cancelled, (int)request->code[1]);
 
@@ -187,7 +187,7 @@ static void* exception_server(void* arg)
 
                     bool exception_port_restore_failed = false;
                     for (uint32_t i = 0; i < trace_data->saved_exception_types_count; ++i) {
-                        kern_return_t kr = task_set_exception_ports(request->task.name, trace_data->saved_masks[i], 
+                        kern_return_t kr = task_set_exception_ports(request->task.name, trace_data->saved_masks[i],
                                                 trace_data->saved_ports[i], trace_data->saved_behaviors[i], trace_data->saved_flavors[i]);
                         if(kr != KERN_SUCCESS) {
                             JBLogError("task_set_exception_ports[%d] error: %x, %s\n", i, kr, mach_error_string(kr));
@@ -250,7 +250,7 @@ out:
 int execTraceProcess(pid_t pid, uint64_t traced)
 {
     static mach_port_t exception_port = MACH_PORT_NULL;
-    
+
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         trace_data_lock = [[NSLock alloc] init];
@@ -280,13 +280,13 @@ int execTraceProcess(pid_t pid, uint64_t traced)
     }
 
     int ret = 0;
-    
+
     trace_data_t* trace_data = (trace_data_t*)malloc(sizeof(trace_data_t));
     memset(trace_data, 0, sizeof(trace_data_t));
     trace_data->traced_flag_addr = traced;
     trace_data->pid = pid;
 
-    kr = task_get_exception_ports(task, EXC_MASK_SOFTWARE, trace_data->saved_masks, &trace_data->saved_exception_types_count, 
+    kr = task_get_exception_ports(task, EXC_MASK_SOFTWARE, trace_data->saved_masks, &trace_data->saved_exception_types_count,
                                             trace_data->saved_ports, trace_data->saved_behaviors, trace_data->saved_flavors);
     if(kr == KERN_SUCCESS) {
 
@@ -312,14 +312,14 @@ int execTraceProcess(pid_t pid, uint64_t traced)
                 kill(pid, SIGKILL);
                 ret = -1;
             }
-            
+
             [trace_data_lock unlock];
-    
+
         } else {
             JBLogError("task_set_exception_ports error: %x, %s", kr, mach_error_string(kr));
             ret = -1;
         }
-    
+
     } else {
         JBLogError("task_get_exception_ports error: %x, %s", kr, mach_error_string(kr));
         ret = -1;

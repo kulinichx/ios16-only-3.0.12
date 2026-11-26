@@ -477,6 +477,56 @@ test('binding activation is atomic, deletion preserves the binding-required flag
   assert.match(required, /state\[DORHSupporterBindingCertificateKey\] != nil/);
 });
 
+test('native model reporting skips OS names and falls back from MobileGestalt to the hardware model', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; uses synthetic model responses.' : false,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-proof-model-'));
+  try {
+    const source = `#import <Foundation/Foundation.h>
+#import <sys/sysctl.h>
+#include <string.h>
+static NSString *marketing, *product, *machine;
+static CFTypeRef MGCopyAnswer(CFStringRef key) {
+  NSString *value = [(__bridge NSString *)key isEqual:@"MarketingProductName"] ? marketing : product;
+  return value.length ? CFBridgingRetain(value) : NULL;
+}
+static int modelSysctl(const char *name, void *output, size_t *length, void *input, size_t inputLength) {
+  if (strcmp(name, "hw.machine") || !machine.length) return -1;
+  const char *text = machine.UTF8String;
+  size_t size = strlen(text) + 1;
+  if (size > *length) return -1;
+  memcpy(output, text, size); *length = size; return 0;
+}
+#define sysctlbyname modelSysctl
+${body(licenseSource, 'DORHSupporterProofModel')}
+#undef sysctlbyname
+int main(int argc, char **argv) { @autoreleasepool {
+  marketing = [NSString stringWithUTF8String:argv[1]];
+  product = [NSString stringWithUTF8String:argv[2]];
+  machine = [NSString stringWithUTF8String:argv[3]];
+  puts((DORHSupporterProofModel() ?: @"unavailable").UTF8String);
+  return 0;
+} }
+`;
+    const file = path.join(directory, 'model.m');
+    const binary = path.join(directory, 'model-test');
+    fs.writeFileSync(file, source);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-framework', 'Foundation', file, '-o', binary]);
+    for (const [marketing, product, machine, expected] of [
+      ['iOS', 'iPhone14,2', '', 'iPhone14,2'],
+      ['iPadOS', 'iPad13,4', '', 'iPad13,4'],
+      ['iPhoneOS', 'iPhone14,2', '', 'iPhone14,2'],
+      ['iPad', '', 'iPad13,4', 'iPad13,4'],
+      ['iPhone 13 Pro', 'iPhone14,2', '', 'iPhone 13 Pro'],
+      ['iPad Pro (11-inch)', 'iPad13,4', '', 'iPad Pro (11-inch)'],
+      ['iOS', '', 'iPad13,4', 'iPad13,4'],
+      ['', '', 'iPhone14,2', 'iPhone14,2'],
+      ['', '', 'arm64', 'unavailable'],
+      ['iOS', 'iOS', '', 'unavailable'],
+    ]) assert.equal(execFileSync(binary, [marketing, product, machine], { encoding: 'utf8' }).trim(), expected);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('native Security verifies production binding parser and device-possession code using mock hardware and disposable software keys', {
   skip: process.platform !== 'darwin' ? 'Requires macOS Foundation/Security; not a Secure Enclave device test.' : false,
 }, () => {

@@ -1,5 +1,18 @@
 # iOS 16 source pruning audit
 
+2026-11-26 范围更新：以 `ZQBB-IOS16-ALIGNMENT-2026-11-26.md` 为准。额外底层修复已撤出，ZQBB 无版本门控的共享区环境策略和物理地址换算已恢复。下文“删除 iOS 18.4 共享区环境设置”的历史描述已经纠正，不能作为当前实现依据。
+
+当前进度以 `ZQBB-PRUNING-PROGRESS-2026-11-25.md` 为准：本轮已回移 ZQBB 共享区环境策略，候选 `f1ef7925` 已获明确授权并推送，run `45648680271` 已成功，完整编译、TIPA 校验和上传通过。全面裁剪复核、此前自行编写补丁的取舍及实机 watchdog 验证均未完成。下文旧候选结果保留为历史。
+
+Current scope correction (2026-11-25): see `ZQBB-IOS16-SCOPE-2026-11-25.md`.
+The text below records historical pruning decisions, not proof of semantic
+equivalence. palera1n remains excluded as an external boot integration per
+the user's clarified scope; its OS range overlaps iOS 16. Shared-region
+environment policy needs separate review and must not be classified as
+iOS 18.4-only merely from a nearby comment. The newer gAPIs ABI is a
+separate decision. Independently authored runtime patches are separate
+from restoration of ZQBB pruning omissions.
+
 Status: source-pruning candidate with passing local static checks.
 Native-build and device acceptance remain pending. The source parent is
 `72e77482c41793f545019377a0e92099c0aba9eb` on

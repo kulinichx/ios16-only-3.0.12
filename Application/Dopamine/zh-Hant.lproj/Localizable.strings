@@ -9,11 +9,10 @@
 "Home_Uptime_Format" = "已執行 %@";
 "Home_Thermal_State_Format" = "熱狀態：%@";
 "Home_Thermal_State_Title" = "熱狀態";
-"Home_Avatar_Display_Title" = "圓形顯示";
+"Home_Avatar_Display_Title" = "頭像顯示";
 "Home_Avatar_Show_Photo" = "顯示頭像";
-"Home_Avatar_Show_Temperature" = "顯示溫度";
-"Home_Avatar_Collapse_Hint" = "左右滑動可隱藏圓形，從任一側螢幕邊緣向內滑可重新顯示。長按可設定顯示內容與方式，系統會記住你的選擇。";
-"Home_Avatar_Expand_Hint" = "從任一側螢幕邊緣向內滑，重新顯示後會保持可見。";
+"Home_Avatar_Collapse_Hint" = "左右滑動頭像可隱藏，從任一側螢幕邊緣向內滑可恢復；長按可設定顯示方式，選擇會被記住。";
+"Home_Avatar_Expand_Hint" = "從任一側螢幕邊緣向內滑可恢復頭像，顯示狀態會被記住。";
 "Thermal_State_Nominal" = "正常";
 "Thermal_State_Fair" = "略熱";
 "Thermal_State_Serious" = "偏熱";
@@ -125,6 +124,11 @@
 "Supporter_Copy_Device_Code" = "1. 複製裝置碼";
 "Supporter_Bind_This_Device" = "2. 產生證明碼";
 "Supporter_Paste_License" = "3. 貼上授權碼";
+"Supporter_Backup_Bound_License" = "備份授權";
+"Supporter_Backup_Copied" = "已複製兩行授權";
+"Supporter_Backup_Copied_Message" = "請將兩行完整授權貼到私人備忘錄或檔案。要在原裝置還原時，請點選「貼上授權碼」。";
+"Supporter_Backup_Unavailable" = "無法備份授權";
+"Supporter_Backup_Unavailable_Message" = "備份需要已綁定本機的有效授權。";
 "Supporter_Remove_License" = "移除授權";
 "Supporter_Device_Code_Copied" = "裝置碼已複製";
 "Supporter_Device_Code_Copied_Message" = "請貼上發給作者。";
@@ -271,7 +275,6 @@
 "BatteryRecord_ManualNeedsRefresh" = "已請求更新記錄狀態，請稍後再試。若一直無法開始，請重新載入越獄環境後重試。";
 "BatteryRecord_Result_started" = "✓ 已開始記錄";
 "BatteryRecord_Result_stopped" = "✓ 已結束記錄，結果已加入歷史";
-"Home_Avatar_Auto" = "開啟後自動淡出";
 "Home_Avatar_Always" = "保持顯示";
 "Home_Avatar_Hidden" = "保持隱藏";
 "BatteryRecord_EndPending" = "計畫結束時間為 %@，尚待記錄結果。";

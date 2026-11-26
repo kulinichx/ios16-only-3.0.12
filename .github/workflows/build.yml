@@ -35,7 +35,7 @@ jobs:
         with:
           submodules: recursive
       - run: node scripts/prepare-xpf-ios16.cjs
-      - run: node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/preferences-ui-simulator.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/battery-record.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
+      - run: node --test tests/ios16-contracts.test.cjs tests/zqbb-baseline.test.cjs tests/glass-ui-contracts.test.cjs tests/preferences-ui-simulator.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/battery-record.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
 
   build:
     if: github.event_name == 'workflow_dispatch'
@@ -70,7 +70,7 @@ jobs:
       - name: Check iOS 16 source contracts
         run: |
           node scripts/prepare-xpf-ios16.cjs
-          node --test tests/ios16-contracts.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/battery-record.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
+          node --test tests/ios16-contracts.test.cjs tests/zqbb-baseline.test.cjs tests/glass-ui-contracts.test.cjs tests/lowpower-schedule-contracts.test.cjs tests/battery-record.test.cjs tests/supporter-license-contracts.test.cjs tests/supporter-binding.test.cjs tests/supporter-issuer-integration.test.cjs tests/supporter-key-review.test.cjs
           plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
           plutil -lint Application/Dopamine/UI/PkgManagers/PkgManagers.plist
           plutil -lint Application/Dopamine/UI/Themes/Themes.plist
@@ -203,6 +203,14 @@ jobs:
             echo "::error::Non-iOS-16 payload found inside basebin.tar."
             exit 1
           fi
+          tar -xOf "$RUNNER_TEMP/ios16-basebin.tar" basebin/systemhook.dylib > "$RUNNER_TEMP/ios16-systemhook.dylib"
+          tar -xOf "$RUNNER_TEMP/ios16-basebin.tar" basebin/libjailbreak.dylib > "$RUNNER_TEMP/ios16-libjailbreak.dylib"
+          for architecture in arm64 arm64e; do
+            nm -arch "$architecture" -gUj "$RUNNER_TEMP/ios16-systemhook.dylib" > "systemhook-$architecture-exports.txt"
+            grep -Fx '_JB_RootPath' "systemhook-$architecture-exports.txt"
+            nm -arch "$architecture" -gUj "$RUNNER_TEMP/ios16-libjailbreak.dylib" > "libjailbreak-$architecture-exports.txt"
+            grep -Fx '_litehook_find_dsc_symbol' "libjailbreak-$architecture-exports.txt"
+          done
           tar -xOf "$RUNNER_TEMP/ios16-basebin.tar" basebin/libxpf.dylib > "$RUNNER_TEMP/ios16-libxpf.dylib"
           nm -gj "$RUNNER_TEMP/ios16-libxpf.dylib" > xpf-exports.txt
           if grep -E '_xpf_(bad_recovery_init|sptm_txm_init|supported_15|supported_sptm|supported_26)' xpf-exports.txt; then
@@ -250,4 +258,6 @@ jobs:
             package-contents.txt
             basebin-files.txt
             xpf-exports.txt
+            systemhook-*-exports.txt
+            libjailbreak-*-exports.txt
             app-entitlements.plist

@@ -1,0 +1,262 @@
+{
+  "upstream": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+  "pruned": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+  "files": [
+    {
+      "file": "BaseBin/dopamine/src/main.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "8d060bf9f015ca299ae83b16abbad768f59589c84981b401075ba5313c7c5ec5"
+    },
+    {
+      "file": "BaseBin/forkfix/src/main.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "ef6fe0748e4a17149644bf6239ed64698798b7efec41c42ab2e7285c7123a954"
+    },
+    {
+      "file": "BaseBin/forkfix/src/syscall.S",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "2dcf1c9448ba82dc6106b09a51619b2feeb2b76e7cdf527e8ab9166b9c7ad0c2"
+    },
+    {
+      "file": "BaseBin/forkfix/src/syscall.h",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "977c89a80364fa28d536c107e6cc0517f57d23f226002840a6490a00b51bed43"
+    },
+    {
+      "file": "BaseBin/launchdhook/src/jbserver/jbdomain_watchdog.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "f17df3826221e9c122d8150336c0e5e46c9dd1d5639b0bb8758c0bfb83774359"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/jbserver.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "22ac5814e7631a9f0915c6c0760b7dd7d1ddc2a6feeebbd7e988fa2952a0e7e3"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/signatures.h",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "a16ca627524b467eb0091ebed8ef63c982103e001da1d17ff6348233d7ab4d96"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/trustcache_fs.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "e6a44b7495eb8379deb362cf17d66749c034199a2e9c4b4436f85b83ffd3bea5"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/util.h",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "df233edcac55291bb220b1ce2e3e4e95a1f41dd16fda929aa028e74e9a41b3cb"
+    },
+    {
+      "file": "BaseBin/libroothider/src/blacklist.cpp",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "e80ab4750b635660528b18935de96376870768a06e060f50715d89cf5387bf25"
+    },
+    {
+      "file": "BaseBin/libroothider/src/blacklist.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "173f135d5ae84d0773402c95e5811dc4f004bd8ac997e92660ac0f30baccc11f"
+    },
+    {
+      "file": "BaseBin/libroothider/src/crashreporter.h",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "cbd48f2b1f6eded31a3fba4fff417a92a5b75c9718e319d6c61d21826d0698ad"
+    },
+    {
+      "file": "BaseBin/libroothider/src/exec_patch.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "d793cb720f248be841a562aa273727c427effb85c9f0911b215274e7169bf3e1"
+    },
+    {
+      "file": "BaseBin/libroothider/src/exec_trace.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "aedd3ef772d56d5452c64fffc6b119d9b32b4ddcbad26e3dab029fdbf0f3f54e"
+    },
+    {
+      "file": "BaseBin/libroothider/src/signatures.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "c3206d9335c8fa4814f527b7e2ac0a7eee05cef93f213ead86e5eef0ccf559a2"
+    },
+    {
+      "file": "BaseBin/rootlesshooks/SpringBoard.x",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "b7d4953b63fcd05e29b315beb90b21734155e14ea2527addc7b871080d1e0ea2"
+    },
+    {
+      "file": "BaseBin/jbctl/src/main.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "4498a0fcfb5ec70bb8a2c71655c67655c8d4659985061a4600e389bd5caea751"
+    },
+    {
+      "file": "BaseBin/launchdhook/src/jbserver/jbdomain_roothide.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "bccb78fd2e3bb1cea2ec795a763fb15a31878d115464de74256451ea886dcc39"
+    },
+    {
+      "file": "BaseBin/launchdhook/src/jbserver/jbdomain_systemwide.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "315b44cf7e05609a8704a185748430bee201fecaa2c2fe8140295c22bbc8187a"
+    },
+    {
+      "file": "BaseBin/launchdhook/src/roothider.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization; restore unconditional ZQBB shared-region policy",
+      "sha256": "ace128590c895de85d6fb6570be4332d9ebeabafacd044ffbbdf1fd5fae38423"
+    },
+    {
+      "file": "BaseBin/launchdhook/src/update.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "3b663fb4f90da676a17b58776da98f94ebb0476733f7eeb8938010bfbd2d9160"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/primitives.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "71b2193ca855d0baa18a3a7718f9766076f3ceb123e8391a4589615c28c7f80c"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/signatures.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "cade08ca6a37cd5f52b4b81870db9fe00df88ace882c6301cdb3f87b158e98aa"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/trustcache.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "7f6c7ed1c67ef09f9c6c18315e9865ef999dd0de8bbfc4886e5a957bdbad91ac"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/util.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "8fdf8ce92ae54d06392ee811f21f3683dbea2001716f7bcf2ec1f6c48b728778"
+    },
+    {
+      "file": "BaseBin/libroothider/Makefile",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "a9bb9f876933157beee65c5f6de284d15cdedae9217218103cf425747c8b4a88"
+    },
+    {
+      "file": "BaseBin/libroothider/src/common.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "626067988481997a42486764d12978981b0074112f3a844d1445ac4895d23b09"
+    },
+    {
+      "file": "BaseBin/libroothider/src/crashreporter.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "0a772785927a36fff67399adf8cbf7cc244266fbd43a3ac238da43736b927dd9"
+    },
+    {
+      "file": "BaseBin/libroothider/src/jailbreakd.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "d8bd1835f55ab1b04c6793d2ab9bc7f5a8a7140a0503511dffd00cbb70406849"
+    },
+    {
+      "file": "BaseBin/libroothider/src/launchd.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "b55d8fa2b809ffa1a2e3477af9ef97b0dd36b4e4e24190d060762172e37f539c"
+    },
+    {
+      "file": "BaseBin/libroothider/src/recdhash.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "2ba60b8100591ab45bf4a4c6aed63b0664e7a162f837c77ee5dadb6e796e28eb"
+    },
+    {
+      "file": "BaseBin/libroothider/src/xpc_hook.m",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "7dbc06b30c2a4ebe30bedc1f6224dd35d1984db9a2fcb02c4b9933fad4ba6a1a"
+    },
+    {
+      "file": "BaseBin/roothidehooks/src/cfprefsd.x",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "fcbad1302adebf56d71a7d4f5c26c0c13ae698dd2d0f3704e4a6ffcd8710f45b"
+    },
+    {
+      "file": "BaseBin/systemhook/src/common/common.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "0a54b8566d13d35eb859f895e20196213f9b086e0f9ffc9b955586593e08e202"
+    },
+    {
+      "file": "BaseBin/systemhook/src/main.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization",
+      "sha256": "ac83274ddcc6cc63c1952488dc174a2dff78dde5875b956447892766955d34ad"
+    },
+    {
+      "file": "BaseBin/systemhook/src/roothider_main.c",
+      "source": "7d6a3874d33225ba4c2a8a12ef916f80929f67d4",
+      "adjustment": "Existing iOS 16 specialization; restore unconditional ZQBB shared-region policy",
+      "sha256": "ade4abeca65f6d0e848628dea07a708c01652ab5b6d710685e0332a7b691be47"
+    },
+    {
+      "file": "BaseBin/roothidehooks/src/springboard.x",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB hooks plus retained power/recording service startup",
+      "sha256": "d545e477b26f404bfa09212cceec1c5f7d58108dd0c829884b42f2a665ecea29"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/physrw.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB original",
+      "sha256": "655d696b16962fa093389c967687ad41744a2b257c283e8cc7abc3ffc6a5170d"
+    },
+    {
+      "file": "Application/Dopamine/Exploits/Titan/exploit/ipc_port.c",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB proc-name lookup restored; only post-iOS-16 IOMachPort branch removed",
+      "sha256": "78e9306539e47476c5cb544b2c9894a98a943f43baa5872ed6fe5585d7cb5859"
+    },
+    {
+      "file": "Application/Dopamine/Exploits/Titan/exploit/titan.h",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB XNU major macro restored; A17 enum removed",
+      "sha256": "78f0c459fa0896857e2181fb6df0dd0ea61ef76c0a15f28747a706757829a71f"
+    },
+    {
+      "file": "BaseBin/libjailbreak/src/primitives_IOSurface.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB iOS 16 allocator name and external linkage restored; iOS 15 allocator removed",
+      "sha256": "7e59b9c9acb19a89a6a17857be35ff170627209dad4bbf3ad9ec127c6147aa68"
+    },
+    {
+      "file": "Application/Dopamine/Jailbreak/DOExploit.m",
+      "source": "18049d5a81b294d3387b3af30c54558d04b8b5f5",
+      "adjustment": "ZQBB local declaration restored; A8 and A17 selection cases removed",
+      "sha256": "ae8a8d83e3cbf9d708d4c29c6fdc30ea1c3e0c1ce5a493adbc4924e800e929a2"
+    }
+  ],
+  "upstreamSections": {
+    "jbctlLaunch": "8d61bc475632b35f5fc979b85a958991ca899cd287ea20c4ef0ec0a13a5f947c",
+    "springboard": "b20c9472735c413f105d943fafa831d370d9db83217f244a2cb429e3e3265e79"
+  }
+}

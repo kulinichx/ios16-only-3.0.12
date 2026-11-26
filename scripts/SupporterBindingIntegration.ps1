@@ -1,5 +1,218 @@
 ﻿# RootHide supporter binding integration v1. Dot-source from the original issuer.
 
+function Get-RHProofResultText([string]$Code, [bool]$Migration = $false) {
+    switch ($Code) {
+        'BOUND' { $meaning = '首次设备绑定成功'; $next = '如果尚未签发 RH1，先完成首次签发。然后选中对应记录，点击「补发选中绑定」。' }
+        'MATCH' { $meaning = '硬件和设备密钥均与历史记录一致'; $next = '如需恢复授权，选中原记录后点击「补发选中绑定」。' }
+        'SAME_DEVICE' { $meaning = '硬件和设备密钥均与原设备一致'; $next = '如需恢复绑定授权，关闭窗口，选中原记录后点击「补发选中绑定」。设备码变更验证仅用于比对。' }
+        'REVIEW_KEY_MISMATCH' {
+            $meaning = '硬件一致，设备密钥已变化'
+            $next = if ($Migration) {
+                '关闭窗口，在原记录上生成普通 RHC1，让用户重新生成证明。主界面显示「同设备 · 密钥待复核」后，点击「同设备换密钥」。'
+            } else {
+                '「补发选中绑定」暂不可用。关闭提示，选中原记录，先点击「同设备换密钥」并核对用户编号；确认迁移后，补发按钮才会启用。'
+            }
+        }
+        'HARDWARE_MISMATCH' { $meaning = '硬件与历史记录不符'; $next = '停止按原机补发，核实用户身份和设备归属。' }
+        'LEGACY_UNBOUND' { $meaning = '历史记录缺少可比对的设备证明'; $next = '人工核实用户和原设备归属，确认后再处理首次绑定。' }
+        'TARGET_CODE_CONFLICT' { $meaning = '新设备码已属于其他用户'; $next = '核对录入的设备码和对应的历史记录。' }
+        default { $meaning = '未知验证结果'; $next = '暂停补发，记录返回码并核对工具版本。' }
+    }
+    return "$meaning（$Code）`r`n`r`n下一步 · $next"
+}
+
+function Get-RHProofErrorText([string]$Message, [bool]$Migration = $false) {
+    $generate = if ($Migration) { '生成 Migration RHC1' } else { '生成 RHC1' }
+    $next = switch -Regex ($Message) {
+        '^challenge-(expired|consumed)' { "点击「$generate」，发给用户生成一份新的证明。"; break }
+        '^challenge-mode-mismatch' { '回到生成这条验证文本的入口，再验证对应的证明。'; break }
+        '^challenge-(not-found|mismatch)' { "核对当前签发工具和用户记录，点击「$generate」并让用户重新生成证明。"; break }
+        '^NO_CHANGE' { '在原记录上用普通 RHC1/RHP1 验证。'; break }
+        '^TARGET_CODE_CONFLICT' { '检查新设备码对应的历史记录，暂停变更。'; break }
+        '^migration-source-' { '重新载入原用户，核对历史记录后再试。'; break }
+        '^请输入有效的 NEW Device Code' { '从手机授权页复制完整的设备码，填入「新设备码」。'; break }
+        '^设备证明已验证，但复核记录保存失败' { '检查签发目录能否写入。恢复后重新生成普通 RHC1 并验证。'; break }
+        'Git Bash|OpenSSL' { '检查 Git Bash 和 OpenSSL 是否可用，再重新验证。'; break }
+        default { '核对剪贴板里是否为完整的 RHP1，按下方详情排查后再试。' }
+    }
+    return "下一步 · $next`r`n`r`n详情 · $Message"
+}
+
+function Get-RHDeviceModelName([string]$Model) {
+    # Identifier mappings: DeviceKit/Source/Device.generated.swift.
+    # Convert for display only; retain the original model in proofs and storage.
+    switch -CaseSensitive -Regex ($Model) {
+        '\AiPhone8,1\z' { return 'iPhone 6s' }
+        '\AiPhone8,2\z' { return 'iPhone 6s Plus' }
+        '\AiPhone8,4\z' { return 'iPhone SE (1st generation)' }
+        '\AiPhone9,(1|3)\z' { return 'iPhone 7' }
+        '\AiPhone9,(2|4)\z' { return 'iPhone 7 Plus' }
+        '\AiPhone10,(1|4)\z' { return 'iPhone 8' }
+        '\AiPhone10,(2|5)\z' { return 'iPhone 8 Plus' }
+        '\AiPhone10,(3|6)\z' { return 'iPhone X' }
+        '\AiPhone11,2\z' { return 'iPhone XS' }
+        '\AiPhone11,(4|6)\z' { return 'iPhone XS Max' }
+        '\AiPhone11,8\z' { return 'iPhone XR' }
+        '\AiPhone12,1\z' { return 'iPhone 11' }
+        '\AiPhone12,3\z' { return 'iPhone 11 Pro' }
+        '\AiPhone12,5\z' { return 'iPhone 11 Pro Max' }
+        '\AiPhone12,8\z' { return 'iPhone SE (2nd generation)' }
+        '\AiPhone13,1\z' { return 'iPhone 12 mini' }
+        '\AiPhone13,2\z' { return 'iPhone 12' }
+        '\AiPhone13,3\z' { return 'iPhone 12 Pro' }
+        '\AiPhone13,4\z' { return 'iPhone 12 Pro Max' }
+        '\AiPhone14,2\z' { return 'iPhone 13 Pro' }
+        '\AiPhone14,3\z' { return 'iPhone 13 Pro Max' }
+        '\AiPhone14,4\z' { return 'iPhone 13 mini' }
+        '\AiPhone14,5\z' { return 'iPhone 13' }
+        '\AiPhone14,6\z' { return 'iPhone SE (3rd generation)' }
+        '\AiPhone14,7\z' { return 'iPhone 14' }
+        '\AiPhone14,8\z' { return 'iPhone 14 Plus' }
+        '\AiPhone15,2\z' { return 'iPhone 14 Pro' }
+        '\AiPhone15,3\z' { return 'iPhone 14 Pro Max' }
+        '\AiPhone15,4\z' { return 'iPhone 15' }
+        '\AiPhone15,5\z' { return 'iPhone 15 Plus' }
+        '\AiPhone16,1\z' { return 'iPhone 15 Pro' }
+        '\AiPhone16,2\z' { return 'iPhone 15 Pro Max' }
+        '\AiPad5,(1|2)\z' { return 'iPad mini 4' }
+        '\AiPad5,(3|4)\z' { return 'iPad Air 2' }
+        '\AiPad6,(3|4)\z' { return 'iPad Pro 9.7-inch' }
+        '\AiPad6,(7|8)\z' { return 'iPad Pro 12.9-inch (1st generation)' }
+        '\AiPad6,(11|12)\z' { return 'iPad (5th generation)' }
+        '\AiPad7,(1|2)\z' { return 'iPad Pro 12.9-inch (2nd generation)' }
+        '\AiPad7,(3|4)\z' { return 'iPad Pro 10.5-inch' }
+        '\AiPad7,(5|6)\z' { return 'iPad (6th generation)' }
+        '\AiPad7,(11|12)\z' { return 'iPad (7th generation)' }
+        '\AiPad8,[1-4]\z' { return 'iPad Pro 11-inch (1st generation)' }
+        '\AiPad8,[5-8]\z' { return 'iPad Pro 12.9-inch (3rd generation)' }
+        '\AiPad8,(9|10)\z' { return 'iPad Pro 11-inch (2nd generation)' }
+        '\AiPad8,(11|12)\z' { return 'iPad Pro 12.9-inch (4th generation)' }
+        '\AiPad11,(1|2)\z' { return 'iPad mini (5th generation)' }
+        '\AiPad11,(3|4)\z' { return 'iPad Air (3rd generation)' }
+        '\AiPad11,(6|7)\z' { return 'iPad (8th generation)' }
+        '\AiPad12,(1|2)\z' { return 'iPad (9th generation)' }
+        '\AiPad13,(1|2)\z' { return 'iPad Air (4th generation)' }
+        '\AiPad13,[4-7]\z' { return 'iPad Pro 11-inch (3rd generation)' }
+        '\AiPad13,(8|9|10|11)\z' { return 'iPad Pro 12.9-inch (5th generation)' }
+        '\AiPad13,(16|17)\z' { return 'iPad Air (5th generation)' }
+        '\AiPad13,(18|19)\z' { return 'iPad (10th generation)' }
+        '\AiPad14,(1|2)\z' { return 'iPad mini (6th generation)' }
+        '\AiPad14,(3|4)\z' { return 'iPad Pro 11-inch (4th generation)' }
+        '\AiPad14,(5|6)\z' { return 'iPad Pro 12.9-inch (6th generation)' }
+    }
+    return $Model
+}
+
+function Format-RHReportedDevice([string]$Model, [string]$Version) {
+    if (-not $Model -or -not $Version) { return '未上报' }
+    if ($Model -in @('iOS', 'iPadOS')) { return "型号未上报 · $Model $Version" }
+    $system = if ($Model.StartsWith('iPad', [StringComparison]::OrdinalIgnoreCase)) { 'iPadOS' } else { 'iOS' }
+    $name = Get-RHDeviceModelName $Model
+    return "$name · $system $Version"
+}
+
+function Get-RHDeviceInfoRow([string]$DeviceCode) {
+    if (-not $DeviceCode) { return $null }
+    return $script:RHDeviceInfo.Rows[$DeviceCode]
+}
+
+function Update-RHDeviceInfoDisplay {
+    $state = $script:RHDeviceInfo
+    $device = Normalize-DeviceCode $state.Device.Text
+    $row = Get-RHDeviceInfoRow $device
+    $pending = $state.Pending[$device]
+    $state.Info.Text = if ($null -ne $pending) {
+        (Format-RHReportedDevice $pending.DeviceModel $pending.OSVersion) + '（密钥待复核）'
+    } elseif ($null -ne $row) {
+        Format-RHReportedDevice $row.DeviceModel $row.OSVersion
+    } elseif ($state.ReadError) { '设备信息记录无法载入' } else { '未上报' }
+}
+
+function Save-RHConfirmedDeviceInfo([string]$DeviceCode, [string]$Model, [string]$Version) {
+    $state = $script:RHDeviceInfo
+    if (-not (Test-RHProofDeviceInfo $Model $Version)) { return }
+    if ($state.ReadError) { throw '设备信息记录无法读取，已保留原文件。' }
+    $row = [pscustomobject]@{ DeviceCode = $DeviceCode; DeviceModel = $Model; OSVersion = $Version }
+    $rows = @($state.Rows.Values | Where-Object { $_.DeviceCode -ne $DeviceCode }) + $row
+    Save-JsonArrayAtomic $state.Path $rows
+    $state.Rows[$DeviceCode] = $row
+    $state.Pending.Remove($DeviceCode)
+    Update-RHDeviceInfoDisplay
+}
+
+function Show-RHProofDeviceInfo($Result, [string]$OriginalDeviceCode) {
+    $state = $script:RHDeviceInfo
+    $previous = Get-RHDeviceInfoRow $OriginalDeviceCode
+    $previousText = if ($null -ne $previous) {
+        Format-RHReportedDevice $previous.DeviceModel $previous.OSVersion
+    } else { '未上报' }
+    $currentText = Format-RHReportedDevice $Result.DeviceModel $Result.OSVersion
+    $lines = @("上次确认 · $previousText", "本次上报 · $currentText")
+    $state.Pending.Remove($OriginalDeviceCode)
+    if ((Test-RHProofDeviceInfo $Result.DeviceModel $Result.OSVersion) -and $Result.Policy -eq 'REVIEW_KEY_MISMATCH') {
+        $state.Pending[$OriginalDeviceCode] = [pscustomobject]@{
+            DeviceModel = $Result.DeviceModel; OSVersion = $Result.OSVersion
+        }
+    }
+    Update-RHDeviceInfoDisplay
+    if ((Test-RHProofDeviceInfo $Result.DeviceModel $Result.OSVersion) -and $Result.Policy -in @('BOUND', 'MATCH', 'SAME_DEVICE')) {
+        if ($state.ReadError) { return $lines + '设备信息记录无法读取，已保留原文件。' }
+        try {
+            Save-RHConfirmedDeviceInfo $OriginalDeviceCode $Result.DeviceModel $Result.OSVersion
+        } catch {
+            $lines += '设备信息未保存，请检查签发目录。'
+        }
+    }
+    return $lines
+}
+
+function Initialize-RHDeviceInfo($Panel, $Device, $Name) {
+    $state = @{
+        Device = $Device
+        Path = Join-Path $script:BaseDir 'supporter-device-info.json'
+        Rows = @{}
+        Pending = @{}
+        ReadError = $false
+    }
+    $script:RHDeviceInfo = $state
+    if (Test-Path -LiteralPath $state.Path) {
+        try {
+            $stored = Get-Content -LiteralPath $state.Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($row in @($stored)) {
+                if ($null -eq $row -or -not (Test-DeviceCodeFormat $row.DeviceCode) -or
+                    -not (Test-RHProofDeviceInfo $row.DeviceModel $row.OSVersion) -or $state.Rows.ContainsKey($row.DeviceCode)) {
+                    throw 'invalid-device-info-store'
+                }
+                $state.Rows[$row.DeviceCode] = $row
+            }
+        } catch {
+            $state.Rows.Clear()
+            $state.ReadError = $true
+        }
+    }
+    $label = New-Object Windows.Forms.Label
+    $label.Text = '设备型号 / 系统版本'
+    $label.AutoSize = $true
+    $label.ForeColor = $colorMuted
+    $label.Location = New-Object Drawing.Point(396, 113)
+    $Panel.Controls.Add($label)
+    $Name.Anchor = 'Top, Left'
+    $Name.Width = 362
+    $info = New-Object Windows.Forms.TextBox
+    $info.SetBounds(396, 135, ($Device.Right - 396), 28)
+    $info.Anchor = 'Top, Left, Right'
+    Style-TextBox $info $true
+    $Panel.Controls.Add($info)
+    $state.Info = $info
+    $Device.Add_TextChanged({ Update-RHDeviceInfoDisplay })
+    Update-RHDeviceInfoDisplay
+}
+
+function Test-RHProofDeviceInfo($Model, $Version) {
+    return $Model -is [string] -and $Model -cmatch '\A[A-Za-z0-9][A-Za-z0-9 ,().+\-]{0,63}\z' -and
+        $Version -is [string] -and $Version -cmatch '\A[1-9][0-9]{0,2}(?:\.(?:0|[1-9][0-9]{0,2})){1,2}\z'
+}
+
 function Invoke-RHIntegratedBinding([string[]]$Arguments, [string]$InputText = '') {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $script:RHIntegratedBinding.Node
@@ -195,6 +408,24 @@ function Show-RHIntegratedBindingMessage([string]$Message, [bool]$Failed = $fals
         $(if ($Failed) { '绑定操作未完成' } else { '绑定授权' }), 'OK', $(if ($Failed) { 'Error' } else { 'Information' }))
 }
 
+function Initialize-RHIntegratedStatusFeedback($DeviceInput, $TopStatus, $SuccessColor, [scriptblock]$SetDeviceState) {
+    $state = $script:RHIntegratedBinding
+    $state.DeviceInput = $DeviceInput
+    $state.TopStatus = $TopStatus
+    $state.SuccessColor = $SuccessColor
+    $state.SetDeviceState = $SetDeviceState
+}
+
+function Set-RHIntegratedOperationSuccess([string[]]$DeviceCodes, [string]$Message, [string]$Heading) {
+    $state = $script:RHIntegratedBinding
+    if (-not $state.ContainsKey('DeviceInput')) { return }
+    $current = $state.DeviceInput.Text.Trim().ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($current) -or $DeviceCodes -notcontains $current) { return }
+    & $state.SetDeviceState $Message 'Success'
+    $state.TopStatus.Text = '● ' + $Heading
+    $state.TopStatus.ForeColor = $state.SuccessColor
+}
+
 function Start-RHIntegratedBindingIssue([bool]$Batch = $false) {
     $state = $script:RHIntegratedBinding
     if ($state.Busy -or $state.GuardFailure -or $null -eq $state.Plan) { return }
@@ -233,6 +464,7 @@ function Start-RHIntegratedBindingIssue([bool]$Batch = $false) {
         }
         if (@($result.cleanupWarnings).Count -gt 0) { $message += "`r`n暂存清理未完成：$($result.cleanupWarnings -join ', ')" }
         $state.Status.Text = "绑定补发完成 · $($result.issued) 条 · 原数据库未改动"
+        Set-RHIntegratedOperationSuccess @($rows | ForEach-Object { [string]$_.deviceCode }) '✓ 绑定授权已生成 · 请在手机上激活' '绑定授权已生成'
         Show-RHIntegratedBindingMessage $message
     } catch {
         $message = $_.Exception.Message
@@ -327,7 +559,15 @@ function Start-RHIntegratedKeyMigration {
         Refresh-RHIntegratedBindingPlan -Quiet
         $state.Output.Clear()
         $state.Status.Text = "#$id 已迁移设备密钥 · 尚未补发授权"
-        Show-RHIntegratedBindingMessage "#$id 的绑定密钥已迁移，原 RH1 没有改变。`r`n备份：$($result.backup)`r`n请再点补发选中绑定，使用新的文件名输出，将 RH1 + RHB1 一起粘贴到 iPad 激活。"
+        $message = "#$id 的绑定密钥已迁移，原 RH1 没有改变。`r`n备份：$($result.backup)`r`n请再点补发选中绑定，使用新的文件名输出，将 RH1 + RHB1 一起粘贴到设备激活。"
+        if ((Get-Variable RHDeviceInfo -Scope Script -ErrorAction SilentlyContinue) -and
+            $null -ne $result.PSObject.Properties['deviceModel'] -and
+            (Test-RHProofDeviceInfo $result.deviceModel $result.osVersion)) {
+            try { Save-RHConfirmedDeviceInfo $record.deviceCode $result.deviceModel $result.osVersion }
+            catch { $message += "`r`n设备密钥迁移已完成，但设备信息未保存，请检查签发目录。" }
+        }
+        Set-RHIntegratedOperationSuccess @([string]$record.deviceCode) '✓ 同设备密钥已更新 · 请补发绑定授权' '同设备密钥已更新'
+        Show-RHIntegratedBindingMessage $message
     } catch {
         Refresh-RHIntegratedBindingPlan -Quiet
         Show-RHIntegratedBindingMessage $_.Exception.Message $true
@@ -356,6 +596,15 @@ function Install-RHIntegratedProofGuard {
                 } catch { }
                 Update-RHIntegratedBindingControls
                 throw '设备证明已验证，但复核记录保存失败。已暂停绑定补发；请检查磁盘后重新生成并验证设备证明，不要使用历史补发文件。'
+            }
+            Refresh-RHIntegratedBindingPlan -Quiet
+            foreach ($row in $script:RHIntegratedBinding.Grid.Rows) {
+                $record = $script:RHIntegratedBinding.ById[[string]$row.Cells['ID'].Value]
+                if ($null -ne $record -and $record.deviceCode -eq $result.DeviceCode) {
+                    $script:RHIntegratedBinding.Grid.ClearSelection()
+                    $row.Selected = $true
+                    break
+                }
             }
         }
         return $result

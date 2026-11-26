@@ -13,11 +13,10 @@
 "Home_Uptime_Format" = "已运行 %@";
 "Home_Thermal_State_Format" = "热状态：%@";
 "Home_Thermal_State_Title" = "热状态";
-"Home_Avatar_Display_Title" = "圆形显示";
+"Home_Avatar_Display_Title" = "头像显示";
 "Home_Avatar_Show_Photo" = "显示头像";
-"Home_Avatar_Show_Temperature" = "显示温度";
-"Home_Avatar_Collapse_Hint" = "左右滑动隐藏圆形，从任一侧屏幕边缘向内拉回；长按设置显示内容与显示方式，选择会被记住";
-"Home_Avatar_Expand_Hint" = "从左侧或右侧屏幕边缘向内拉回，恢复后保持显示";
+"Home_Avatar_Collapse_Hint" = "左右滑动头像可隐藏，从任一侧屏幕边缘向内滑可恢复；长按可设置显示方式，选择会被记住。";
+"Home_Avatar_Expand_Hint" = "从任一侧屏幕边缘向内滑可恢复头像，显示状态会被记住。";
 "Thermal_State_Nominal" = "正常";
 "Thermal_State_Fair" = "略热";
 "Thermal_State_Serious" = "偏热";
@@ -176,6 +175,11 @@
 "Supporter_Copy_Device_Code" = "1. 复制设备码";
 "Supporter_Bind_This_Device" = "2. 生成证明码";
 "Supporter_Paste_License" = "3. 粘贴授权码";
+"Supporter_Backup_Bound_License" = "备份授权";
+"Supporter_Backup_Copied" = "两行授权已复制";
+"Supporter_Backup_Copied_Message" = "请把两行完整授权粘贴到私密备忘录或文件。原机需要恢复时，请点「粘贴授权码」。";
+"Supporter_Backup_Unavailable" = "无法备份授权";
+"Supporter_Backup_Unavailable_Message" = "备份需要本机有效的绑定授权。";
 "Supporter_Remove_License" = "移除授权";
 "Supporter_Device_Code_Copied" = "设备码已复制";
 "Supporter_Device_Code_Copied_Message" = "请粘贴发给作者。";
@@ -325,7 +329,6 @@
 "BatteryRecord_ManualNeedsRefresh" = "已请求更新记录状态，请稍后再试。若一直无法开始，请重新加载越狱环境后重试。";
 "BatteryRecord_Result_started" = "✓ 已开始记录";
 "BatteryRecord_Result_stopped" = "✓ 已结束记录，结果已加入历史";
-"Home_Avatar_Auto" = "打开后自动淡出";
 "Home_Avatar_Always" = "保持显示";
 "Home_Avatar_Hidden" = "保持隐藏";
 "BatteryRecord_EndPending" = "计划结束时间为 %@，尚待记录结果。";

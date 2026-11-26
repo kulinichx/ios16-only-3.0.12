@@ -154,6 +154,25 @@ static inline void DORHPresentSupporterLicense(UIViewController *presenter)
         }
     }]];
 
+    if ([info[@"binding_status"] isEqualToString:@"bound"]) {
+        [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_Backup_Bound_License")
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(__kindof UIAlertAction *action) {
+            NSString *backup = DORHSupporterBoundActivationBackupText();
+            if (backup.length == 0) {
+                DORHShowSupporterMessage(weakPresenter,
+                    DOLocalizedString(@"Supporter_Backup_Unavailable"),
+                    DOLocalizedString(@"Supporter_Backup_Unavailable_Message"));
+                return;
+            }
+            [UIPasteboard.generalPasteboard setItems:@[@{@"public.utf8-plain-text": backup}]
+                                            options:@{UIPasteboardOptionLocalOnly: @YES}];
+            DORHShowSupporterMessage(weakPresenter,
+                DOLocalizedString(@"Supporter_Backup_Copied"),
+                DOLocalizedString(@"Supporter_Backup_Copied_Message"));
+        }]];
+    }
+
     if (supporterID.length > 0) {
         [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Supporter_Remove_License")
                                                  style:UIAlertActionStyleDestructive

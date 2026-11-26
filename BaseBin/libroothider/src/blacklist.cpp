@@ -63,7 +63,7 @@ static void initBlacklistState()
 static bool _isBlacklistedProcess(pid_t pid, int pidversion)
 {
     initBlacklistState();
-    
+
     bool blacklisted = false;
 
     stateReadLock();
@@ -90,9 +90,9 @@ static bool _isBlacklistedProcess(pid_t pid, int pidversion)
             {
                 blacklisted = true;
             }
-        }        
+        }
     }
-    
+
     stateReadUnlock();
 
     return blacklisted;
@@ -121,7 +121,7 @@ extern "C" pid_t* allocBlacklistProcessId()
     stateWriteLock();
 
     uncachedBlacklistedProcesses->insert(pidp);
-    
+
     stateWriteUnlock();
 
     return pidp;

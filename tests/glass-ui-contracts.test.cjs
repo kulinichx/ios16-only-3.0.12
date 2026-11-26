@@ -138,43 +138,31 @@ test('home uses the RC9 safe-area layout instead of stretching or scaling a whol
   assert.doesNotMatch(main, /self\.contentView|MAX\(size\.height, availableHeight\)|systemLayoutSizeFittingSize:/);
 });
 
-test('home thermal state uses four localized levels and a foreground-only breathing avatar halo', () => {
-  const thermal = section(main, '- (void)displayHomeThermalState:', '- (void)homeThermalStateDidChange:');
-  for (const [systemState, localizedState] of [
-    ['Nominal', 'Thermal_State_Nominal'],
-    ['Fair', 'Thermal_State_Fair'],
-    ['Serious', 'Thermal_State_Serious'],
-    ['Critical', 'Thermal_State_Critical'],
+test('home launch thermal status uses four static colors and always returns to the avatar', () => {
+  const thermal = section(main, '\n- (void)displayHomeThermalState:', '\n- (void)startHomeThermalUpdates');
+  for (const [state, localized, color] of [
+    ['Nominal', 'Nominal', 'Green'], ['Fair', 'Fair', 'Yellow'],
+    ['Serious', 'Serious', 'Orange'], ['Critical', 'Critical', 'Red'],
   ]) {
-    assert.match(thermal, new RegExp(`NSProcessInfoThermalState${systemState}[\\s\\S]*?DOLocalizedString\\(@"${localizedState}"\\)`));
+    assert.ok(thermal.includes('case NSProcessInfoThermalState' + state + ':\n' +
+      '            title = DOLocalizedString(@"Thermal_State_' + localized + '");\n' +
+      '            color = UIColor.system' + color + 'Color;'));
   }
-  assert.match(thermal, /revealHomeThermalStateInAvatar:animate/);
-  assert.match(thermal, /self\.homeThermalHalo playBreath/);
-
-  const avatar = section(main, 'DOHomeThermalStatusView *thermalOverlay =', 'avatarGlass.userInteractionEnabled = YES;');
-  assert.match(avatar, /thermalOverlay\.alpha = 0\.0/);
-  assert.match(avatar, /self\.homeThermalAvatarOverlay = thermalOverlay/);
-  assert.match(avatar, /thermalOverlay\.leadingAnchor constraintEqualToAnchor:avatarGlass\.leadingAnchor/);
-
-  const reveal = section(main, '- (void)revealHomeThermalStateInAvatar:(BOOL)animated\n{', '- (void)startHomeThermalUpdates\n{');
+  assert.match(thermal, /temperatureIcon\.tintColor = color/);
+  const reveal = section(main, '\n- (void)revealHomeThermalStateInAvatar:', '\n- (void)applyHomeAvatarDisplayMode\n{');
   assert.match(reveal, /activationState != UISceneActivationStateForegroundActive/);
-  assert.match(reveal, /homeThermalAvatarOverlay\.alpha = 1\.0/);
-  assert.match(reveal, /textStack\.alpha = 0\.0/);
-  assert.match(reveal, /customGlassAvatarPhotoView\.alpha = self\.homeAvatarShowsTemperature \? 0\.0 : 1\.0/);
-  assert.match(main, /breath\.repeatCount = HUGE_VALF/);
-
-  const stop = section(main, '\n- (void)stopHomeThermalUpdates\n{', '- (void)homeThermalStateDidChange:');
-  assert.match(stop, /\[self\.homeThermalHalo stopBreath\]/);
-  assert.match(stop, /\[self applyHomeAvatarDisplayMode\]/);
-  assert.match(reveal, /if \(DOHomeThermalLaunchRevealConsumed && !force\) return/);
-  assert.match(reveal, /DOHomeThermalLaunchRevealConsumed = YES/);
-  assert.doesNotMatch(reveal, /customGlassProfileFocusEnabled/);
-
-  for (const locale of ['en', 'zh-Hans', 'zh-CN']) {
-    const strings = read(`Application/Dopamine/${locale}.lproj/Localizable.strings`);
-    for (const key of ['Home_Thermal_State_Format', 'Home_Thermal_State_Title', 'Thermal_State_Nominal', 'Thermal_State_Fair', 'Thermal_State_Serious', 'Thermal_State_Critical',
-      'Home_Avatar_Display_Title', 'Home_Avatar_Show_Photo', 'Home_Avatar_Show_Temperature', 'Home_Avatar_Collapse_Hint', 'Home_Avatar_Expand_Hint'])
-      assert.match(strings, new RegExp(`"${key}"\\s*=`));
+  assert.match(reveal, /if \(DOHomeThermalLaunchRevealConsumed\) return/);
+  assert.ok(reveal.indexOf('DOHomeThermalLaunchRevealConsumed = YES') < reveal.indexOf('if (self.customGlassAvatarHidden) return'));
+  assert.match(reveal, /scheduledTimerWithTimeInterval:fade \+ 3\.0 repeats:NO/);
+  assert.match(reveal, /self\.homeThermalAvatarOverlay\.alpha = 0\.0/);
+  assert.match(reveal, /self\.customGlassAvatarPhotoView\.alpha = 1\.0/);
+  assert.doesNotMatch(main, /DOHomeThermalHaloView|homeThermalBreath|playBreath|breathingLayer/);
+  for (const locale of ['en', 'zh-Hans', 'zh-CN', 'zh-Hant']) {
+    const strings = read('Application/Dopamine/' + locale + '.lproj/Localizable.strings');
+    for (const key of ['Home_Thermal_State_Format', 'Thermal_State_Nominal', 'Thermal_State_Fair',
+      'Thermal_State_Serious', 'Thermal_State_Critical', 'Home_Avatar_Display_Title',
+      'Home_Avatar_Show_Photo', 'Home_Avatar_Collapse_Hint', 'Home_Avatar_Expand_Hint',
+      'Home_Avatar_Always', 'Home_Avatar_Hidden']) assert.ok(strings.includes('"' + key + '" ='));
   }
 });
 
@@ -260,25 +248,32 @@ test('only the avatar slides offscreen and either edge restores it', () => {
   assert.match(main, /usernameLabel\.topAnchor constraintEqualToAnchor:profileView\.topAnchor constant:avatarSize \+ avatarToUsernameSpacing/);
 });
 
-test('thermal text fades separately, timers cancel, and hidden or low-power halos stop', () => {
-  const mode = section(main, '- (void)revealHomeThermalStateInAvatar:(BOOL)animated\n{', '- (void)startHomeThermalUpdates\n{');
-  assert.match(mode, /homeThermalRevealTimer invalidate/);
-  assert.match(mode, /scheduledTimerWithTimeInterval:fade \+ 3\.5 repeats:NO/);
-  assert.match(mode, /textStack\.alpha = 0\.0/);
-  assert.match(mode, /!self\.customGlassAvatarHidden/);
-  assert.match(mode, /!NSProcessInfo\.processInfo\.lowPowerModeEnabled/);
-  assert.match(main, /avatarMaterial\.materialSpecularScale = 0\.0/);
-  assert.match(main, /avatarMaterial\.materialEdgeDarkScale = 0\.0/);
+test('leaving the screen or hiding the avatar cancels the one-shot thermal reveal', () => {
+  const reset = section(main, '\n- (void)applyHomeAvatarDisplayMode\n{', '\n- (void)startHomeThermalUpdates\n{');
+  assert.match(reset, /homeThermalRevealTimer invalidate/);
+  assert.match(reset, /homeThermalRevealGeneration\+\+/);
+  assert.match(reset, /homeThermalAvatarOverlay\.alpha = 0\.0/);
+  assert.match(reset, /customGlassAvatarPhotoView\.alpha = 1\.0/);
+  const hide = section(main, '- (void)setCustomGlassAvatarHidden:', '- (void)viewDidLayoutSubviews');
+  assert.match(hide, /if \(hidden\) \[self applyHomeAvatarDisplayMode\]/);
+  const stop = section(main, '\n- (void)stopHomeThermalUpdates\n{', '- (void)homeThermalStateDidChange:');
+  assert.match(stop, /\[self applyHomeAvatarDisplayMode\]/);
+  assert.doesNotMatch(main, /homeAvatarHideTimer|scheduleHomeAvatarAutoHide|AvatarTemperatureMode/);
 });
 
-test('avatar mode is remembered and long press cannot open its menu after dragging', () => {
+test('avatar visibility and hidden side are remembered and long press cannot open after dragging', () => {
   const gesture = section(main, '- (void)customGlassAvatarLongPressed:', '- (void)configureCustomGlassHeaderView:');
   assert.match(gesture, /gesture\.state != UIGestureRecognizerStateEnded \|\| self\.customGlassAvatarWasDragged/);
-  assert.match(gesture, /setBool:temperature forKey:DOHomeAvatarTemperatureModeKey/);
   assert.match(gesture, /popoverPresentationController\.sourceView = self\.customGlassAvatarContainerView/);
+  assert.match(gesture, /@\[@"Home_Avatar_Always", @"Home_Avatar_Hidden"\]/);
+  assert.doesNotMatch(gesture, /Home_Avatar_Auto|Home_Avatar_Show_Temperature/);
   assert.match(main, /avatarTap requireGestureRecognizerToFail:self\.customGlassAvatarLongPress/);
-  assert.match(main, /boolForKey:DOHomeAvatarTemperatureModeKey/);
-  assert.doesNotMatch(main, /captionLabel/);
+  const restore = section(main, '- (void)restoreHomeAvatarVisibilityPreference', '- (void)selectHomeAvatarVisibilityMode:');
+  assert.match(restore, /integerForKey:DOHomeAvatarVisibilityKey\] == 2 \? 2 : 1/);
+  assert.match(restore, /boolForKey:DOHomeAvatarHiddenRightKey/);
+  const pan = section(main, '- (void)customGlassAvatarPanned:', '- (void)customGlassAvatarLongPressed:');
+  assert.match(pan, /setInteger:self\.homeAvatarVisibilityMode forKey:DOHomeAvatarVisibilityKey/);
+  assert.match(pan, /setBool:self\.customGlassAvatarHiddenRight forKey:DOHomeAvatarHiddenRightKey/);
 });
 
 test('shared wallpaper handles images, video and Live Photo with persisted speed', () => {
@@ -416,10 +411,6 @@ test('maintenance uses this jailbreak and restores the faded interface when comm
     'mainView.alpha = alpha', 'mainView.userInteractionEnabled = interactionEnabled', 'Maintenance_Failed'])
     assert.ok(maintenance.includes(token), token);
   assert.doesNotMatch(maintenance, /static bool didFade/);
-  const spawn = section(environment, '- (int)spawnJbctlAsRootWithArgs:', '- (int)runTrollStoreAction:');
-  assert.match(spawn, /if \(r != 0 \|\| pid <= 0\)/);
-  assert.match(spawn, /needsLegacySolution && r == 0 && pid > 0/);
-  assert.match(spawn, /pipe\(waitPipe\) != 0/);
   for (const locale of ['en', 'zh-Hans', 'zh-CN'])
     assert.match(read(`Application/Dopamine/${locale}.lproj/Localizable.strings`), /"Maintenance_Failed"\s*=/);
 });

@@ -45,7 +45,7 @@ NSDictionary* cachedJobInfo(pid_t pid, bool blacklised)
 					@"identifier":@(identifier),
 					@"path":@(path)
 				};
-				
+
 				cachedData[@(cacheKey)] = jobInfo;
 			}
 		}

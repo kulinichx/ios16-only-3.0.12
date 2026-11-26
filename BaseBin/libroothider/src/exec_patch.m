@@ -58,7 +58,7 @@ void event_handler(int kq)
     }
 }
 
-void initExecPatch() 
+void initExecPatch()
 {
     static dispatch_queue_t queue;
     static dispatch_once_t onceToken;

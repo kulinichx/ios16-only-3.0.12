@@ -17,7 +17,7 @@ MachO* fat_find_preferred_slice(Fat *fat)
 	cpu_type_t cputype;
 	cpu_subtype_t cpusubtype;
 	if (host_get_cpu_information(&cputype, &cpusubtype) != 0) { return NULL; }
-	
+
 	MachO *candidateSlice = NULL;
 
 	if (cpusubtype == CPU_SUBTYPE_ARM64E) {
@@ -96,7 +96,7 @@ NSString* resolveRpaths(NSString *subPath, NSString *mainExecutablePath, NSStrin
 		if(rpathResolvedPath)
 			break;
 	}
-	
+
 	return rpathResolvedPath;
 
 } //autoreleasepool
@@ -109,7 +109,7 @@ NSString *resolveLoadPath(NSString *loadPath, NSString *loaderPath, NSString *ma
 	if ([loadPath hasPrefix:@"@rpath/"]) {
 		return resolveRpaths([loadPath substringFromIndex:(sizeof("@rpath/")-1)], mainExecutablePath, workingDir, rpathStack);
 	}
-	
+
 	NSString *expandedPath = resolveLoaderExecutablePaths(loadPath, loaderPath, mainExecutablePath, workingDir);
 	if (expandedPath) {
 		return expandedPath;
@@ -133,7 +133,7 @@ NSString *resolveLoadPath(NSString *loadPath, NSString *loaderPath, NSString *ma
 
 		return resolvedPath;
 	}
-	
+
 	return loadPath; //absolute path
 }
 
@@ -186,13 +186,13 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 		JBLogDebug("Skipping Cryptexes file: %s", realfilepath);
 		return;
 	}
-	
+
 	if(isRemovableBundlePath(realfilepath) && !hasTrollstoreLiteMarker(realfilepath) && !hasJailFoolsMarker(realfilepath)) {
 		// ignore adhoc signed apps(removable system apps or other stuffs) which is not installed via tslite
 		JBLogDebug("ignoring addhoc signed app: %s\n", realfilepath);
 		return;
 	}
-	
+
 	struct statfs fs;
 	int sfsret = statfs(realfilepath, &fs);
 	if(sfsret == 0) {
@@ -211,7 +211,7 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 	}
 	//add realLoadPath to fileCaches
 	[fileCaches addObject:realLoadPath];
-	
+
 	ensure_jbroot_symlink(realLoadPath.fileSystemRepresentation);
 
 	Fat *fat = fat_init_from_path(realLoadPath.fileSystemRepresentation);
@@ -284,12 +284,12 @@ static void recurse_handler(NSString *loadPath, NSString *loaderPath, NSString *
 
 		NSMutableArray* nextChain = rpathStack.mutableCopy;
 		[nextChain addObject:realLoadPath]; //Loading dependencies, add current macho itself to the rpath stack
-		
+
 		recurse_handler(@(pathCStr), realLoadPath, mainExecutablePath, workingDir, fileCaches, nextChain, preferredArch, cdhashesOut, cdhashCountOut);
 	});
 
 	fat_free(fat);
-	
+
 } //autoreleasepool
 }
 
@@ -302,7 +302,7 @@ void recurse_collect_untrusted_cdhashes(const char *path, const char *callerImag
 	NSMutableArray* rpathStack = [NSMutableArray array];
 
 	[rpathStack addObject:@(callerExecutablePath)]; //initial rpath stack
-	
+
 	if(callerImagePath && strcmp(callerImagePath, callerExecutablePath) != 0) {
 		[rpathStack addObject:@(callerImagePath)];
 	}

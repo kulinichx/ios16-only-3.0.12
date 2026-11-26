@@ -1,5 +1,7 @@
 # RC9 UI port: first batch
 
+> 2026-11-26 续审说明：下文是历史记录。Titan 当前恢复 ZQBB 原来的 XNU **主版本**判断，保留 `0x579` / `0x381` 两条分支；不再采用 `cddd0168` 的完整版本阈值。详见 `ZQBB-IOS16-CONTINUATION-2026-11-26.md`。历史构建结果不验证当前源码。
+
 Date: 2026-11-04
 
 Target: `G:\RootHide\ZQBB IOS16\Dopamine-roothide-ios16`

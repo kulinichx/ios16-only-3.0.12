@@ -10,6 +10,7 @@
 @import Security;
 #import <CommonCrypto/CommonDigest.h>
 #import <objc/runtime.h>
+#import <sys/sysctl.h>
 
 CFPropertyListRef MGCopyAnswer(CFStringRef property);
 
@@ -1024,6 +1025,32 @@ DORHSupporterParseRHC1Challenge(NSData *challengeData,
     };
 }
 
+static inline NSString *DORHSupporterProofModel(void)
+{
+    // Some devices return the OS name ("iOS") for MarketingProductName.
+    // Only accept device names here, then fall back to the hardware model.
+    for (NSString *property in @[@"MarketingProductName", @"ProductType"]) {
+        CFTypeRef answer = MGCopyAnswer((__bridge CFStringRef)property);
+        id value = CFBridgingRelease(answer);
+        if ([value isKindOfClass:NSString.class] &&
+            [value rangeOfString:@"\\A(?:iPhone|iPad|iPod)(?=[0-9 ])[A-Za-z0-9 ,().+-]{1,58}\\z"
+                         options:NSRegularExpressionSearch].location != NSNotFound) {
+            return value;
+        }
+    }
+    char machine[64] = {0};
+    size_t length = sizeof(machine);
+    if (sysctlbyname("hw.machine", machine, &length, NULL, 0) == 0 &&
+        length > 1 && length <= sizeof(machine) && machine[length - 1] == '\0') {
+        NSString *model = [NSString stringWithUTF8String:machine];
+        if ([model rangeOfString:@"\\A(?:iPhone|iPad|iPod)[0-9]+,[0-9]+\\z"
+                        options:NSRegularExpressionSearch].location != NSNotFound) {
+            return model;
+        }
+    }
+    return nil;
+}
+
 static inline NSData *
 DORHSupporterCreateRHP1Proof(NSData *challengeData,
                              NSString **failureStage,
@@ -1185,15 +1212,30 @@ DORHSupporterCreateRHP1Proof(NSData *challengeData,
     NSString *challengeID = challenge[@"challenge_id"];
     NSString *challengeHash = challenge[@"challenge_hash"];
 
+    NSString *model = DORHSupporterProofModel();
+    NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
+    BOOL includeDeviceInfo = model.length > 0 && version.majorVersion > 0 &&
+        version.majorVersion <= 999 && version.minorVersion >= 0 && version.minorVersion <= 999 &&
+        version.patchVersion >= 0 && version.patchVersion <= 999;
+    NSString *deviceInfo = @"";
+    if (includeDeviceInfo) {
+        NSString *versionText = version.patchVersion == 0
+            ? [NSString stringWithFormat:@"%ld.%ld", (long)version.majorVersion, (long)version.minorVersion]
+            : [NSString stringWithFormat:@"%ld.%ld.%ld", (long)version.majorVersion, (long)version.minorVersion, (long)version.patchVersion];
+        deviceInfo = [NSString stringWithFormat:@",\"device_model\":\"%@\",\"os_version\":\"%@\"", model, versionText];
+    }
+
     NSString *unsignedWire =
         [NSString stringWithFormat:
-            @"{\"type\":\"RHP1\",\"version\":1,\"challenge_id\":\"%@\",\"challenge_hash\":\"%@\",\"hardware_protocol\":\"rh-hw-v1\",\"hardware_hash\":\"%@\",\"key_fingerprint\":\"%@\",\"public_key\":\"%@\",\"signature_algorithm\":\"%@\"}",
+            @"{\"type\":\"RHP1\",\"version\":%d,\"challenge_id\":\"%@\",\"challenge_hash\":\"%@\",\"hardware_protocol\":\"rh-hw-v1\",\"hardware_hash\":\"%@\",\"key_fingerprint\":\"%@\",\"public_key\":\"%@\",\"signature_algorithm\":\"%@\"%@}",
+            includeDeviceInfo ? 2 : 1,
             challengeID,
             challengeHash,
             hardwareHash,
             keyFingerprint,
             publicKeyBase64URL,
-            DORHSupporterRHP1SignatureAlgorithm];
+            DORHSupporterRHP1SignatureAlgorithm,
+            deviceInfo];
 
     NSData *unsignedData =
         [unsignedWire dataUsingEncoding:NSUTF8StringEncoding];
@@ -1286,16 +1328,8 @@ DORHSupporterCreateRHP1Proof(NSData *challengeData,
         return nil;
     }
 
-    NSString *proofWire =
-        [NSString stringWithFormat:
-            @"{\"type\":\"RHP1\",\"version\":1,\"challenge_id\":\"%@\",\"challenge_hash\":\"%@\",\"hardware_protocol\":\"rh-hw-v1\",\"hardware_hash\":\"%@\",\"key_fingerprint\":\"%@\",\"public_key\":\"%@\",\"signature_algorithm\":\"%@\",\"signature\":\"%@\"}",
-            challengeID,
-            challengeHash,
-            hardwareHash,
-            keyFingerprint,
-            publicKeyBase64URL,
-            DORHSupporterRHP1SignatureAlgorithm,
-            signatureBase64URL];
+    NSString *proofWire = [[unsignedWire substringToIndex:unsignedWire.length - 1]
+        stringByAppendingFormat:@",\"signature\":\"%@\"}", signatureBase64URL];
 
     NSData *proofData =
         [proofWire dataUsingEncoding:NSUTF8StringEncoding];
@@ -1779,6 +1813,20 @@ static inline BOOL DORHSupporterStoreLicenseCode(NSString *licenseCode, NSError 
                       object:nil];
 
     return YES;
+    }
+}
+
+static inline NSString *DORHSupporterBoundActivationBackupText(void)
+{
+    @synchronized (NSUserDefaults.class) {
+        if (DORHSupporterLicenseTombstoned()) return nil;
+
+        NSString *license = DORHSupporterPersistentString(DORHSupporterPersistentLicenseCodeKey);
+        NSString *certificate = DORHSupporterPersistentString(DORHSupporterBindingCertificateKey);
+        if (license.length == 0 || certificate.length == 0 ||
+            !DORHSupporterVerifyBoundLicense(license, certificate, NULL)) return nil;
+
+        return [NSString stringWithFormat:@"%@\n%@", license, certificate];
     }
 }
 

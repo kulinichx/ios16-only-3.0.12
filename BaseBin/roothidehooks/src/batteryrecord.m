@@ -1,4 +1,5 @@
 #import "RCBatteryRecord.h"
+#import "RCScheduleRuntime.h"
 #ifndef RC_BATTERY_TEST
 #import <UIKit/UIKit.h>
 #endif
@@ -8,10 +9,7 @@
 #include <sys/sysctl.h>
 #include <mach/mach_time.h>
 #include <string.h>
-#ifndef RC_BATTERY_TEST
-#include <libjailbreak/jbclient_xpc.h>
-#else
-extern const char *jbclient_get_jbroot(void);
+#ifdef RC_BATTERY_TEST
 extern NSDate *rcBatteryTestNow(void);
 extern NSDictionary *rcBatteryTestSnapshot(void);
 #endif
@@ -53,8 +51,7 @@ static BOOL rcBatteryTimerMethod(Class cls, SEL selector, const char *returns, c
 
 static NSString *rcBatteryRoot(void)
 {
-    const char *root = jbclient_get_jbroot();
-    return root && root[0] == '/' ? [NSString stringWithUTF8String:root] : nil;
+    return rcScheduleRuntimeRoot();
 }
 
 #ifndef RC_BATTERY_TEST
@@ -95,6 +92,7 @@ static NSDictionary *rcBatterySnapshot(void)
 @property(nonatomic, strong) id<RCBatteryTimerAPI> timer;
 @property(nonatomic, strong) NSMutableDictionary *state;
 @property(nonatomic) BOOL refreshing;
+@property(nonatomic) NSUInteger publicationGeneration;
 - (void)refresh;
 - (void)refreshRecords;
 - (void)finishDueRecord;
@@ -141,13 +139,17 @@ static RCBatteryRecorder *recorder;
 - (void)publish
 {
     self.state[@"Updated"] = rcBatteryNow();
-    if (rcLowPowerWriteDictionary(self.state, rcBatteryPath(rcBatteryRoot(), @".state"), nil))
-        notify_post(RC_BATTERY_STATUS);
-    else {
-        // Stop rather than continue a measurement whose starting point was not saved.
-        [self.timer invalidate];
-        self.timer = nil;
-    }
+    NSUInteger generation = ++self.publicationGeneration;
+    __weak typeof(self) weakSelf = self;
+    rcSchedulePublishDictionary(self.state, rcBatteryPath(rcBatteryRoot(), @".state"), RC_BATTERY_STATUS,
+        ^(BOOL success, __unused NSError *error) {
+            typeof(self) strongSelf = weakSelf;
+            if (!success && strongSelf && generation == strongSelf.publicationGeneration) {
+                // An old failed write must not cancel a newer measurement.
+                [strongSelf.timer invalidate];
+                strongSelf.timer = nil;
+            }
+        });
 }
 
 - (BOOL)arm:(NSDate *)date
@@ -291,6 +293,7 @@ void rcBatteryRecordAfterPowerChange(void)
     // An unused recorder needs no extra status writes on every power-plan event.
     if (recorder.timer || recorder.state[@"Active"]) [recorder refresh];
 }
+void rcBatteryRecordRefresh(void) { [recorder refresh]; }
 void rcBatteryRecordStart(void)
 {
     static dispatch_once_t once;
@@ -315,6 +318,6 @@ void rcBatteryRecordStart(void)
                     }
                     rcLowPowerScheduleRefresh(); [recorder refresh];
                 }];
-        dispatch_async(dispatch_get_main_queue(), ^{ rcLowPowerScheduleRefresh(); [recorder refresh]; });
+        // The shared post-launch coordinator performs the initial refresh once.
     });
 }

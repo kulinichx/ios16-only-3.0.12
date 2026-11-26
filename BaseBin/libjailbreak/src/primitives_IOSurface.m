@@ -229,7 +229,7 @@ static CFNumberRef CFNUM64(uint64_t value) {
     return CFNumberCreate(NULL, kCFNumberSInt64Type, (void *)&value);
 }
 
-static mach_port_t IOSurface_kalloc_getSurfacePort_16(uint64_t size) {
+static mach_port_t IOSurface_kalloc_getSurfacePort_16up(uint64_t size) {
 	uint64_t rangesAlignedSize = ((size + 0xf) & ~0xf);
 
 	static vm_size_t dummyPageSize = 0x4000;
@@ -263,12 +263,12 @@ static mach_port_t IOSurface_kalloc_getSurfacePort_16(uint64_t size) {
     return port;
 }
 
-static uint64_t IOSurface_kalloc_16(uint64_t size, bool leak)
+uint64_t IOSurface_kalloc_16up(uint64_t size, bool leak)
 {
 	if (size > 0x10000) return -1; // 0x10000 is max
 
 	while (true) {
-		mach_port_t surfaceMachPort = IOSurface_kalloc_getSurfacePort_16(size);
+		mach_port_t surfaceMachPort = IOSurface_kalloc_getSurfacePort_16up(size);
 
 		uint64_t surfaceSendRight = IOSurface_port_getSendRight(surfaceMachPort);
 		uint64_t surface = IOSurfaceSendRight_get_surface(surfaceSendRight);
@@ -293,7 +293,7 @@ static uint64_t IOSurface_kalloc_16(uint64_t size, bool leak)
 
 int IOSurface_kalloc_global(uint64_t *addr, uint64_t size)
 {
-	uint64_t alloc = IOSurface_kalloc_16(size, true);
+	uint64_t alloc = IOSurface_kalloc_16up(size, true);
 
 	if (alloc != 0) {
 		*addr = alloc;
@@ -304,7 +304,7 @@ int IOSurface_kalloc_global(uint64_t *addr, uint64_t size)
 
 int IOSurface_kalloc_local(uint64_t *addr, uint64_t size)
 {
-	uint64_t alloc = IOSurface_kalloc_16(size, false);
+	uint64_t alloc = IOSurface_kalloc_16up(size, false);
 	if (alloc != 0) {
 		*addr = alloc;
 		return 0;

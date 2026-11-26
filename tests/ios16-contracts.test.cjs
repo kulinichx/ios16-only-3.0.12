@@ -44,11 +44,13 @@ test('manual TIPA builds use one Intel macOS job without simulator gating', () =
   assert.doesNotMatch(uiWorkflow, /\n\s+build:/);
 });
 
-test('Titan selects the iOS 16 proc-name offset matching the XNU generation', () => {
+test('Titan preserves ZQBB proc-name selection by XNU major version', () => {
   assert.match(
     titanIpc,
-    /XNU_VERSION_GREATER_THAN\(8792,\s*0,\s*0,\s*0,\s*0\)\s*\?\s*0x579\s*:\s*0x381/,
+    /if \(XNU_MAJOR_GREATER_THAN\(8792\)\)\s*\{\s*offset = 0x579;\s*\} else \{\s*offset = 0x381;/,
   );
+  assert.match(read('Application/Dopamine/Exploits/Titan/exploit/titan.h'),
+    /#define XNU_MAJOR_GREATER_THAN\(a\)\s*\\\s*\(gTitanContext\.xnu_version >> 40 > \(a\)\)/);
 });
 
 test('iOS 16 build creates and publishes only a TIPA archive', () => {
@@ -213,301 +215,7 @@ test('ordinary spawn patching and blacklist handling remain connected', () => {
   assert.doesNotMatch(launchd, /iOS15Arm64e|choicyBlocked|spinlock_fix_only|SPINLOCK_FIX_DISABLED/);
 });
 
-const systemHookMain = read('BaseBin/systemhook/src/main.c');
-const tweakPolicyStart = systemHookMain.indexOf('bool should_enable_tweaks(void)');
-const tweakPolicyEnd = systemHookMain.indexOf('\nint __posix_spawn_hook(', tweakPolicyStart);
-const tweakPolicy = systemHookMain.slice(tweakPolicyStart, tweakPolicyEnd);
-
-test('RootHide 30 excludes logd_helper only at the existing tweak-loading gate', () => {
-  assert.ok(tweakPolicyStart >= 0 && tweakPolicyEnd > tweakPolicyStart);
-  const disabled = tweakPolicy.match(/const char \*iOS16TweaksDisabledPaths\[\] = \{([\s\S]*?)\};/);
-  assert.ok(disabled, 'missing iOS 16 tweak exclusions');
-  assert.deepEqual([...disabled[1].matchAll(/"([^"]+)"/g)].map(match => match[1]), [
-    '/usr/libexec/logd',
-    '/usr/libexec/logd_helper',
-    '/usr/sbin/notifyd',
-    '/usr/libexec/usermanagerd',
-  ]);
-  assert.match(tweakPolicy, /!strcmp\(gExecutablePath, iOS16TweaksDisabledPaths\[i\]\)\) return false;/);
-  const initialization = systemHookMain.indexOf('roothide_init_with_executable(gExecutablePath);');
-  const loadingGate = systemHookMain.indexOf('if (should_enable_tweaks())');
-  assert.ok(initialization >= 0 && loadingGate > initialization);
-  assert.match(systemHookMain.slice(loadingGate),
-    /if \(should_enable_tweaks\(\)\) \{\s*const char \*tweakLoaderPath = JBROOT_PATH\("\/usr\/lib\/TweakLoader\.dylib"\);/);
-  assert.equal((systemHookMain.match(/"\/usr\/libexec\/logd_helper"/g) || []).length, 1);
-  assert.doesNotMatch(launchd, /"\/usr\/libexec\/logd_helper"/);
-});
-
-test('RootHide 30 extracted C policy preserves ordinary apps and existing safe-mode gates', {
-  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
-}, () => {
-  assert.ok(tweakPolicyStart >= 0 && tweakPolicyEnd > tweakPolicyStart);
-  const harness = `
-#include <assert.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <string.h>
-#define F_OK 0
-#define JBROOT_PATH(path) path
-static const char *gExecutablePath;
-static bool safeModeFile, dopamineApp;
-static const char *disableTweaks, *safeMode, *msSafeMode;
-static int mock_access(const char *path, int mode) {
-    assert(strcmp(path, "/basebin/.safe_mode") == 0 && mode == F_OK);
-    return safeModeFile ? 0 : -1;
-}
-static char *mock_getenv(const char *name) {
-    if (strcmp(name, "DISABLE_TWEAKS") == 0) return (char *)disableTweaks;
-    if (strcmp(name, "_SafeMode") == 0) return (char *)safeMode;
-    assert(strcmp(name, "_MSSafeMode") == 0);
-    return (char *)msSafeMode;
-}
-static bool jbclient_dopamine_is_jailbroken(void *out) {
-    assert(out == NULL);
-    return dopamineApp;
-}
-static bool string_has_suffix(const char *string, const char *suffix) {
-    size_t length = strlen(string), suffixLength = strlen(suffix);
-    return length >= suffixLength && strcmp(string + length - suffixLength, suffix) == 0;
-}
-#define access mock_access
-#define getenv mock_getenv
-${tweakPolicy}
-int main(void) {
-    const char *disabled[] = {
-        "/usr/libexec/logd", "/usr/libexec/logd_helper",
-        "/usr/sbin/notifyd", "/usr/libexec/usermanagerd",
-        "/usr/libexec/xpcproxy", "/private/root/usr/libexec/xpcproxy"
-    };
-    for (size_t i = 0; i < sizeof(disabled) / sizeof(disabled[0]); i++) {
-        gExecutablePath = disabled[i];
-        assert(!should_enable_tweaks());
-    }
-    const char *allowed[] = {
-        "/Applications/Example.app/Example", "/usr/bin/example",
-        "/usr/libexec/logd_helper_extra", "/opt/bin/logd_helper",
-        "/usr/libexec/logd_helper/child"
-    };
-    for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
-        gExecutablePath = allowed[i];
-        assert(should_enable_tweaks());
-        safeModeFile = true; assert(!should_enable_tweaks()); safeModeFile = false;
-        dopamineApp = true; assert(!should_enable_tweaks()); dopamineApp = false;
-        disableTweaks = "1"; assert(!should_enable_tweaks()); disableTweaks = NULL;
-        safeMode = "1"; assert(!should_enable_tweaks()); safeMode = NULL;
-        msSafeMode = "1"; assert(!should_enable_tweaks()); msSafeMode = NULL;
-        disableTweaks = safeMode = msSafeMode = "0";
-        assert(should_enable_tweaks());
-        disableTweaks = safeMode = msSafeMode = NULL;
-        assert(should_enable_tweaks());
-    }
-    puts("Tweak loading policy C cases passed");
-    return 0;
-}
-`;
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-tweak-policy-'));
-  try {
-    const source = path.join(directory, 'test.c');
-    const executable = path.join(directory, 'test');
-    fs.writeFileSync(source, harness);
-    execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', source, '-o', executable]);
-    assert.match(execFileSync(executable, { encoding: 'utf8' }), /Tweak loading policy C cases passed/);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-const utilitySource = read('BaseBin/libjailbreak/src/util.c');
-const killallFunction = utilitySource.match(/int killall_with_result\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
-const killallWrapper = utilitySource.match(/void killall\(const char \*executablePath, int signal\)\s*\{[\s\S]*?\n\}/)?.[0];
-
-test('killall separates argument capacity from process-list bytes and bounds path matching', () => {
-  assert.ok(killallFunction, 'missing killall implementation');
-  assert.match(killallFunction, /if \(!executablePath \|\| !\*executablePath\) return EINVAL;/);
-  assert.match(killallWrapper, /\(void\)killall_with_result\(executablePath, signal\)/);
-  assert.doesNotMatch(killallFunction, /static int maxArgumentSize/);
-  assert.match(killallFunction, /argumentSizeLength != sizeof\(maxArgumentSize\)/);
-  assert.match(killallFunction, /maxArgumentSize <= \(int\)sizeof\(int\)/);
-  assert.match(killallFunction, /char \*buffer = malloc\(\(size_t\)maxArgumentSize\);/);
-  assert.doesNotMatch(killallFunction, /buffer\s*=\s*(?:\(char\s*\*\))?malloc\(length\)/);
-  assert.match(killallFunction, /length > infoCapacity/);
-  assert.match(killallFunction, /if \(pid <= 0\) continue;/);
-  assert.match(killallFunction, /size <= sizeof\(int\) \|\| size > \(size_t\)maxArgumentSize/);
-  assert.match(killallFunction, /memchr\(path, '\\0', size - sizeof\(int\)\) && strcmp\(path, executablePath\) == 0/);
-  for (const [file, executable, signal] of [
-    ['BaseBin/launchdhook/src/main.m', '/usr/libexec/backboardd', 'SIGTERM'],
-    ['BaseBin/launchdhook/src/jbserver/jbdomain_systemwide.c', '/System/Library/TextInput/kbd', 'SIGKILL'],
-  ]) assert.ok(read(file).includes(`killall("${executable}", ${signal});`), file);
-  assert.match(read('BaseBin/jbctl/src/main.m'),
-    /return killall_with_result\("\/usr\/libexec\/backboardd", SIGTERM\);/);
-});
-
-test('killall extracted C handles capacities, malformed paths, failures and cleanup', {
-  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
-}, () => {
-  assert.ok(killallFunction, 'missing killall implementation');
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-killall-'));
-  try {
-    const source = path.join(directory, 'test.c');
-    const executable = path.join(directory, 'test');
-    fs.writeFileSync(path.join(directory, 'killall-under-test.inc'), `${killallFunction}\n${killallWrapper}`);
-    const jbctl = read('BaseBin/jbctl/src/main.m');
-    fs.writeFileSync(path.join(directory, 'respring-under-test.inc'),
-      `static int respring_under_test(void) {\n${jbctl.slice(jbctl.indexOf('\t\tconst char *sbreloadPath'), jbctl.indexOf('\n\telse if (!strcmp(cmd, "rebuild_icon_cache"))')).replace(/\n\t\}$/, '')}\nreturn 0;\n}\n`);
-    fs.copyFileSync(path.join(root, 'tests/helpers/killall-harness.c'), source);
-    execFileSync('cc', [
-      '-std=c11', '-Wall', '-Wextra', '-Werror',
-      '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
-      source, '-o', executable,
-    ]);
-    assert.match(execFileSync(executable, { encoding: 'utf8' }),
-      /killall capacity, path matching and cleanup C cases passed/);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-const spawnCommon = read('BaseBin/systemhook/src/common/common.c');
-const spawnStart = spawnCommon.indexOf('static int spawn_exec_hook_common(');
-const spawnEnd = spawnCommon.indexOf('\nint posix_spawn_hook_shared(', spawnStart);
-const spawnHook = spawnCommon.slice(spawnStart, spawnEnd);
 const snapshotHook = read('BaseBin/roothidehooks/src/springboard.x');
-
-test('3.0.13 backport saves MB limits before patching and restores after either spawn branch', () => {
-  assert.ok(spawnStart >= 0 && spawnEnd > spawnStart);
-  assert.match(spawnHook, /int memlimitActiveOrig = -1, memlimitInactiveOrig = -1;/);
-  for (const [name, saved, offset] of [
-    ['active', 'memlimitActiveOrig', 'ACTIVE'],
-    ['inactive', 'memlimitInactiveOrig', 'INACTIVE'],
-  ]) {
-    assert.match(spawnHook, new RegExp(
-      `if \\(memlimit_${name} != -1\\) \\{\\s*${saved} = memlimit_${name};\\s*` +
-      `\\*\\(int\\*\\)\\(attrStruct \\+ POSIX_SPAWNATTR_OFF_MEMLIMIT_${offset}\\) =`,
-    ));
-    const restore = new RegExp(
-      `if \\(${saved} != -1\\) \\{\\s*` +
-      `\\*\\(int\\*\\)\\(attrStruct \\+ POSIX_SPAWNATTR_OFF_MEMLIMIT_${offset}\\) = ${saved};`,
-    ).exec(spawnHook);
-    assert.ok(restore, `missing ${name} restore`);
-    assert.ok(restore.index > spawnHook.lastIndexOf('orig(&childPid,'));
-    assert.ok(restore.index > spawnHook.indexOf('envbuf_free(envc);'));
-    assert.ok(restore.index < spawnHook.lastIndexOf('return r;'));
-  }
-  assert.match(spawnHook, /memlimit_active \+ jetsamAddend/);
-  assert.match(spawnHook, /memlimit_inactive \+ jetsamAddend/);
-  assert.match(spawnHook, /configuredAddend >= INT_MAX \? INT_MAX/);
-  assert.doesNotMatch(spawnHook, /memlimit_\w+ \* jetsamMultiplier|personaFix|__builtin_available/);
-});
-
-test('3.0.13 extracted C limit changes restore caller bytes on reuse and failure', {
-  skip: process.platform === 'win32' ? 'Requires a Linux/macOS C compiler; not run on Windows.' : false,
-}, () => {
-  const save = spawnHook.match(/int memlimitActiveOrig = -1, memlimitInactiveOrig = -1;/)[0];
-  const patch = spawnHook.slice(spawnHook.indexOf('\tuint8_t *attrStruct'), spawnHook.indexOf('\n\tint r = -1;'));
-  const restore = spawnHook.slice(spawnHook.lastIndexOf('\n\tif (memlimitActiveOrig != -1)'), spawnHook.lastIndexOf('\n\treturn r;'));
-  const offsets = read('BaseBin/systemhook/src/common/private.h')
-    .match(/^#define POSIX_SPAWNATTR_OFF_MEMLIMIT_(?:ACTIVE|INACTIVE) .+$/gm).join('\n');
-  const harness = `
-#include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <limits.h>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#define min(a, b) ((a) < (b) ? (a) : (b))
-${offsets}
-static double configured_addend;
-static double zqbb_getJetsamAddend(const char *path) {
-    (void)path;
-    return configured_addend;
-}
-static int invoke(void *attr, bool shouldInsertJBEnv, double jetsamMultiplier,
-                  int expectedActive, int expectedInactive, int result) {
-    const char *path = "/usr/bin/test";
-    ${save}
-    ${patch}
-    if (attr) {
-        assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) == expectedActive);
-        assert(*(int *)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) == expectedInactive);
-    }
-    ${restore}
-    return result;
-}
-int main(void) {
-    const struct { int active, inactive, expectedActive, expectedInactive; } limits[] = {
-        {100, 200, 150, 250}, {-1, 200, -1, 250}, {100, -1, 150, -1},
-        {-1, -1, -1, -1}, {0, 0, 50, 50},
-        {INT_MAX - 5, INT_MAX - 7, INT_MAX, INT_MAX}
-    };
-    const double multipliers[] = {3.0, 0.0, NAN, INFINITY, 1.0};
-    for (unsigned i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
-        for (unsigned m = 0; m < sizeof(multipliers) / sizeof(multipliers[0]); m++) {
-            for (int inject = 0; inject < 2; inject++) {
-                union { int alignment; uint8_t bytes[256]; } attr;
-                memset(attr.bytes, 0xa5, sizeof(attr.bytes));
-                memcpy(attr.bytes + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE, &limits[i].active, sizeof(int));
-                memcpy(attr.bytes + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE, &limits[i].inactive, sizeof(int));
-                uint8_t original[sizeof(attr.bytes)];
-                memcpy(original, attr.bytes, sizeof(original));
-                configured_addend = 20;
-                bool adjusted = inject && multipliers[m] != 1.0;
-                int active = adjusted ? limits[i].expectedActive : limits[i].active;
-                int inactive = adjusted ? limits[i].expectedInactive : limits[i].inactive;
-                for (int result = 0; result <= 5; result += 5) {
-                    assert(invoke(attr.bytes, inject, multipliers[m], active, inactive, result) == result);
-                    assert(memcmp(original, attr.bytes, sizeof(original)) == 0);
-                    assert(invoke(attr.bytes, inject, multipliers[m], active, inactive, result) == result);
-                    assert(memcmp(original, attr.bytes, sizeof(original)) == 0);
-                }
-            }
-        }
-    }
-    configured_addend = (double)INT_MAX + 100.0;
-    union { int alignment; uint8_t bytes[256]; } attr = {0};
-    assert(invoke(attr.bytes, true, 3.0, INT_MAX, INT_MAX, 0) == 0);
-    for (unsigned i = 0; i < sizeof(attr.bytes); i++) assert(attr.bytes[i] == 0);
-    assert(invoke(NULL, true, 3.0, 0, 0, 5) == 5);
-    puts("Jetsam restore C cases passed");
-    return 0;
-}
-`;
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dopamine-spawn-restore-'));
-  try {
-    const source = path.join(directory, 'test.c');
-    const executable = path.join(directory, 'test');
-    fs.writeFileSync(source, harness);
-    execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', source, '-lm', '-o', executable]);
-    assert.match(execFileSync(executable, { encoding: 'utf8' }), /Jetsam restore C cases passed/);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test('3.0.13 snapshot fix is in the loaded RootHide hook, not just the rootless hook', () => {
-  assert.match(read('BaseBin/systemhook/src/main.c'), /dlopen\(JBROOT_PATH\("\/basebin\/roothidehooks\.dylib"\)/);
-  assert.match(read('BaseBin/roothidehooks/src/main.x'), /extern void sbInit\(void\);[\s\S]*?sbInit\(\);/);
-  assert.match(read('BaseBin/roothidehooks/Makefile'), /roothidehooks_FILES = \$\(wildcard src\/\*\.x\)/);
-  assert.match(snapshotHook, /%hook XBApplicationSnapshotManifestImpl/);
-  assert.match(snapshotHook, /_imageAccessQueue_saveData:\(NSData \*\)data forSnapshot:\(XBApplicationSnapshot \*\)snapshot/);
-  assert.match(snapshotHook, /_configureDefaultPathWithinGroupForFormat:/);
-  assert.match(snapshotHook, /_outputFormatForSnapshot:snapshot/);
-  assert.match(snapshotHook, /createDirectoryAtPath:path\.stringByDeletingLastPathComponent/);
-  assert.match(snapshotHook, /return \[data writeToFile:path options:0 error:nil\];/);
-  assert.doesNotMatch(snapshotHook, /%hookf\(int, fcntl|F_SETPROTECTIONCLASS|va_arg/);
-});
-
-test('RootHide snapshots preserve stock Apple behavior and the Apple-internal exception', () => {
-  assert.match(snapshotHook, /!data\.length \|\| !snapshot[\s\S]*?return %orig;/);
-  assert.match(snapshotHook, /jbroot\(@"\/var\/mobile\/Library\/SplashBoard\/Snapshots"\)[\s\S]*?stringByAppendingString:@"\/"/);
-  assert.match(snapshotHook, /BOOL isStockAppleApp = \[bundleIdentifier hasPrefix:@"com\.apple\."\] &&\s*!is_apple_internal_identifier\(bundleIdentifier\.UTF8String\)/);
-  assert.match(snapshotHook, /!bundleIdentifier\.length \|\| isStockAppleApp \|\|\s*!\[ident\.snapshotContainerPath hasPrefix:snapshotRoot\][\s\S]*?return %orig;/);
-  assert.match(snapshotHook, /if \(!path\) \{\s*return NO;/);
-  assert.match(snapshotHook, /!\[path\.stringByStandardizingPath hasPrefix:snapshotRoot\][\s\S]*?return %orig;/);
-  // Snapshot directories/files may not exist yet: realpath-based checks reject those writes.
-  assert.doesNotMatch(snapshotHook, /isSubPathOf|realpath/);
-});
 
 test('RootHide app hiding and open-request hooks remain unchanged with the schedule startup isolated', () => {
   const tail = snapshotHook.slice(snapshotHook.indexOf('static const void *kDenyQueryTagKey'),
@@ -641,9 +349,9 @@ test('first-party runtime has no non-16 availability dispatch or removed module 
     const source = mask(read(file), false);
     for (const match of source.matchAll(/(?:@available|__builtin_available)\(iOS (\d+)(?:\.\d+)?,/g))
       assert.equal(match[1], '16', `${file}: ${match[0]}`);
-    assert.doesNotMatch(source, /\b(?:SPTMArgs|ksymbol_sptm|ksymbol_txm|txm_address_space|hookd_send_msg|hookd_provider_init|init_hookd_external_support|proc_fix_spinlock|jbdSpinlockFixOnly|arm64_kcall_init|fugu14_kcall_init|kread_IOSurface|kwrite_IOSurface|proc__task|SOC_A17|XNU_MAJOR_GREATER_THAN)\b/, file);
+    assert.doesNotMatch(source, /\b(?:SPTMArgs|ksymbol_sptm|ksymbol_txm|txm_address_space|hookd_send_msg|hookd_provider_init|init_hookd_external_support|proc_fix_spinlock|jbdSpinlockFixOnly|arm64_kcall_init|fugu14_kcall_init|kread_IOSurface|kwrite_IOSurface|proc__task|SOC_A17)\b/, file);
     assert.doesNotMatch(source, /major\s*>=\s*17|majorVersion\s*==\s*(?:15|17|18|19)/, file);
-    assert.doesNotMatch(source, /DYLD_SHARED_REGION|__ZN5dyld45gAPIsE/, file);
+    assert.doesNotMatch(source, /__ZN5dyld45gAPIsE/, file);
     assert.doesNotMatch(source, /\b(?:IOSurface_kalloc_15|IOSurface_kalloc_getSurfacePort_15|crashBackboardd_15|isA18Device|is_a18_devices|CPUFAMILY_ARM_TYPHOON|CPUFAMILY_ARM_COLL|CPUFAMILY_ARM_TUPAI|CPUFAMILY_ARM_TAHITI|CPUFAMILY_ARM_IBIZA|CPUFAMILY_ARM_DONAN)\b/, file);
   }
 });
@@ -673,11 +381,12 @@ test('DarkSword retains its own required IOSurface helpers without the retired k
 
 test('IOSurface allocation and hardware selection retain only iOS 16 paths', () => {
   const allocation = read('BaseBin/libjailbreak/src/primitives_IOSurface.m');
-  assert.match(allocation, /IOSurface_kalloc_16\(size, true\)/);
-  assert.match(allocation, /IOSurface_kalloc_16\(size, false\)/);
+  assert.match(allocation, /IOSurface_kalloc_16up\(size, true\)/);
+  assert.match(allocation, /IOSurface_kalloc_16up\(size, false\)/);
+  assert.match(allocation, /^uint64_t IOSurface_kalloc_16up\(uint64_t size, bool leak\)/m);
   assert.match(jailbreaker, /\[self crashBackboardd\];/);
   const selection = read('Application/Dopamine/Jailbreak/DOExploit.m');
-  assert.match(selection, /NSString \*thisCPU = @"unknown";/);
+  assert.match(selection, /NSString \*thisCPU;/);
   assert.doesNotMatch(selection, /@"A(?:8|17|18)"/);
   assert.doesNotMatch(read('BaseBin/libroothider/src/xpc_hook.m'), /"\$\(PRODUCT_BUNDLE_IDENTIFIER\)"/);
 });

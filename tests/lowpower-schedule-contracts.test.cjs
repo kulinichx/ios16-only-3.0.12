@@ -25,8 +25,9 @@ function body(source, signature) {
 }
 
 test('SpringBoard owns the event-driven scheduler, not the app lifecycle', () => {
-  assert.match(read('BaseBin/roothidehooks/src/springboard.x'), /rcLowPowerScheduleStart\(\)/);
-  assert.match(runtime, /jbclient_get_jbroot\(\)/);
+  assert.match(read('BaseBin/roothidehooks/src/springboard.x'), /rcScheduleServicesStartAfterLaunch\(\)/);
+  assert.match(read('BaseBin/roothidehooks/src/springboardservices.m'), /rcLowPowerScheduleStart\(\)/);
+  assert.match(runtime, /rcScheduleRuntimeRoot\(\)/);
   assert.match(runtime, /NSClassFromString\(@"PCPersistentTimer"\)/);
   assert.match(runtime, /setDisableSystemWaking:NO/);
   assert.match(runtime, /setMinimumEarlyFireProportion:0\.0/);
@@ -125,9 +126,44 @@ test('scheduler confirms system changes, rejects stale writes and skips a deferr
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const run = require('node:child_process').execFileSync;
   const bin = path.join(dir, 'test');
-  run('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-framework', 'Foundation', '-I',
-    path.join(root, 'BaseBin/roothidehooks/src'), path.join(root, 'tests/fixtures/lowpower-disable-harness.m'), '-o', bin]);
+  run('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-framework', 'Foundation', '-Wl,-export_dynamic', '-I',
+    path.join(root, 'BaseBin/roothidehooks/src'), path.join(root, 'tests/fixtures/lowpower-disable-harness.m'),
+    path.join(root, 'BaseBin/roothidehooks/src/scheduleruntime.m'), '-o', bin]);
   run(bin, [dir]);
+});
+
+test('injected services use cached systemhook data and defer their single startup until UIKit launch', () => {
+  const startup = read('BaseBin/roothidehooks/src/springboardservices.m');
+  const storage = read('BaseBin/roothidehooks/src/scheduleruntime.m');
+  const battery = read('BaseBin/roothidehooks/src/batteryrecord.m');
+  assert.doesNotMatch(runtime + battery + storage, /jbclient_get_jbroot|jbserver_xpc_send|dispatch_sync/);
+  assert.match(storage, /dlsym\(RTLD_DEFAULT, "JB_RootPath"\)/);
+  assert.match(read('.github/workflows/build.yml'), /grep -Fx '_JB_RootPath' "systemhook-\$architecture-exports\.txt"/);
+  assert.match(startup, /addObserverForName:UIApplicationDidFinishLaunchingNotification/);
+  assert.equal((startup.match(/rcLowPowerScheduleRefresh\(\);/g) || []).length, 1);
+  assert.equal((startup.match(/rcBatteryRecordRefresh\(\);/g) || []).length, 1);
+  assert.ok(startup.indexOf('rcBatteryRecordStart();') < startup.indexOf('rcLowPowerScheduleRefresh();'));
+  assert.doesNotMatch(body(runtime, 'void rcLowPowerScheduleStart(void)'), /\[scheduler refresh\];\s*\}\);\s*\}\);/);
+  assert.doesNotMatch(body(battery, 'void rcBatteryRecordStart(void)'), /dispatch_async/);
+  assert.match(body(runtime, '- (void)publishStatus:'), /rcSchedulePublishDictionary/);
+  assert.match(body(battery, '- (void)publish\n'), /rcSchedulePublishDictionary/);
+  assert.match(storage, /CFPropertyListCreateDeepCopy/);
+  assert.ok(storage.indexOf('rcLowPowerWriteDictionary(snapshot') < storage.indexOf('notify_post('));
+});
+
+test('production startup waits for launch and stalled status writes keep the main run loop responsive', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; exercises production lifecycle and asynchronous storage.' : false,
+}, t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'schedule-startup-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = require('node:child_process').execFileSync;
+  const bin = path.join(dir, 'test');
+  run('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-Wall', '-Wextra', '-Werror',
+    '-framework', 'Foundation', '-Wl,-export_dynamic', '-I', path.join(root, 'BaseBin/roothidehooks/src'),
+    path.join(root, 'tests/fixtures/schedule-startup-harness.m'),
+    path.join(root, 'BaseBin/roothidehooks/src/scheduleruntime.m'),
+    path.join(root, 'BaseBin/roothidehooks/src/springboardservices.m'), '-o', bin]);
+  run(bin, [dir], { timeout: 20000 });
 });
 
 test('low-power schedule uses the same full-screen navigation frame as settings', () => {

@@ -101,6 +101,21 @@ test('authorization actions use matching numbered labels and brief copied-proof 
     licenseUI.indexOf('DOLocalizedString(@"Supporter_Device_Proof_Ready")'));
 });
 
+test('backup only copies a verified bound pair and can be restored by the existing importer', () => {
+  const backup = body('DORHSupporterBoundActivationBackupText');
+  const restore = body('DORHSupporterStoreActivationText');
+  assert.ok(backup.indexOf('DORHSupporterLicenseTombstoned()') < backup.indexOf('DORHSupporterVerifyBoundLicense('));
+  assert.match(backup, /DORHSupporterPersistentString\(DORHSupporterPersistentLicenseCodeKey\)/);
+  assert.match(backup, /DORHSupporterPersistentString\(DORHSupporterBindingCertificateKey\)/);
+  assert.match(backup, /!DORHSupporterVerifyBoundLicense\(license, certificate, NULL\)\) return nil/);
+  assert.match(backup, /return \[NSString stringWithFormat:@"%@\\n%@", license, certificate\]/);
+  assert.doesNotMatch(backup, /DORHSupporterWritePersistentState|DORHSupporterSetPersistentString/);
+  assert.match(restore, /componentsSeparatedByCharactersInSet:NSCharacterSet\.whitespaceAndNewlineCharacterSet/);
+  assert.match(restore, /tokens\.count == 2 && \[tokens\[0\] hasPrefix:@"RH1\."\] && \[tokens\[1\] hasPrefix:@"RHB1\."\]/);
+  assert.match(licenseUI, /if \(\[info\[@"binding_status"\] isEqualToString:@"bound"\]\)\s*\{\s*\[alert addAction:[^\n]*Supporter_Backup_Bound_License/);
+  assert.match(licenseUI, /setItems:@\[@\{@"public\.utf8-plain-text": backup\}\]\s*options:@\{UIPasteboardOptionLocalOnly: @YES\}/);
+});
+
 test('brief user guides preserve the app step numbers when existing users skip device-code submission', () => {
   const guides = ['03-发给用户-授权与设备绑定步骤.txt', '04-发给旧用户-补发授权步骤.txt']
     .map(name => fs.readFileSync(path.join(root, '授权流程说明', name), 'utf8'));

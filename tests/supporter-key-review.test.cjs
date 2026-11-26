@@ -70,6 +70,16 @@ test('proof review independently verifies canonical challenge, signature, public
   assert.throws(() => review.verifyProof(proof(), challenge + ' '), /noncanonical-challenge/);
 });
 
+test('v2 device model and OS are signed and strictly validated', () => {
+  const metadata = { version: 2, device_model: 'iPhone14,2', os_version: '16.5.1' };
+  const wire = proof(hw, 1, metadata);
+  assert.equal(review.verifyProof(wire, challenge).proof.device_model, 'iPhone14,2');
+  assert.throws(() => review.verifyProof(wire.replace('16.5.1', '16.6.1'), challenge), /invalid-device-proof-signature/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, os_version: '16.05' }), challenge), /invalid-proof-device-info/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, device_model: 'invalid/model' }), challenge), /invalid-proof-device-info/);
+  assert.throws(() => review.verifyProof(proof(hw, 1, { ...metadata, version: 1 }), challenge), /noncanonical-proof/);
+});
+
 test('key mismatch is durable across reload and blocks single or all-user issuance before opening a private key', () => fixture(({ directory, files }) => {
   const before = fs.readFileSync(files['supporter-device-proof-bindings.json']);
   const initial = cli(directory, 'plan');
@@ -131,6 +141,18 @@ test('explicit rekey preserves RH1, other users, hardware and first verification
   const rows = review.applyReviews(binding.plan(binding.readArray(files['supporters.json']), updated, issuer.publicKey), directory).rows;
   const [old, certificate] = binding.issue(rows[0], issuer.privateKey, issuer.publicKey, now).trim().split('\n');
   assert.equal(binding.verifyCertificate(certificate, old, issuer.publicKey).key_fingerprint, binding.sha256(points[1]));
+}));
+
+test('rekey returns device information from the signed proof for confirmation and persistence', () => fixture(({ directory }) => {
+  review.recordProof(directory, proof(hw, 1, { version: 2, device_model: 'iPad13,4', os_version: '16.0.2' }), issuer.publicKey, now);
+  const plan = review.migrationPlan(directory, '0029', issuer.publicKey, now);
+  assert.equal(plan.deviceModel, 'iPad13,4');
+  assert.equal(plan.osVersion, '16.0.2');
+  const result = review.migrate(directory, '0029', plan.reviewSha256, '0029', issuer.publicKey, now);
+  assert.equal(result.deviceCode, device);
+  assert.equal(result.deviceModel, plan.deviceModel);
+  assert.equal(result.osVersion, plan.osVersion);
+  assert.equal(result.signingPerformed, false);
 }));
 
 test('different hardware is recorded but never eligible for the same-device migration', () => fixture(({ directory }) => {

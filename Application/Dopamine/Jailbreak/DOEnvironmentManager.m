@@ -362,10 +362,6 @@ extern char **environ;
         needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
     }
 
-    int waitPipe[2] = {-1, -1};
-    if (!needsLegacySolution && pipe(waitPipe) != 0)
-        return errno;
-
     char **argBuf = malloc((args.count + 4) * sizeof(char *));
     argBuf[0] = strdup(JBROOT_PATH("/basebin/jbctl"));
     int i = 1;
@@ -384,7 +380,10 @@ extern char **environ;
     posix_spawnattr_t attr = NULL;
     posix_spawnattr_init(&attr);
 
+    int waitPipe[2];
+
     if (!needsLegacySolution) {
+        pipe(waitPipe);
         posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
     }
     else {
@@ -397,13 +396,13 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
-            if (needsLegacySolution && r == 0 && pid > 0) {
+            if (needsLegacySolution) {
                 // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
                 // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
                 kill(pid, SIGCONT);
             }
         }];
-        // --waitfor resumes jbctl after leaving the privileged scope.
+        // We *NEED* to leave this block on iOS 17+ to avoid a panic, --waitfor ensures this always happens
     }];
 
     posix_spawnattr_destroy(&attr);
@@ -424,8 +423,6 @@ extern char **environ;
         close(waitPipe[1]);
     }
 
-    if (r != 0 || pid <= 0)
-        return r != 0 ? r : -1;
     return cmd_wait_for_exit(pid);
 }
 

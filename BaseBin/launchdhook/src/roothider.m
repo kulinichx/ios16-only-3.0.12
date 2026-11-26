@@ -82,7 +82,7 @@ void roothide_launchd_postinit(bool firstLoad)
 		HOOK_DYLIB_PATH = "";
 	}
 	else
-	{		
+	{
 		NSString* systemhookFilePath = [NSString stringWithFormat:@"%@/systemhook-%016llX.dylib", JBROOT_PATH(@"/basebin"), jbinfo(jbrand)];
 
 		if([NSFileManager.defaultManager fileExistsAtPath:JBROOT_PATH(@"/basebin/systemhook.dylib")])
@@ -90,7 +90,7 @@ void roothide_launchd_postinit(bool firstLoad)
 			[NSFileManager.defaultManager removeItemAtPath:systemhookFilePath error:nil];
 			assert([NSFileManager.defaultManager moveItemAtPath:JBROOT_PATH(@"/basebin/systemhook.dylib") toPath:systemhookFilePath error:nil]);
 		}
-		
+
 		assert(unsandbox("/usr/lib", systemhookFilePath.fileSystemRepresentation) == 0);
 
 		//new "real path"
@@ -112,17 +112,17 @@ void roothide_launchd_postinit(bool firstLoad)
 			return;
 		}
 	}
-	
+
 	roothider_launchd_postinit(firstLoad);
 
 	id jbserver_msg_handler = ^(xpc_object_t xmsg) {
 		jbserver_received_xpc_message(&gGlobalServer, xmsg);
 		// xpc_release(xdict);
 	};
-	
+
 	// load jailbreakd after applying hooks
 	assert(initJailbreakd(firstLoad, jbserver_msg_handler) == 0);
-	
+
 	gJBServerAlternativePort = startAlternativeJBServer(jbserver_msg_handler);
 }
 
@@ -153,11 +153,12 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 		}
 	}
 
-	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const, 
+	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const,
 	// so we need to disable dyld-in-cache here. (or we can use VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+		envbuf_setenv(&envc, "DYLD_SHARED_REGION", "use");
 	}
 
 	pid_t pidval = 0;
@@ -167,7 +168,7 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 	pid_t pid = ret == 0 ? *pidp : 0;
 
 	envbuf_free(envc);
-	
+
 	posix_spawnattr_setflags(attrp, flags); // maybe caller will use it again?
 
 	if (ret == 0 && pid > 0) {
@@ -220,7 +221,7 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 
 	if(path && isRemovableBundlePath(path) && string_has_suffix(path, "/Dopamine"))
 	{
-		/* if the jailbreak activation is interrupted for some reason, 
+		/* if the jailbreak activation is interrupted for some reason,
 			we prevent the app from relaunching to prevent the system from being in an unknown state */
 		if(launchdhookFirstLoad) {
 #ifdef ENABLE_LOGS
@@ -235,7 +236,7 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 			return EPERM;
 		}
 	}
-	
+
 	if(string_has_suffix(path, "/basebin/jailbreakd")) {
 		return __posix_spawn_orig_wrapper(pidp, path, desc, argv, envp);
 	}
@@ -254,18 +255,18 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 		{
 			char **envc = envbuf_mutcopy((const char **)envp);
 
-			//choicy may set these 
+			//choicy may set these
 			envbuf_unsetenv(&envc, "_SafeMode");
 			envbuf_unsetenv(&envc, "_MSSafeMode");
-	
+
 			/* According to xnu, the new thread in new process will not run in userland until after copyout pid
 			https://github.com/apple-oss-distributions/xnu/blob/8d741a5de7ff4191bf97d57b9f54c2f6d4a15585/bsd/kern/kern_exec.c#L4321
 			https://github.com/apple-oss-distributions/xnu/blob/8d741a5de7ff4191bf97d57b9f54c2f6d4a15585/bsd/kern/kern_exec.c#L4882
 			https://github.com/apple-oss-distributions/xnu/blob/8d741a5de7ff4191bf97d57b9f54c2f6d4a15585/bsd/kern/kern_exec.c#L4933
 			*/
-	
+
 			/* and posix_spawn->kernel->amfid->launchd may cause xpc dead loop so we can't use lock-spawn-unlock here */
-	
+
 			volatile pid_t* blacklistedPidp = allocBlacklistProcessId();
 			if (!blacklistedPidp) {
 				envbuf_free(envc);
@@ -274,7 +275,7 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 			}
 			ret = __posix_spawn_orig_wrapper(blacklistedPidp, path, desc, argv, envc);
 			int spawnError = errno;
-	
+
 			pid_t pid = *blacklistedPidp;
 			if(pidp) *pidp = *blacklistedPidp;
 
@@ -282,7 +283,7 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 			blacklistedPidp = NULL;
 
 			envbuf_free(envc);
-				
+
 			if(ret==0 && pid>0) {
 				short flags = 0;
 				posix_spawnattr_getflags(attrp, &flags);
@@ -292,15 +293,15 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 			}
 			errno = spawnError;
 		}
-	
+
 		return ret;
 	}
 
-	if(launchdhookFirstLoad) 
+	if(launchdhookFirstLoad)
 	{
 		//we should not enable system-wide injection until the jailbreak is finalized (userspace reboot).
 		return __posix_spawn_orig_wrapper(pidp, path, desc, argv, envp);
 	}
-	
+
 	return __posix_spawn_hook(pidp, path, desc, argv, envp);
 }

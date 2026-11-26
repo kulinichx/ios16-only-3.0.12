@@ -56,6 +56,15 @@ Initialize-RHBindingIntegration @{
     VerifyProofButton = $proof; RH1IssueButton = $issueRH1
 }
 $state = $script:RHIntegratedBinding
+$deviceInput = New-Object Windows.Forms.TextBox
+$topStatus = New-Object Windows.Forms.Label
+$form.Controls.Add($deviceInput)
+$form.Controls.Add($topStatus)
+Initialize-RHIntegratedStatusFeedback $deviceInput $topStatus ([Drawing.Color]::Green) {
+    param($Message, $Kind)
+    $script:LastDeviceMessage = $Message
+    $script:LastDeviceKind = $Kind
+}
 function Read-Commands { return @([IO.File]::ReadAllLines((Join-Path $Directory 'commands.jsonl')) | ForEach-Object { ,($_ | ConvertFrom-Json) }) }
 function Count-Issues { return @((Read-Commands) | Where-Object { $_[0] -eq 'issue' -or $_[0] -eq 'issue-all' }).Count }
 $form.Show()
@@ -85,6 +94,8 @@ try {
         } finally { $bitmap.Dispose(); $review.Hide() }
     } finally { $review.Dispose() }
     # Exercise cancel/confirm routes without dialogs or touching the real clipboard.
+    $deviceInput.Text = $preview.records[0].deviceCode
+    $script:LastDeviceMessage = '待复核'
     function Confirm-RHIntegratedBindingReview($Records) { return $false }
     Start-RHIntegratedBindingIssue
     Assert-Test ((Count-Issues) -eq 0) 'Review cancellation must not sign.'
@@ -92,6 +103,7 @@ try {
     function Select-RHIntegratedBindingOutput($Id, $Batch) { return '' }
     Start-RHIntegratedBindingIssue
     Assert-Test ((Count-Issues) -eq 0) 'Output cancellation must not sign.'
+    Assert-Test ($script:LastDeviceMessage -eq '待复核') 'Cancellation showed success.'
     function Show-RHIntegratedBindingMessage($Message, $Failed = $false) { $script:LastMessage = $Message; $script:LastFailed = $Failed }
     function Select-RHIntegratedBindingOutput($Id, $Batch) { if ($Batch) { return $Directory }; return (Join-Path $Directory 'bound-test.txt') }
     function Set-RHIntegratedBindingClipboard($Text) { throw 'Test clipboard unavailable' }
@@ -99,9 +111,14 @@ try {
     Assert-Test ((Count-Issues) -eq 1) 'Single signing missing.'
     Assert-Test (-not $script:LastFailed -and $script:LastMessage -match '请勿重复补发') 'Clipboard failure must not report signing failure.'
     Assert-Test ($output.Text -match 'RHB1.TEST-ONLY') 'Combined activation text missing.'
+    Assert-Test ($script:LastDeviceMessage -eq '✓ 绑定授权已生成 · 请在手机上激活' -and $script:LastDeviceKind -eq 'Success') 'Issuance retained old mismatch warning.'
+    Assert-Test ($topStatus.Text -eq '● 绑定授权已生成') 'Issuance retained old header.'
+    $deviceInput.Text = $preview.records[1].deviceCode
+    $script:LastDeviceMessage = '无关用户的状态'
     Start-RHIntegratedBindingIssue $true
     Assert-Test ((Count-Issues) -eq 2) 'Batch signing missing.'
     Assert-Test (($script:ReviewedIds -join ',') -eq '0027,0029') 'Batch must review all eligible users, excluding legacy users.'
+    Assert-Test ($script:LastDeviceMessage -eq '无关用户的状态') 'Batch changed an unrelated visible user.'
     $proof.PerformClick()
     Assert-Test ($script:ProofEvents -eq 1 -and (Count-Issues) -eq 2) 'Original proof handler must remain and must not auto-sign.'
     $form.ClientSize = New-Object Drawing.Size(790, 930)
@@ -125,6 +142,7 @@ try {
     Assert-Test ($grid.Rows[0].Cells['RHBindingState'].Value -eq '预检不可用') 'Failed preview reused old binding state.'
     [IO.File]::Delete((Join-Path $Directory 'plan-failure'))
     $null = Verify-RHP1Proof 'SYNTHETIC-PROOF-STDIN' 'NORMAL'
+    Assert-Test (-not $state.Single.Enabled -and $state.Rekey.Enabled) 'Verified device must be selected and refreshed before the proof popup.'
     Refresh-RHIntegratedBindingPlan
     $grid.ClearSelection(); $grid.Rows[2].Selected = $true
     Assert-Test (-not $state.Single.Enabled -and $state.Rekey.Enabled) 'Key mismatch did not disable supplement and enable explicit review.'
@@ -151,10 +169,13 @@ try {
     Start-RHIntegratedKeyMigration
     Assert-Test (@((Read-Commands) | Where-Object { $_[0] -eq 'rekey' }).Count -eq 0) 'Wrong ID migrated a key.'
     function Confirm-RHIntegratedKeyReview($Plan) { return '0029' }
+    $deviceInput.Text = $preview.records[2].deviceCode
+    $script:LastDeviceMessage = '硬件相同，密钥不同'
     Start-RHIntegratedKeyMigration
     Assert-Test (@((Read-Commands) | Where-Object { $_[0] -eq 'rekey' }).Count -eq 1) 'Confirmed key migration missing.'
     Assert-Test ($state.Single.Enabled -and -not $state.Rekey.Enabled) 'Migrated user did not return to supplement review.'
     Assert-Test ((Count-Issues) -eq 3) 'Key migration must not automatically sign.'
+    Assert-Test ($script:LastDeviceMessage -eq '✓ 同设备密钥已更新 · 请补发绑定授权') 'Migration retained obsolete key mismatch warning.'
     [IO.File]::WriteAllText((Join-Path $Directory 'review-failure'), 'TEST ONLY')
     try { $null = Verify-RHP1Proof 'SYNTHETIC-PROOF-STDIN' 'NORMAL'; throw 'Expected receipt failure' }
     catch { Assert-Test ($_.Exception.Message -match '复核记录保存失败') 'Receipt failure was not explained.' }

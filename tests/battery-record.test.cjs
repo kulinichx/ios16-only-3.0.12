@@ -9,7 +9,7 @@ const header = read('BaseBin/roothidehooks/src/RCBatteryRecord.h');
 const controller = read('Application/Dopamine/UI/Settings/DOBatteryRecordController.m');
 
 test('battery recorder is a separate SpringBoard endpoint sampler, never a power-mode setter', () => {
-  assert.match(read('BaseBin/roothidehooks/src/springboard.x'), /rcBatteryRecordStart\(\)/);
+  assert.match(read('BaseBin/roothidehooks/src/springboardservices.m'), /rcBatteryRecordStart\(\)/);
   assert.match(runtime, /batteryMonitoringEnabled = wasMonitoring/);
   assert.match(runtime, /mach_continuous_time\(\)/);
   assert.match(runtime, /thermalState/);
@@ -67,7 +67,8 @@ test('production recorder handles one-shot, overnight, repeat, missing, interrup
     const file = path.join(temp, 'test.m'); const binary = path.join(temp, 'test');
     fs.writeFileSync(file, source);
     execFileSync('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-Wall', '-Wextra', '-Wno-unused-parameter',
-      '-Werror', '-framework', 'Foundation', '-I', path.join(root, 'BaseBin/roothidehooks/src'), file, '-o', binary], { stdio: 'pipe' });
+      '-Werror', '-framework', 'Foundation', '-Wl,-export_dynamic', '-I', path.join(root, 'BaseBin/roothidehooks/src'),
+      file, path.join(root, 'BaseBin/roothidehooks/src/scheduleruntime.m'), '-o', binary], { stdio: 'pipe' });
     execFileSync(binary, [temp], { stdio: 'pipe' });
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
