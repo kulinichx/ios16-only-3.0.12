@@ -289,6 +289,16 @@
       "sourceCommit": "26d95449d25d176a31ae7bc475fd85ee3403498c",
       "scope": "Adapt only the snapshot-save hook to RootHide paths and existing Apple-internal exceptions; preserve app hooks and schedule startup",
       "authorization": "2026-11-26: user requested continuing the remaining work after the first-batch build without downloading artifacts"
+    },
+    {
+      "id": "zqbb-killall-bounds",
+      "file": "BaseBin/libjailbreak/src/util.c",
+      "baselineSha256": "8fdf8ce92ae54d06392ee811f21f3683dbea2001716f7bcf2ec1f6c48b728778",
+      "sha256": "7eb2c38870db05fbceae1cdc8f6947845ad9add3b42321c6cecd716f42b8afaa",
+      "sourceRepository": "w2599/Dopamine",
+      "sourceCommit": "04c18e40ef2a04f666a705d9c0361515f1afc318",
+      "scope": "Only the existing killall function: separate process-list and argument capacities, bounded path matching and allocation cleanup; preserve callers and signals",
+      "authorization": "2026-11-26: user explicitly approved porting the useful ZQBB killall repair after its existing use and scope were explained"
     }
   ]
 }
