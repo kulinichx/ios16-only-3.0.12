@@ -142,6 +142,12 @@ static int mock_kill(pid_t pid, int signal) {
 #undef kill
 
 int main(void) {
+#ifdef BASELINE_CAPACITY_CONTROL
+    reset();
+    add(101, "/usr/libexec/backboardd", NORMAL);
+    killall("/usr/libexec/backboardd", 15);
+    assert(!"old implementation must fail the capacity check before returning");
+#else
     reset();
     add(0, NULL, NORMAL); add(-1, NULL, NORMAL);
     add(101, "/usr/libexec/backboardd", NORMAL);
@@ -210,5 +216,6 @@ int main(void) {
         assert_clean();
     }
     printf("PASS approved killall: %u scenarios; capacity, exact paths, signal forwarding, malformed replies and cleanup\n", scenarios);
+#endif
     return 0;
 }

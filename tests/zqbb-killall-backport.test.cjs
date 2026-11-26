@@ -41,7 +41,8 @@ test('production killall passes native boundary tests and the old function fails
     function compile(name, body) {
       const file = path.join(directory, `${name}.c`);
       const binary = path.join(directory, name);
-      fs.writeFileSync(file, fixture.replace('/* PRODUCTION_KILLALL */', () => body));
+      fs.writeFileSync(file, (name === 'baseline' ? '#define BASELINE_CAPACITY_CONTROL 1\n' : '') +
+        fixture.replace('/* PRODUCTION_KILLALL */', () => body));
       execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
         '-fno-omit-frame-pointer', file, '-o', binary], { stdio: 'pipe' });
       return binary;
