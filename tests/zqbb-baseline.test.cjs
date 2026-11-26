@@ -40,11 +40,17 @@ test('the app keeps ZQBB jbctl launch behavior alongside our feature methods', (
   }
 });
 
-test('the only addition to ZQBB SpringBoard hooks starts our power and recording services', () => {
+test('ZQBB SpringBoard app hooks stay unchanged outside the approved snapshot and service additions', () => {
   const file = 'BaseBin/roothidehooks/src/springboard.x';
-  const baseline = read(file).replace('#import "RCScheduleRuntime.h"\n', '')
+  let baseline = read(file).replace('#import "RCScheduleRuntime.h"\n', '')
     .replace('\n\trcScheduleServicesStartAfterLaunch();', '');
+  if ((manifest.approvedBackports || []).some(entry => entry.id === 'dopamine3013-snapshot')) {
+    const marker = 'static const void *kDenyQueryTagKey';
+    assert.ok(baseline.includes(marker));
+    baseline = read('tests/fixtures/zqbb-springboard-prefix.txt') + baseline.slice(baseline.indexOf(marker));
+  }
   assert.equal(digest(baseline), manifest.upstreamSections.springboard);
+  assert.ok(read(file).includes('rcScheduleServicesStartAfterLaunch();'));
   const services = read('BaseBin/roothidehooks/src/springboardservices.m');
   for (const symbol of ['rcLowPowerScheduleStart();', 'rcBatteryRecordStart();']) {
     assert.ok(services.includes(symbol), symbol);

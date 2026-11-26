@@ -279,6 +279,16 @@
       "sourceCommit": "f3cd2b82af8d5fa3baea193384ac61b50d2e44bb",
       "scope": "Save and restore the two modified memory-limit fields only; retain the ZQBB MB-additive policy",
       "authorization": "2026-11-26: user accepted the first-batch recommendation after the 3.0.13 assessment"
+    },
+    {
+      "id": "dopamine3013-snapshot",
+      "file": "BaseBin/roothidehooks/src/springboard.x",
+      "baselineSha256": "d545e477b26f404bfa09212cceec1c5f7d58108dd0c829884b42f2a665ecea29",
+      "sha256": "3484229379fb1c0333c4d6f3a4824627fa71737787073286ae3a7df4a937cc74",
+      "sourceRepository": "opa334/Dopamine",
+      "sourceCommit": "26d95449d25d176a31ae7bc475fd85ee3403498c",
+      "scope": "Adapt only the snapshot-save hook to RootHide paths and existing Apple-internal exceptions; preserve app hooks and schedule startup",
+      "authorization": "2026-11-26: user requested continuing the remaining work after the first-batch build without downloading artifacts"
     }
   ]
 }

@@ -143,3 +143,46 @@ test('production spawn function passes temporary child limits and restores calle
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+const springboard = read('BaseBin/roothidehooks/src/springboard.x');
+function snapshotMethod(signature) {
+  const begin = springboard.indexOf(signature);
+  const finish = springboard.indexOf('\n%end', begin);
+  assert.ok(begin >= 0 && finish > begin);
+  return springboard.slice(begin, finish);
+}
+
+test('approved snapshot backport targets the loaded RootHide hook and preserves service wiring', () => {
+  assert.doesNotMatch(springboard, /%hookf\(int, fcntl/);
+  assert.match(springboard, /%hook XBApplicationSnapshotManifestImpl/);
+  assert.match(springboard, /path\.stringByStandardizingPath hasPrefix:snapshotRoot/);
+  assert.match(springboard, /stringByAppendingString:@"\/"/);
+  assert.match(springboard, /is_apple_internal_identifier\(bundleIdentifier\.UTF8String\)/);
+  assert.match(springboard, /rcScheduleServicesStartAfterLaunch\(\);/);
+  assert.match(main, /dlopen\(JBROOT_PATH\("\/basebin\/roothidehooks\.dylib"\), RTLD_NOW\)/);
+});
+
+test('production snapshot methods preserve routing and write only within the test RootHide directory', {
+  skip: process.platform !== 'darwin' ? 'Requires macOS Foundation; private SpringBoard objects are test doubles.' : false,
+}, t => {
+  const fixture = read('tests/fixtures/approved-snapshot-harness.m')
+    .replace('/* PRODUCTION_CONTAINER_PATH */', () =>
+      snapshotMethod('-(NSString *)snapshotContainerPath').replaceAll('%orig', 'self.originalPath'))
+    .replace('/* PRODUCTION_SAVE */', () =>
+      snapshotMethod('- (BOOL)_imageAccessQueue_saveData:')
+        .replaceAll('%orig', '[self originalSaveData:data forSnapshot:snapshot]'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-snapshot-'));
+  try {
+    const source = path.join(directory, 'test.m');
+    const binary = path.join(directory, 'test');
+    fs.writeFileSync(source, fixture);
+    execFileSync('xcrun', ['clang', '-fobjc-arc', '-Wall', '-Wextra', '-Werror',
+      '-Wno-incompatible-pointer-types', '-fsanitize=address,undefined',
+      '-framework', 'Foundation', source, '-o', binary]);
+    const output = execFileSync(binary, { encoding: 'utf8' });
+    assert.match(output, /PASS approved snapshot routing/);
+    t.diagnostic(output.trim());
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
